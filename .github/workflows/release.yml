@@ -1,0 +1,88 @@
+# Release pipeline, triggered by pushing a v* tag (e.g. v0.1.0).
+#
+# No API tokens anywhere: PyPI uses Trusted Publishing (OIDC).
+# One-time setup by the repo owner:
+#   1. pypi.org -> account -> Publishing -> add a (pending) trusted publisher:
+#      project "tokenbill", owner "sedai77",
+#      repository "tokenbill-llm-agent-cost-profiler",
+#      workflow "release.yml", environment "pypi".
+#   2. GitHub repo Settings -> Environments -> create "pypi".
+# Then: bump __version__ in tokenbill/__init__.py, move the CHANGELOG.md
+# Unreleased entries into a dated section, and push the matching tag.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    name: build (wheel + sdist)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: uv build
+      - name: Check metadata
+        run: uvx twine check dist/*
+      - name: Tag must match the package version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [ ! -f "dist/tokenbill-${version}.tar.gz" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match the built version:" >&2
+            ls dist/ >&2
+            echo "bump __version__ in tokenbill/__init__.py before tagging" >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  pypi:
+    name: publish to PyPI (trusted publishing)
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # OIDC is the whole credential — no token, no secret
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    name: GitHub release
+    needs: [build, pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Extract this version's notes from CHANGELOG.md
+        run: |
+          awk -v heading="## [${GITHUB_REF_NAME#v}]" '
+            index($0, heading) == 1 { found = 1; next }
+            found && (/^## / || /^\[.*\]: /) { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "no CHANGELOG.md section for ${GITHUB_REF_NAME#v}" >&2
+            echo "See CHANGELOG.md." > notes.md
+          fi
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "Token Bill ${GITHUB_REF_NAME#v}" \
+            --notes-file notes.md

@@ -1,0 +1,58 @@
+name: Bug report
+description: Something is wrong, or a number in the report looks off
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Token Bill version
+      description: Output of `tokenbill --version`.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Python version and OS
+      placeholder: "Python 3.12.4, macOS 15"
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Exact command
+      description: The full command line you ran, including flags and seed.
+      render: shell
+      placeholder: tokenbill analyze trace.jsonl -o report.html
+    validations:
+      required: true
+  - type: dropdown
+    id: trace-source
+    attributes:
+      label: Trace source
+      options:
+        - Bundled demo scenario (synthetic)
+        - Recorded with tokenbill.instrument
+        - Converted or hand-written JSONL
+    validations:
+      required: true
+  - type: textarea
+    id: trace-line
+    attributes:
+      label: One redacted trace line (if not the bundled demo)
+      description: >
+        One representative line of your trace JSONL. IMPORTANT — trace lines
+        contain your prompts, tool definitions, and conversation history:
+        redact all text content before pasting. Field names, shapes, and the
+        `usage` numbers are what matter for debugging; keep those intact.
+      render: json
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened vs. what you expected
+      description: >
+        Include the full traceback or the wrong output verbatim. If a dollar
+        or token number looks wrong, say which number and what you expected
+        it to be (and why).
+    validations:
+      required: true
