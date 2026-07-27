@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose a new breaker kind, scenario, adapter, or capability
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What waste are you trying to find, or what workflow are you unblocking?
+      description: >
+        The underlying need, not the mechanism — e.g. "my agent alternates
+        between two models and I can't see which one burns the cache", not
+        just "add flag X".
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: >
+        Sketch the interface (CLI flag, function signature, report section).
+        For a new breaker kind: give the detection rule precisely enough to
+        unit-test, plus the one-sentence fix it would attach. For a new
+        simulator scenario: state its assumptions the way DESIGN.md's
+        assumption table does. Say how a planted-waste demo scenario could
+        validate it end to end.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Project constraints
+      options:
+        - label: This can be built with the Python standard library only (no new runtime dependencies; the recorder keeps duck-typing provider SDKs, never importing them).
+          required: true
+        - label: Every dollar figure this produces is either derived from real billed usage (exact) or clearly labeled approximate — never an approximation presented as billed.
+          required: true

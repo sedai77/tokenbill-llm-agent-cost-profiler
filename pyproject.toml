@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tokenbill"
+dynamic = ["version"]
+description = "Why is your agent bill so high? Profile LLM agent traces: token waterfalls, re-sent-prefix waste, prompt-cache simulation, and cache-breaker detection with concrete fixes. Pure stdlib; the demo needs no API keys."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "Token Bill contributors" }]
+keywords = [
+  "llm",
+  "tokens",
+  "cost",
+  "prompt-caching",
+  "cache",
+  "profiler",
+  "agent",
+  "agents",
+  "observability",
+  "finops",
+  "anthropic",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Debuggers",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.urls]
+Homepage = "https://github.com/sedai77/tokenbill-llm-agent-cost-profiler"
+Documentation = "https://github.com/sedai77/tokenbill-llm-agent-cost-profiler#readme"
+Changelog = "https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/blob/main/CHANGELOG.md"
+Issues = "https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/issues"
+
+[project.scripts]
+tokenbill = "tokenbill.cli:main"
+
+[tool.hatch.version]
+path = "tokenbill/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tokenbill"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
