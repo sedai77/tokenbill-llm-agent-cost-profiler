@@ -11,7 +11,12 @@ never loses earlier calls.
 Async clients are supported: when ``messages.create`` is a coroutine function
 (``AsyncAnthropic``), the wrapper awaits the response before recording, and
 the stream wrapper implements the async context-manager protocol (awaiting
-``get_final_message()``).
+``get_final_message()``). Detection looks through decorator layers
+(``functools.wraps`` sets ``__wrapped__``; the real SDK wraps ``create`` in a
+plain sync decorator, so ``iscoroutinefunction`` on the surface function says
+sync), and as a final net the sync wrapper checks the *returned* object: an
+awaitable response is awaited by an async shim that records afterwards, so an
+async ``create`` behind any decorator stack is still recorded.
 
 Streaming is supported by wrapping the ``messages.stream`` context manager
 and reading ``get_final_message()`` on clean exit. Raw streaming via
@@ -76,6 +81,23 @@ def _count_cache_control(value: Any) -> int:
     return 0
 
 
+def _is_async_create(create: Any) -> bool:
+    """Is *create* a coroutine function, possibly behind decorator layers?
+
+    The real SDK wraps ``AsyncMessages.create`` in a plain sync decorator
+    (``@required_args`` uses ``functools.wraps``), so
+    ``inspect.iscoroutinefunction`` on the surface callable answers False for
+    an async client. Unwrapping via ``__wrapped__`` recovers the truth; a
+    malformed ``__wrapped__`` chain (cycle) falls back to the surface answer.
+    """
+    if inspect.iscoroutinefunction(create):
+        return True
+    try:
+        return inspect.iscoroutinefunction(inspect.unwrap(create))
+    except ValueError:  # cycle in the __wrapped__ chain
+        return False
+
+
 def _usage_dict(response: Any) -> dict[str, int]:
     """Billed usage from a response object; missing/None fields become 0."""
     usage = getattr(response, "usage", None)
@@ -122,7 +144,7 @@ class Recorder:
                 "client (anything with client.messages.create)."
             )
 
-        if inspect.iscoroutinefunction(create):
+        if _is_async_create(create):
             # AsyncAnthropic: the response must be awaited before its usage
             # exists; recording the un-awaited coroutine would write garbage.
             async def async_create_wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -139,6 +161,13 @@ class Recorder:
                 request = self._capture_request(kwargs)
                 ts = time.time()
                 response = create(*args, **kwargs)
+                if inspect.isawaitable(response):
+                    # An async `create` hiding behind a decorator stack that
+                    # _is_async_create could not see through: the coroutine has
+                    # no usage yet, so hand back an awaitable shim that awaits
+                    # it, records the real response, and returns it — instead
+                    # of silently dropping the call from the trace.
+                    return self._await_and_record(request, ts, response)
                 self._append_if_usage(request, ts, response)
                 return response
 
@@ -155,6 +184,12 @@ class Recorder:
             messages.stream = stream_wrapper
 
         return client
+
+    async def _await_and_record(self, request: dict[str, Any], ts: float, awaitable: Any) -> Any:
+        """Await a response produced by a sync-looking async ``create``; record it."""
+        response = await awaitable
+        self._append_if_usage(request, ts, response)
+        return response
 
     def _capture_request(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         """Snapshot the request payload at call time (kwargs, as the SDK is called)."""
@@ -180,10 +215,11 @@ class Recorder:
             if not self._warned_no_usage:
                 self._warned_no_usage = True
                 logger.warning(
-                    "response has no `usage` (raw streaming via "
+                    "response of type %s has no `usage` (raw streaming via "
                     "messages.create(stream=True)?); call NOT recorded — use "
                     "client.messages.stream(...) so usage can be read from "
-                    "get_final_message(), or billed totals would be understated"
+                    "get_final_message(), or billed totals would be understated",
+                    type(response).__name__,
                 )
             return
         self._append(request, ts, response)

@@ -345,3 +345,56 @@ def test_report_renders_all_demo_scenarios() -> None:
         assert banned not in html_doc
     text = render_text_summary(profiles, scenarios, breakers, meta=meta)
     assert text.splitlines()[0].startswith("~")
+
+
+def test_non_finite_dollars_render_na_and_no_bars() -> None:
+    # Regression: an overflowed --model-price rate turned scenario totals into
+    # inf, which crashed the bar arithmetic (inf/inf -> NaN -> "cannot convert
+    # float NaN to integer") and would have printed "$inf" as a dollar figure.
+    scenarios = {
+        "run-1": [
+            FakeScenarioResult("as-billed", float("inf")),
+            FakeScenarioResult("no-cache", float("nan")),
+            FakeScenarioResult("optimal-cache", 0.81),
+            FakeScenarioResult("fixed-cache", 0.81),
+        ]
+    }
+    text = render_text_summary([_profile()], scenarios, {}, meta=META)
+    assert "$inf" not in text and "$nan" not in text
+    assert "n/a" in text
+    html_doc = render_report([_profile()], scenarios, {}, META)
+    assert "$inf" not in html_doc and "$nan" not in html_doc
+    assert "NaN" not in html_doc
+
+
+def test_zero_recovery_breaker_wording_replaces_negative_dollars() -> None:
+    # Regression: a clamped (0.0) estimate means billed caching already beats
+    # the simulated repair; the report must say so instead of showing
+    # "recovers ~$0.00" (or, before the clamp, a negative "recovery").
+    breakers = {
+        "run-1": [
+            FakeBreaker(
+                kind="volatile-system",
+                first_call_index=1,
+                evidence="now: 14:03:01 -> 14:03:02",
+                fix="move the timestamp out of the system prompt",
+                est_recovered_usd=0.0,
+            )
+        ]
+    }
+    scenarios = {
+        "run-1": [
+            FakeScenarioResult("as-billed", 0.0030),
+            FakeScenarioResult("no-cache", 0.0246),
+            FakeScenarioResult("optimal-cache", 0.0246),
+            FakeScenarioResult("fixed-cache", 0.0246),
+        ]
+    }
+    text = render_text_summary([_profile()], scenarios, breakers, meta=META)
+    assert "no recovery modeled" in text
+    assert "recovers ~$0.00" not in text
+    assert "billed caching already beats the simulated fixed-cache policy" in text
+    assert "under a cent" not in text  # the old euphemism for a negative delta
+    html_doc = render_report([_profile()], scenarios, breakers, META)
+    assert "no recovery modeled" in html_doc
+    assert "recovers &#8776; $0.00" not in html_doc

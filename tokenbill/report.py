@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import html
 import logging
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -46,7 +47,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("tokenbill.report")
 
 #: Provider pricing/caching documentation quoted in the methodology footnotes.
-PRICING_DOC_URL = "https://platform.claude.com/docs/en/pricing.md"
+PRICING_DOC_URL = "https://platform.claude.com/docs/en/about-claude/pricing.md"
 
 #: Evidence spans are truncated so one pathological breaker cannot balloon
 #: the report; the char budgets differ because HTML gets a scrollable <pre>.
@@ -78,8 +79,12 @@ _WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight"
 
 
 def _usd(value: float | None) -> str:
-    """Dollars for display: cents precision, four decimals under a dime."""
-    if value is None:
+    """Dollars for display: cents precision, four decimals under a dime.
+
+    Non-finite values render as ``n/a`` — ``$inf``/``$nan`` are not dollar
+    figures, and the honesty rules forbid presenting them as one.
+    """
+    if value is None or not math.isfinite(value):
         return "n/a"
     if abs(value) >= 0.10 or value == 0:
         return f"${value:,.2f}"
@@ -265,8 +270,16 @@ def _headline_parts(overview: _Overview) -> tuple[str, str]:
         found = f"{fixes} {_plural(n, 'fix', 'fixes')} identified"
         return pct_text, f"{base}; {found} (dollar impact unknown: unpriced model)."
     recovered = overview.recovered_usd
+    detected = f"{fixes} {_plural(n, 'breaker')} detected"
+    if recovered <= 0:
+        # Billed usage can legitimately beat the simulated single-breakpoint
+        # replay (e.g. multi-breakpoint server-side caching): say so instead
+        # of pretending a sub-cent recovery exists.
+        return pct_text, (
+            f"{base}; {detected}, but billed caching already beats the "
+            "simulated fixed-cache policy (no recovery modeled)."
+        )
     if recovered < 0.005:
-        detected = f"{fixes} {_plural(n, 'breaker')} detected"
         return pct_text, f"{base}; {detected}, but the estimated recovery is under a cent."
     verb = "recovers" if n == 1 else "recover"
     subject = "the fix below" if n == 1 else f"the {fixes} fixes below"
@@ -351,7 +364,12 @@ def _svg_scenarios(results: Sequence[ScenarioResult]) -> str:
     label_w, bar_max, right, top, row_h = 118, 300, 96, 8, 30
     n = max(1, len(results))
     w, h = label_w + bar_max + right, top + n * row_h + 8
-    max_dollars = max((r.dollars for r in results if r.dollars is not None), default=0.0)
+    # Non-finite dollars (poisoned by an overflowed rate) get no bar: dividing
+    # by inf — or inf by inf — turns the bar width into NaN.
+    max_dollars = max(
+        (r.dollars for r in results if r.dollars is not None and math.isfinite(r.dollars)),
+        default=0.0,
+    )
 
     parts = [
         f'<svg viewBox="0 0 {w} {h}" width="{w}" height="{h}" role="img" '
@@ -364,7 +382,7 @@ def _svg_scenarios(results: Sequence[ScenarioResult]) -> str:
         parts.append(
             f'<text class="tick" x="{label_w - 8}" y="{y + 19}" text-anchor="end">{name}</text>'
         )
-        if result.dollars is None or max_dollars <= 0:
+        if result.dollars is None or not math.isfinite(result.dollars) or max_dollars <= 0:
             bar_len = 0.0
         else:
             bar_len = max(1.5, result.dollars / max_dollars * bar_max)
@@ -454,6 +472,11 @@ _APPROX_SUP = (
 def _breaker_card(breaker: Breaker) -> str:
     if breaker.est_recovered_usd is None:
         recover = '<span class="where">recovery estimate unavailable</span>'
+    elif breaker.est_recovered_usd <= 0:
+        recover = (
+            '<span class="where">no recovery modeled &#8212; billed caching '
+            "already beats the simulated fix</span>"
+        )
     else:
         recover = (
             f'<span class="recover">recovers &#8776; '
@@ -717,10 +740,15 @@ def render_text_summary(
             usd_texts = [_usd(r.dollars) for r in results]
             usd_w = max(len(t) for t in usd_texts)
             max_dollars = max(
-                (r.dollars for r in results if r.dollars is not None), default=0.0
+                (
+                    r.dollars
+                    for r in results
+                    if r.dollars is not None and math.isfinite(r.dollars)
+                ),
+                default=0.0,
             )
             for result, usd_text in zip(results, usd_texts, strict=True):
-                if result.dollars is not None and max_dollars > 0:
+                if result.dollars is not None and math.isfinite(result.dollars) and max_dollars > 0:
                     bar = "#" * max(1, round(result.dollars / max_dollars * 24))
                 else:
                     bar = ""
@@ -735,6 +763,8 @@ def render_text_summary(
             for breaker in found:
                 if breaker.est_recovered_usd is None:
                     recovery = "recovery estimate n/a"
+                elif breaker.est_recovered_usd <= 0:
+                    recovery = "no recovery modeled (billed caching already beats the fix)"
                 else:
                     recovery = f"recovers ~{_usd(breaker.est_recovered_usd)}"
                 lines.append(

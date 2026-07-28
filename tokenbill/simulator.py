@@ -169,18 +169,24 @@ def _replay(calls: Sequence[Call], name: str, note: str) -> ScenarioResult:
         billed_input = call.usage.total_input
 
         # Longest previously-written, same-model, still-alive, byte-identical
-        # prefix that meets the min-cacheable gate (approx tokens).
+        # prefix that meets the min-cacheable gate (approx tokens). Candidates
+        # are tried longest-first so the first byte match wins outright — the
+        # startswith comparison is the expensive test, and on the common
+        # prefix-extension pattern the longest entry matches immediately
+        # instead of memcmp-ing every shorter entry too. Ties keep insertion
+        # order (stable sort), matching the strict > replacement rule the
+        # linear scan used.
         best: _CacheEntry | None = None
-        for entry in entries:
+        for entry in sorted(entries, key=lambda e: len(e.text), reverse=True):
             if (
                 entry.model == call.model  # prompt caches are per-model
                 and len(entry.text) <= chars
-                and text.startswith(entry.text)
                 and call.ts - entry.alive_ts <= CACHE_TTL_SECONDS
                 and approx_tokens(entry.text) >= limits.min_cacheable_prefix_tokens
-                and (best is None or len(entry.text) > len(best.text))
+                and text.startswith(entry.text)
             ):
                 best = entry
+                break
         matched_chars = len(best.text) if best is not None else 0
         if best is not None:
             productive.add(best.last_writer)  # that write premium paid off
@@ -244,7 +250,10 @@ def _replay(calls: Sequence[Call], name: str, note: str) -> ScenarioResult:
         # Safety net for pathological billed-token distributions: an optimal
         # policy can always decline to cache, so it never beats no-cache.
         dollars = no_cache_floor
-        note += "; clamped at the no-cache floor (write premiums exceeded read savings)"
+        note += (
+            "; clamped at the no-cache floor (write premiums exceeded read "
+            "savings; the token split describes the pre-clamp replay)"
+        )
     return ScenarioResult(name, tokens, dollars, _flag_unpriced(note, dollars))
 
 

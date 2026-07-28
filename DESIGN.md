@@ -184,7 +184,7 @@ source comments):
 | Prefix matching | Byte-identical canonical rendering, tools → system → messages | Documented render order; rendering is our model (§2). |
 
 Pricing table (verified 2026-07 against
-<https://platform.claude.com/docs/en/pricing.md>; re-verified before each
+<https://platform.claude.com/docs/en/about-claude/pricing.md>; re-verified before each
 release — see `tokenbill/pricing.py`). One known deviation, stated rather than
 hidden: claude-sonnet-5 carries *introductory* billing ($2.00/$10.00 per MTok)
 through 2026-08-31; the table deliberately uses the standard rates below, so
@@ -279,7 +279,12 @@ Priority order matters because one root cause can produce several surface
 symptoms; attributing a tool-order diff to "system volatility" would point the
 user at the wrong fix. Each breaker carries `est_recovered_usd`: the run is
 re-simulated with *only that breaker* repaired, and the value is as-billed
-minus fixed-cache dollars — positive means the fix recovers money. It is
+minus fixed-cache dollars — positive means the fix recovers money. The
+estimate is floored at 0: billed usage can legitimately beat the simulated
+single-breakpoint replay (for example, real multi-breakpoint caching), and a
+negative "recovery" would claim the fix costs money — the report words that
+case explicitly ("no recovery modeled — billed caching already beats the
+simulated fix") instead of printing a negative dollar figure. It is
 `None` when pricing is unknown, and also for kinds with no mechanical repair
 (model-switch, history-rewrite): their repair leaves the calls untouched, so
 billed-minus-fixed would price the optimal replay of the still-broken run — a

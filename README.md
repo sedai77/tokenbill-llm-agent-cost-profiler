@@ -165,7 +165,7 @@ unavailable" rather than printing a number the fix couldn't deliver.
 
 The replay implements the provider's documented prompt caching rules (pricing
 and cache constants are versioned data in `tokenbill/pricing.py`, sourced from
-the [published pricing doc](https://platform.claude.com/docs/en/pricing.md),
+the [published pricing doc](https://platform.claude.com/docs/en/about-claude/pricing.md),
 verified 2026-07 and re-verified each release): caching operates on a
 byte-identical prefix of the rendered request in the documented render order
 tools → system → messages, per model (a cache entry written under one model is

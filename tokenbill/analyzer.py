@@ -99,19 +99,16 @@ def _profile_call(call: Call, prev: Call | None) -> tuple[CallProfile, float]:
     rendered_chars = len(rendered_text(call))
     total_input = call.usage.total_input
 
+    # Millions of shares are built for a large run; keep the loop body lean
+    # (positional construction, hoisted append, one division).
     segments: list[SegmentShare] = []
+    append = segments.append
+    inv_chars = (1.0 / rendered_chars) if rendered_chars else 0.0
     for segment in render_segments(call):
         kind, label, text = _segment_parts(segment)
-        fraction = (len(text) / rendered_chars) if rendered_chars else 0.0
-        segments.append(
-            SegmentShare(
-                kind=kind,
-                label=label,
-                chars=len(text),
-                char_fraction=fraction,
-                approx_tokens=total_input * fraction,
-            )
-        )
+        chars = len(text)
+        fraction = chars * inv_chars
+        append(SegmentShare(kind, label, chars, fraction, total_input * fraction))
 
     if prev is None:
         repeated_chars = 0

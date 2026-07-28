@@ -9,9 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - 2026-07-26
 
-_Version cut in the repo; not yet tagged or published to PyPI — install from
-git (see README) until the `v0.1.0` release lands._
-
 ### Added
 
 - Trace schema `tokenbill/trace@1`: JSONL, one API call per line (full request

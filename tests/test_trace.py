@@ -300,3 +300,140 @@ def test_non_monotonic_index_rejected(tmp_path: Path) -> None:
     path = write_lines(tmp_path, [json.dumps(third), json.dumps(fourth)])
     with pytest.raises(TraceError, match=r"non-monotonic index 1 .*previous call had index 2"):
         read_trace(path)
+
+
+# -- IO hardening: surrogates, non-finite numbers, implausible ints ----------
+
+
+def test_unpaired_surrogate_rejected_in_every_display_field(tmp_path: Path) -> None:
+    # Regression: "\ud800" is a legal JSON escape, so json.loads decodes it —
+    # but the resulting string cannot be encoded back to UTF-8, which used to
+    # crash the terminal summary / HTML write AFTER all analysis had run.
+    for field in ("run_id", "model", "system", "stop_reason"):
+        record = valid_record(tmp_path)
+        line = json.dumps(record)
+        # Splice the raw escape into the JSON text (json.dumps of a decoded
+        # surrogate would fail in the test itself).
+        line = line.replace(json.dumps(record[field]), f'"bad-\\ud800-{field}"')
+        path = write_lines(tmp_path, [line])
+        with pytest.raises(TraceError, match=rf"field '{field}' contains an unpaired surrogate"):
+            read_trace(path)
+
+
+def test_nan_and_infinity_literals_rejected(tmp_path: Path) -> None:
+    # Regression: bare NaN/Infinity are invalid JSON but json.loads accepts
+    # them by default; a NaN/inf ts silently disabled every TTL comparison,
+    # collapsing optimal-cache to the no-cache price with no warning.
+    for literal in ("NaN", "Infinity", "-Infinity"):
+        record = valid_record(tmp_path)
+        line = json.dumps(record).replace(json.dumps(record["ts"]), literal)
+        path = write_lines(tmp_path, [line])
+        with pytest.raises(TraceError, match=r"could not parse JSON .*not valid JSON"):
+            read_trace(path)
+    # Anywhere in the payload, not just ts.
+    record = valid_record(tmp_path)
+    record["messages"] = [{"role": "user", "content": 0}]
+    line = json.dumps(record).replace('"content": 0', '"content": NaN')
+    path = write_lines(tmp_path, [line])
+    with pytest.raises(TraceError, match=r"could not parse JSON"):
+        read_trace(path)
+
+
+def test_write_trace_refuses_non_finite_numbers(tmp_path: Path) -> None:
+    # write_trace must never emit a file read_trace rejects.
+    call = make_call(ts=float("nan"))
+    with pytest.raises(TraceError, match=r"non-finite number"):
+        write_trace(tmp_path / "out.jsonl", [call])
+
+
+def test_implausibly_large_ints_rejected(tmp_path: Path) -> None:
+    # Regression: usage ints of unbounded size passed validation, then crashed
+    # the analyzer with OverflowError when multiplied by floats.
+    record = valid_record(tmp_path)
+    record["usage"]["input_tokens"] = 10**308
+    path = write_lines(tmp_path, [json.dumps(record)])
+    with pytest.raises(TraceError, match=r"'usage.input_tokens' is implausibly large"):
+        read_trace(path)
+
+    record = valid_record(tmp_path)
+    record["index"] = 2**53 + 1
+    path = write_lines(tmp_path, [json.dumps(record)])
+    with pytest.raises(TraceError, match=r"'index' is implausibly large"):
+        read_trace(path)
+
+
+def test_deeply_nested_json_raises_trace_error_not_recursion_error(tmp_path: Path) -> None:
+    # Error-contract regression: pathological nesting used to escape as a raw
+    # RecursionError traceback instead of the promised TraceError.
+    depth = 100_000
+    line = '{"schema": "tokenbill/trace@1", "messages": ' + "[" * depth + "]" * depth + "}"
+    path = write_lines(tmp_path, [line])
+    with pytest.raises(TraceError, match=r"line 1"):
+        read_trace(path)
+
+
+# -- render caching ----------------------------------------------------------
+
+
+def test_rendering_is_cached_per_call_instance() -> None:
+    call = make_call()
+    assert rendered_text(call) is rendered_text(call)  # one render per Call
+    first = render_segments(call)
+    second = render_segments(call)
+    assert first == second
+    assert first is not second  # fresh list: callers may mutate their copy
+    assert first[0] is second[0]  # ... but the segments themselves are shared
+
+
+def test_replaced_call_reuses_component_rendering() -> None:
+    # breakers.repaired_calls swaps single fields via dataclasses.replace,
+    # sharing the tools/messages tuples: their rendering must be reused so a
+    # repaired replay costs only its actually-changed bytes.
+    import dataclasses
+
+    call = make_call()
+    rendered_text(call)  # populate the cache
+    repaired = dataclasses.replace(call, cache_breakpoints=0)
+    a, b = render_segments(call), render_segments(repaired)
+    assert a[0].text is b[0].text  # tools text shared
+    assert a[2] is b[2]  # message segments shared
+    assert rendered_text(repaired) == rendered_text(call)
+
+
+def test_common_prefix_chars_matches_character_reference_at_gallop_edges() -> None:
+    # The gallop+binary-search implementation must agree with a plain
+    # character walk everywhere, especially around power-of-two probe edges.
+    def reference(a: Call, b: Call) -> int:
+        ta, tb = rendered_text(a), rendered_text(b)
+        n = min(len(ta), len(tb))
+        i = 0
+        while i < n and ta[i] == tb[i]:
+            i += 1
+        return i
+
+    base_system = "S" * 700
+    for cut in (0, 1, 2, 3, 15, 16, 17, 63, 64, 65, 255, 256, 257, 699):
+        a = make_call(system=base_system)
+        b = make_call(system=base_system[:cut] + "X" + base_system[cut + 1 :])
+        assert common_prefix_chars(a, b) == reference(a, b), f"cut={cut}"
+    # Zero prefix, pure extension, and identical calls.
+    a = make_call(tools=(), system="A")
+    b = make_call(tools=(), system="B")
+    assert common_prefix_chars(a, b) == reference(a, b) == len(canonical_json([]))
+    ext = make_call(messages=MESSAGES + ({"role": "user", "content": "more"},))
+    assert common_prefix_chars(make_call(), ext) == reference(make_call(), ext)
+    assert common_prefix_chars(make_call(), make_call()) == len(rendered_text(make_call()))
+
+
+def test_empty_tools_and_empty_messages_render_without_cache_collision() -> None:
+    # Regression: () is an interned singleton, so an empty tools tuple and an
+    # empty messages tuple share the same id(); a shared component cache slot
+    # made rendering return the tools *text* where message segments belonged.
+    call = make_call(tools=(), messages=())
+    segments = render_segments(call)
+    assert [s.kind for s in segments] == ["tools", "system"]
+    assert segments[0].text == canonical_json([])
+    assert rendered_text(call) == canonical_json([]) + call.system
+    # A second empty-payload call must render identically, via the cache.
+    again = make_call(tools=(), messages=(), index=1)
+    assert rendered_text(again) == rendered_text(call)

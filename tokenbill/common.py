@@ -31,6 +31,16 @@ def canonical_json(value: Any) -> str:
 
     Used wherever two calls' payloads are compared byte-for-byte (prefix
     reconstruction, fingerprints) — a dict-ordering difference must never
-    masquerade as a prompt change.
+    masquerade as a prompt change. Non-finite floats raise ``ValueError``:
+    ``NaN``/``Infinity`` are not valid JSON, and emitting them would create
+    files ``trace.read_trace`` (correctly) rejects.
     """
-    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return _CANONICAL_ENCODER.encode(value)
+
+
+# Prebuilt encoder: json.dumps with non-default options builds a fresh
+# JSONEncoder per call, which is measurable overhead when rendering millions
+# of small message dicts on the analysis hot path.
+_CANONICAL_ENCODER = json.JSONEncoder(
+    sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+)
