@@ -59,3 +59,12 @@ Knowing the attack surface helps you decide whether something is in scope:
 Issues in provider SDKs or in the provider's cache/pricing behavior belong to
 those projects; anything about how Token Bill records, parses, simulates, or
 renders is in scope here.
+
+## Analyzing traces you did not record
+
+Trace files are ordinary JSONL and may come from other people or systems.
+Token Bill escapes trace content in the HTML report, but the *terminal*
+summary prints identifiers (run ids, model names) verbatim — a maliciously
+crafted trace could embed ANSI escape sequences that repaint your terminal.
+Treat traces from untrusted sources accordingly (inspect them first, or use
+only the HTML report).

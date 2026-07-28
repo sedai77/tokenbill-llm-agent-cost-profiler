@@ -13,7 +13,7 @@ figures can overstate real bills during the introductory window. The report's
 pricing footnote states this.
 
 Verify the tables against the source before each release:
-https://platform.claude.com/docs/en/pricing.md
+https://platform.claude.com/docs/en/about-claude/pricing.md
 """
 
 from __future__ import annotations
@@ -44,34 +44,34 @@ class ModelPricing:
     min_cacheable_prefix_tokens: int = 1024
 
 
-# Source: https://platform.claude.com/docs/en/pricing.md — verified 2026-07.
+# Source: https://platform.claude.com/docs/en/about-claude/pricing.md — verified 2026-07.
 # VERIFY BEFORE EACH RELEASE: rates and minimum cacheable prefix lengths change
 # between model generations; re-check every row against the doc above.
 PRICING: dict[str, ModelPricing] = {
-    # https://platform.claude.com/docs/en/pricing.md (verified 2026-07)
+    # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07)
     "claude-opus-5": ModelPricing(5.00, 25.00, min_cacheable_prefix_tokens=512),
-    # https://platform.claude.com/docs/en/pricing.md (verified 2026-07)
+    # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07)
     "claude-fable-5": ModelPricing(10.00, 50.00, min_cacheable_prefix_tokens=512),
-    # https://platform.claude.com/docs/en/pricing.md (verified 2026-07)
+    # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07)
     "claude-opus-4-8": ModelPricing(5.00, 25.00, min_cacheable_prefix_tokens=1024),
-    # https://platform.claude.com/docs/en/pricing.md (verified 2026-07)
+    # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07)
     "claude-opus-4-7": ModelPricing(5.00, 25.00, min_cacheable_prefix_tokens=2048),
-    # https://platform.claude.com/docs/en/pricing.md (verified 2026-07)
+    # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07)
     "claude-opus-4-6": ModelPricing(5.00, 25.00, min_cacheable_prefix_tokens=4096),
-    # https://platform.claude.com/docs/en/pricing.md (verified 2026-07).
+    # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07).
     # Introductory pricing of $2.00/$10.00 per MTok applies through
     # 2026-08-31; the standard rates below are used deliberately (see module
     # docstring) — sonnet-5 dollars can overstate bills until then.
     "claude-sonnet-5": ModelPricing(3.00, 15.00, min_cacheable_prefix_tokens=1024),
-    # https://platform.claude.com/docs/en/pricing.md (verified 2026-07)
+    # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07)
     "claude-sonnet-4-6": ModelPricing(3.00, 15.00, min_cacheable_prefix_tokens=1024),
-    # https://platform.claude.com/docs/en/pricing.md (verified 2026-07)
+    # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07)
     "claude-haiku-4-5": ModelPricing(1.00, 5.00, min_cacheable_prefix_tokens=4096),
 }
 
 
 # Prompt-cache rules, same source and verification cadence as PRICING:
-# https://platform.claude.com/docs/en/pricing.md (verified 2026-07).
+# https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07).
 CACHE_TTL_SECONDS = 300  # 5-minute cache entry lifetime.
 # Documented assumption: a cache read refreshes the entry's TTL (sliding
 # expiry). The simulator models this; DESIGN.md lists it under threats to

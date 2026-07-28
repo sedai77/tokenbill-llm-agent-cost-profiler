@@ -6,6 +6,8 @@ Never touches the real Anthropic SDK — the fakes below are the whole client.
 from __future__ import annotations
 
 import asyncio
+import functools
+import inspect
 import json
 import logging
 from pathlib import Path
@@ -307,6 +309,71 @@ def test_async_create_awaits_before_recording(tmp_path: Path) -> None:
     assert record["usage"]["input_tokens"] == 100
     assert record["usage"]["output_tokens"] == 7
     assert record["stop_reason"] == "end_turn"
+
+
+def test_async_create_behind_sync_decorator_is_recorded(tmp_path: Path) -> None:
+    # Regression: the real SDK wraps AsyncMessages.create in @required_args —
+    # a plain sync `def wrapper` with functools.wraps — so
+    # inspect.iscoroutinefunction(client.messages.create) is False. The
+    # recorder used to take the sync branch, receive an un-awaited coroutine
+    # with no .usage, and silently skip the call: billed spend understated.
+    def required_args_like(func: Any) -> Any:  # mirrors anthropic._utils.required_args
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    class _DecoratedAsyncMessages(_FakeAsyncMessages):
+        @required_args_like
+        async def create(self, **kwargs: Any) -> _FakeMessage:  # type: ignore[override]
+            self.requests.append(kwargs)
+            return self.response
+
+    client = _FakeAsyncClient()
+    client.messages = _DecoratedAsyncMessages(client.messages.response)
+    assert not inspect.iscoroutinefunction(client.messages.create)  # the trap
+
+    path = tmp_path / "t.jsonl"
+    Recorder(path, run_id="run-dec").wrap(client)
+
+    async def scenario() -> Any:
+        return await client.messages.create(
+            model="claude-sonnet-5", messages=[{"role": "user", "content": "hi"}]
+        )
+
+    response = asyncio.run(scenario())
+    assert response is client.messages.response
+    (record,) = _lines(path)
+    assert record["usage"]["input_tokens"] == 100
+    assert record["usage"]["cache_read_input_tokens"] == 40
+    assert record["model"] == "claude-sonnet-5"
+
+
+def test_sync_looking_create_returning_awaitable_is_awaited_and_recorded(
+    tmp_path: Path,
+) -> None:
+    # Defence in depth: a decorator without functools.wraps leaves no
+    # __wrapped__ chain to unwrap, so detection must fall back to the returned
+    # object — an awaitable response is awaited by a shim that records after.
+    class _OpaqueAsyncMessages(_FakeAsyncMessages):
+        def create(self, **kwargs: Any) -> Any:  # type: ignore[override]
+            inner = _FakeAsyncMessages.create  # the real async implementation
+            return inner(self, **kwargs)  # returns a coroutine; no __wrapped__
+
+    client = _FakeAsyncClient()
+    client.messages = _OpaqueAsyncMessages(client.messages.response)
+    path = tmp_path / "t.jsonl"
+    Recorder(path).wrap(client)
+
+    async def scenario() -> Any:
+        return await client.messages.create(model="m", messages=[])
+
+    response = asyncio.run(scenario())
+    assert response is client.messages.response
+    (record,) = _lines(path)
+    assert record["usage"]["output_tokens"] == 7
+    assert record["usage"]["input_tokens"] == 100
 
 
 def test_async_stream_records_usage_via_aexit(tmp_path: Path) -> None:

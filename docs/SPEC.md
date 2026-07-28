@@ -191,7 +191,7 @@ PRICING: dict[str, ModelPricing]  # keyed by model id; source comment per entry
 ```
 
 Authoritative values (verified 2026-07; keep a "verify before each release" comment
-+ the doc URL https://platform.claude.com/docs/en/pricing.md):
++ the doc URL https://platform.claude.com/docs/en/about-claude/pricing.md):
 
 | model | in/MTok | out/MTok | min cacheable prefix |
 |---|---|---|---|
@@ -332,7 +332,8 @@ class Breaker:
     evidence: str        # e.g. the exact changed span, truncated, with char offsets
     fix: str             # one concrete sentence, e.g. "move the timestamp out of the
                          # system prompt (inject it in the latest user message)"
-    est_recovered_usd: float | None   # fixed-cache minus as-billed for this cause
+    est_recovered_usd: float | None   # as-billed minus fixed-cache for this cause,
+                                      # floored at 0 (see below)
 
 def detect(run: Run) -> list[Breaker]
 def repaired_calls(run: Run, breakers: list[Breaker]) -> list[Call]
@@ -356,10 +357,13 @@ Classification rules (in priority order per divergence):
 5. no divergence, prefix ≥ min cacheable, but `cache_breakpoints == 0` AND billed
    cache activity is zero → missing-breakpoint.
 `est_recovered_usd`: run simulate() with only this breaker repaired; difference of
-fixed-cache vs as-billed dollars. None when pricing is unknown OR when the kind has
-no mechanical repair (model-switch, history-rewrite — `repaired_calls` leaves the
-run untouched there, so billed-minus-fixed would price the optimal replay of the
-still-broken run, a number the displayed fix cannot claim).
+fixed-cache vs as-billed dollars, floored at 0 (billed caching can legitimately
+beat the simulated single-breakpoint replay; the report words that case explicitly
+rather than showing a negative "recovery"). None when pricing is unknown OR when
+the kind has no mechanical repair (model-switch, history-rewrite —
+`repaired_calls` leaves the run untouched there, so billed-minus-fixed would price
+the optimal replay of the still-broken run, a number the displayed fix cannot
+claim).
 
 ### Flagship test (`test_demo_recovers_planted_waste.py`)
 

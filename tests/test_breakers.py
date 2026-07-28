@@ -369,3 +369,30 @@ def test_repair_leaves_unrepairable_kinds_untouched() -> None:
 def test_repair_with_no_breakers_is_identity() -> None:
     run = run_of(make_call(0), make_call(1))
     assert repaired_calls(run, []) == list(run.calls)
+
+
+def test_est_recovered_is_floored_at_zero_when_billed_beats_the_fix() -> None:
+    # Regression: when billed usage already shows better caching than the
+    # simulated single-breakpoint replay can model (all input served as cache
+    # reads), billed - fixed went NEGATIVE and the report printed the
+    # contradiction "recovers ~$-0.0069". The estimate is floored at 0; the
+    # report words the case explicitly instead of showing a negative dollar.
+    calls = [
+        make_call(
+            i,
+            system=f"{BIG_SYSTEM}\nnow: 2026-07-26T14:03:{i:02d}Z\n",
+            breakpoints=1,
+            usage=Usage(
+                input_tokens=0,
+                cache_read_input_tokens=2_000,
+                cache_creation_input_tokens=0,
+                output_tokens=10,
+            ),
+        )
+        for i in range(4)
+    ]
+    found = detect(run_of(*calls))
+    assert [b.kind for b in found] == ["volatile-system"]
+    est = found[0].est_recovered_usd
+    assert est is not None
+    assert est == 0.0  # clamped: billed cache reads already beat the replay

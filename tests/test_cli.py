@@ -173,3 +173,75 @@ def test_model_price_override_prices_unknown_model(
         assert "$" in out
     finally:
         pricing.PRICING.pop("acme-llm-1", None)
+
+
+def test_huge_model_price_rate_is_a_usage_error() -> None:
+    # Regression: 1e308 is finite, so it passed the isfinite guard, then
+    # tokens/1e6 * 1e308 overflowed to inf and the terminal renderer crashed
+    # with "ValueError: cannot convert float NaN to integer".
+    assert main(["analyze", "trace.jsonl", "--model-price", "mymodel=1e308,1e308"]) == 2
+    assert main(["analyze", "trace.jsonl", "--model-price", "mymodel=3,1e307"]) == 2
+    # A sane rate still parses (rc 1 is the missing trace file, not usage).
+    pytest.importorskip("tokenbill.pricing", reason="pricing not merged yet")
+    from tokenbill import pricing
+
+    try:
+        assert main(["analyze", "missing.jsonl", "--model-price", "mymodel=3,15"]) == 1
+    finally:
+        pricing.PRICING.pop("mymodel", None)
+
+
+def test_cli_survives_non_utf8_console(tmp_path: Path) -> None:
+    # Regression: on a cp1252 console (legacy Windows, PYTHONIOENCODING set),
+    # a CJK/emoji run_id — ordinary, valid trace input — crashed the summary
+    # print with UnicodeEncodeError after the whole analysis had succeeded.
+    _need_pipeline()
+    import os
+    from dataclasses import replace
+
+    from tokenbill.demo_traces import scenario
+    from tokenbill.trace import write_trace
+
+    calls = [replace(c, run_id="run-東京-\U0001f680") for c in scenario("well-behaved", 7)]
+    path = tmp_path / "emoji.jsonl"
+    write_trace(path, calls)
+    env = dict(os.environ, PYTHONIOENCODING="cp1252")
+    result = subprocess.run(
+        [sys.executable, "-m", "tokenbill", "analyze", str(path)],
+        capture_output=True,
+        env=env,
+        cwd=REPO_ROOT,
+    )
+    assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+    assert b"UnicodeEncodeError" not in result.stderr
+    # The run_id survives as backslash escapes rather than crashing the run.
+    assert b"Run run-" in result.stdout
+
+
+def test_surrogate_trace_fails_fast_with_clean_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Regression: a \ud800 escape in `model` used to pass read_trace and then
+    # blow up with a raw UnicodeEncodeError at print time, after the full
+    # (potentially minutes-long) analysis had already run.
+    _need_pipeline()
+    path = _write_demo_trace(tmp_path)
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace('"claude-sonnet-5"', '"claude\\ud800model"'), encoding="utf-8")
+    assert main(["analyze", str(path)]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("tokenbill: error:")
+    assert "unpaired surrogate" in err
+    assert len(err.strip().splitlines()) == 1  # one tidy line, no traceback
+
+
+def test_missing_output_directory_fails_before_analysis(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The -o path used to be validated only AFTER the entire pipeline ran and
+    # the full summary had scrolled by.
+    _need_pipeline()
+    assert main(["demo", "-o", "missing_dir/report.html"]) == 1
+    captured = capsys.readouterr()
+    assert "output directory 'missing_dir' does not exist" in captured.err
+    assert captured.out == ""  # nothing analyzed, nothing printed

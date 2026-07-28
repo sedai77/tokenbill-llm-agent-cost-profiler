@@ -29,6 +29,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger("tokenbill.cli")
 
 
+#: Ceiling for --model-price rates. $1e9 per MTok is already absurd; anything
+#: near float max would overflow tokens*rate to inf and poison every total.
+_MAX_PRICE_PER_MTOK = 1e9
+
+
 def _model_price(spec: str) -> tuple[str, float, float]:
     """Parse a ``--model-price MODEL=IN,OUT`` override (dollars per MTok)."""
     problem = f"expected MODEL=IN,OUT (dollars per MTok, e.g. mymodel=3,15), got {spec!r}"
@@ -47,6 +52,13 @@ def _model_price(spec: str) -> tuple[str, float, float]:
         raise argparse.ArgumentTypeError(problem)  # nan/inf would render "$nan" reports
     if input_price < 0 or output_price < 0:
         raise argparse.ArgumentTypeError(problem)
+    if input_price > _MAX_PRICE_PER_MTOK or output_price > _MAX_PRICE_PER_MTOK:
+        # A finite-but-huge rate passes isfinite yet overflows tokens*rate to
+        # inf during pricing, which the renderers cannot chart honestly.
+        raise argparse.ArgumentTypeError(
+            f"price out of range in {spec!r}: rates above {_MAX_PRICE_PER_MTOK:g} "
+            "dollars per MTok are not supported"
+        )
     return model, input_price, output_price
 
 
@@ -115,6 +127,14 @@ def _profile_and_render(
     runs: Sequence[Run], *, trace_name: str, synthetic: bool, output: Path | None
 ) -> int:
     """The shared demo/analyze pipeline: profile, detect, simulate, render."""
+    if output is not None and not output.parent.exists():
+        # Fail before the (potentially long) analysis, not after the full
+        # summary has scrolled by with the report silently unwritten.
+        print(
+            f"tokenbill: error: output directory '{output.parent}' does not exist",
+            file=sys.stderr,
+        )
+        return 1
     from tokenbill.analyzer import profile_run
     from tokenbill.breakers import detect, repaired_calls
     from tokenbill.report import render_report, render_text_summary
@@ -133,7 +153,13 @@ def _profile_and_render(
     meta = {"trace": trace_name, "date": date.today().isoformat(), "synthetic": synthetic}
     print(render_text_summary(profiles, scenarios, breakers, meta=meta))
     if output is not None:
-        output.write_text(render_report(profiles, scenarios, breakers, meta), encoding="utf-8")
+        # errors="backslashreplace": a trace is untrusted input, and one exotic
+        # character must not discard a finished report at the final write.
+        output.write_text(
+            render_report(profiles, scenarios, breakers, meta),
+            encoding="utf-8",
+            errors="backslashreplace",
+        )
         print(f"Report written to {output}")
     return 0
 
@@ -189,8 +215,26 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
     )
 
 
+def _tolerant_output_streams() -> None:
+    """Make stdout/stderr total functions of their input.
+
+    On a non-UTF-8 console (legacy Windows cp1252, PYTHONIOENCODING set) a
+    CJK/emoji run_id — perfectly valid trace input — would otherwise crash
+    the summary print with UnicodeEncodeError after all analysis succeeded.
+    Unencodable characters degrade to backslash escapes instead.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(errors="backslashreplace")
+            except (OSError, ValueError):  # exotic stream; keep going
+                pass
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """CLI entry point; returns the process exit code."""
+    _tolerant_output_streams()
     parser = build_parser()
     try:
         args = parser.parse_args(argv)

@@ -23,11 +23,13 @@ call index where it bites (the demo's ``timestamp`` scenario diverges on every
 call but yields exactly one ``volatile-system`` breaker at call 1).
 ``est_recovered_usd`` isolates each cause: the run is re-simulated with only
 that one breaker repaired, and the value is as-billed minus fixed-cache
-dollars (positive = money recovered by the fix; approx, since the fixed-cache
-scenario is simulated). Causes with no mechanical repair (``model-switch``,
-``history-rewrite``) get ``None`` — a billed-minus-fixed number there would
-price the optimal replay of the still-broken run, which is not attributable
-to the displayed fix.
+dollars, floored at 0 (positive = money recovered by the fix; approx, since
+the fixed-cache scenario is simulated; 0 when billed caching already beats
+the simulated single-breakpoint policy — the report words that case
+explicitly rather than showing a negative "recovery"). Causes with no
+mechanical repair (``model-switch``, ``history-rewrite``) get ``None`` — a
+billed-minus-fixed number there would price the optimal replay of the
+still-broken run, which is not attributable to the displayed fix.
 """
 
 from __future__ import annotations
@@ -37,7 +39,12 @@ from dataclasses import dataclass, replace
 
 from tokenbill.common import canonical_json
 from tokenbill.pricing import PRICING, ModelPricing
-from tokenbill.simulator import simulate
+
+# _as_billed/_replay are simulator internals shared within the package: the
+# per-breaker estimate needs exactly one as-billed total per run and one
+# fixed-cache replay per breaker — calling the full simulate() here would
+# redundantly re-replay optimal-cache for every detected breaker.
+from tokenbill.simulator import _as_billed, _replay
 from tokenbill.trace import Call, Run, approx_tokens, diverging_segment, rendered_text
 
 # Heuristic patterns for content that legitimately changes every call and
@@ -114,10 +121,11 @@ class Breaker:
     ``system-edit`` (the non-volatile system-divergence variant),
     ``history-rewrite``, ``missing-breakpoint``. ``evidence`` shows the exact
     changed span, truncated, with char offsets. ``est_recovered_usd`` is
-    as-billed minus fixed-cache dollars with only this breaker repaired
-    (positive = recovered; ``None`` when pricing is unknown or when the kind
-    has no mechanical repair — ``model-switch`` and ``history-rewrite`` —
-    so no honest per-fix dollar figure exists).
+    as-billed minus fixed-cache dollars with only this breaker repaired,
+    floored at 0 (positive = recovered; 0 = billed caching already beats the
+    simulated repair; ``None`` when pricing is unknown or when the kind has
+    no mechanical repair — ``model-switch`` and ``history-rewrite`` — so no
+    honest per-fix dollar figure exists).
     """
 
     kind: str
@@ -242,8 +250,9 @@ def _classify_pair(prev: Call, cur: Call, first_seen_tools: list[str]) -> tuple[
         and usage.cache_creation_input_tokens == 0
     ):
         limits = PRICING.get(cur.model) or _DEFAULT_LIMITS
-        shared_chars = min(len(rendered_text(prev)), len(rendered_text(cur)))
-        prefix_tokens = approx_tokens(rendered_text(prev)[:shared_chars])
+        prev_text = rendered_text(prev)
+        shared_chars = min(len(prev_text), len(rendered_text(cur)))
+        prefix_tokens = approx_tokens(prev_text[:shared_chars])
         if prefix_tokens >= limits.min_cacheable_prefix_tokens:
             return "missing-breakpoint", (
                 f"calls {prev.index}->{cur.index} share a byte-stable prefix of "
@@ -277,6 +286,9 @@ def detect(run: Run) -> list[Breaker]:
         events.setdefault(kind, (i, evidence))
 
     ordered = sorted(events.items(), key=lambda item: (item[1][0], _KIND_PRIORITY[item[0]]))
+    # As-billed dollars are a property of the run, not of any repair: price
+    # them once instead of once per breaker (replays dominate detect() time).
+    billed = _as_billed(calls).dollars if ordered else None
     breakers: list[Breaker] = []
     for kind, (index, evidence) in ordered:
         breaker = Breaker(
@@ -286,27 +298,31 @@ def detect(run: Run) -> list[Breaker]:
             fix=_FIXES[kind],
             est_recovered_usd=None,
         )
-        breakers.append(replace(breaker, est_recovered_usd=_estimate(run, breaker)))
+        breakers.append(replace(breaker, est_recovered_usd=_estimate(run, breaker, billed)))
     return breakers
 
 
-def _estimate(run: Run, breaker: Breaker) -> float | None:
+def _estimate(run: Run, breaker: Breaker, billed: float | None) -> float | None:
     """As-billed minus fixed-cache dollars with only *breaker* repaired.
 
-    ``None`` when the repair left the calls untouched (no mechanical repair
-    exists — model-switch, history-rewrite): billed minus fixed would then be
-    the optimal replay of the still-broken run, a number the displayed fix
-    cannot claim. ``None`` also when any call's model is unpriced.
+    Floored at 0: billed usage can legitimately beat the simulated
+    single-breakpoint replay (e.g. real multi-breakpoint caching), and a
+    negative "recovery" would claim the fix costs money — the report words
+    that case explicitly instead. ``None`` when the repair left the calls
+    untouched (no mechanical repair exists — model-switch, history-rewrite):
+    billed minus fixed would then be the optimal replay of the still-broken
+    run, a number the displayed fix cannot claim. ``None`` also when any
+    call's model is unpriced (*billed* arrives as ``None``).
     """
     repaired = repaired_calls(run, [breaker])
     if repaired == list(run.calls):
         return None
-    results = {r.name: r for r in simulate(run, repaired)}
-    billed = results["as-billed"].dollars
-    fixed = results["fixed-cache"].dollars
-    if billed is None or fixed is None:
+    if billed is None:
         return None
-    return billed - fixed
+    fixed = _replay(repaired, "fixed-cache", "").dollars
+    if fixed is None:
+        return None
+    return max(0.0, billed - fixed)
 
 
 def _stabilized(system: str) -> str:
