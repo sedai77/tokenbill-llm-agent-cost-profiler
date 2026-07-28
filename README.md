@@ -4,7 +4,8 @@
 > get your money back.
 
 [![CI](https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/actions/workflows/ci.yml/badge.svg)](https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/actions/workflows/ci.yml)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+[![PyPI](https://img.shields.io/pypi/v/tokenbill)](https://pypi.org/project/tokenbill/)
+[![Python versions](https://img.shields.io/pypi/pyversions/tokenbill)](https://pypi.org/project/tokenbill/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 An agent loop re-sends nearly its entire prompt on every step: the same system
@@ -41,12 +42,11 @@ provider-neutral (adapters welcome — see roadmap).
 ## 60-second start (no keys, no network)
 
 ```bash
-pip install git+https://github.com/sedai77/tokenbill-llm-agent-cost-profiler
+pip install tokenbill
 tokenbill demo
 ```
 
-(Not on PyPI yet — install from git until the first release is published;
-`pip install tokenbill` will work from v0.1.0 onward.)
+(Latest development version: `pip install git+https://github.com/sedai77/tokenbill-llm-agent-cost-profiler`.)
 
 The demo runs the entire pipeline on four bundled synthetic agent scenarios
 with *planted* waste — a volatile system prompt, churning tool order, a
