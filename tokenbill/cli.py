@@ -184,9 +184,21 @@ def _cmd_demo(args: argparse.Namespace) -> int:
         trace_name = f"bundled demo scenarios (seed {args.seed})"
     else:
         trace_name = f"bundled demo scenario {args.scenario!r} (seed {args.seed})"
-    return _profile_and_render(
+    code = _profile_and_render(
         runs, trace_name=trace_name, synthetic=True, output=args.output
     )
+    if code == 0:
+        if args.output is None:
+            print(
+                "next: tokenbill demo -o report.html writes the full HTML report; "
+                'then record a real agent — see "Your first real trace" in the README'
+            )
+        else:
+            print(
+                "next: record a real agent and analyze its trace — "
+                'see "Your first real trace" in the README'
+            )
+    return code
 
 
 def _cmd_analyze(args: argparse.Namespace) -> int:

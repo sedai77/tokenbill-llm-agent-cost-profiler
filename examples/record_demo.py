@@ -18,17 +18,26 @@ minimum cacheable prefix — you will see real ``cache_read`` tokens from turn 2
 onward in both the per-turn printout and the report.
 
 The experiment worth doing next: prepend something volatile to SYSTEM_TEXT —
-e.g. ``f"[session {turn}] "`` — record to a second file, and analyze that.
-Cache reads collapse to zero and Token Bill names the exact breaker with the
-dollars it would recover. That is the tool catching a cache-poisoning bug you
-introduced on purpose.
+e.g. ``f"[session {turn}] "`` — record to a second file (change
+``Path("trace.jsonl")`` to ``Path("trace2.jsonl")`` on the Recorder line), and
+analyze that. Cache reads collapse to zero and Token Bill names the exact
+breaker with the dollars it would recover. That is the tool catching a
+cache-poisoning bug you introduced on purpose.
 """
 
+import os
+import sys
 from pathlib import Path
 
 from anthropic import Anthropic
 
 from tokenbill.instrument import Recorder
+
+if not os.environ.get("ANTHROPIC_API_KEY"):
+    sys.exit(
+        'set your key first: export ANTHROPIC_API_KEY="sk-ant-..."'
+        "   (console.anthropic.com -> API keys)"
+    )
 
 MODEL = "claude-haiku-4-5"  # cheapest for a first run; any Claude model works
 N_TURNS = 12

@@ -102,16 +102,21 @@ Ready-made path from zero to a report about *real* API calls —
 ```bash
 pip install tokenbill anthropic
 export ANTHROPIC_API_KEY="sk-ant-..."   # console.anthropic.com → API keys
-python examples/record_demo.py          # watch real cache_read tokens appear from turn 2
+curl -O https://raw.githubusercontent.com/sedai77/tokenbill-llm-agent-cost-profiler/main/examples/record_demo.py
+python record_demo.py                   # watch real cache_read tokens appear from turn 2
 tokenbill analyze trace.jsonl -o report.html
 ```
+
+(The `curl` is because a pip install ships no `examples/` directory — skip it if
+you cloned the repo and run `python examples/record_demo.py` instead.)
 
 The report will show the system prompt being cached for real (billed
 `cache_read` tokens from Anthropic's servers) and call out that the growing
 conversation history is re-sent uncached each turn — an honest finding about
 that script's design, with dollars attached. Then do the experiment in the
-script's docstring: add a per-turn timestamp to the system prompt, re-record,
-and watch Token Bill catch the cache breaker you just introduced.
+script's docstring: prepend a volatile per-turn value (e.g. `f"[session {turn}] "`)
+to the system prompt, record to a second trace file, and watch Token Bill catch
+the cache breaker you just introduced.
 
 ## Recording your own agent
 
