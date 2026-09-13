@@ -64,7 +64,7 @@ output, trimmed to one of the four runs (the demo is deterministic, so your
 numbers will match):
 
 ```text
-~43% of billed input tokens went to re-sending bytes the model had already seen; the three fixes below recover an estimated $0.40 of $0.61.
+~43% of billed input tokens went to re-sending bytes the model had already seen; the three fixes below recover an estimated $0.26 of $0.41.
 bundled demo scenarios (seed 7) | 4 runs | 56 calls | models: claude-sonnet-5
 [synthetic demo data: bundled scenarios with planted waste]
 
@@ -72,19 +72,19 @@ bundled demo scenarios (seed 7) | 4 runs | 56 calls | models: claude-sonnet-5
 
 Run demo-timestamp-seed7
   billed tokens    cache read 0 | cache write 0 | uncached input 56,880 | output 993
-  billed dollars   $0.19  (cache read $0.00 | cache write $0.00 | uncached input $0.17 | output $0.0149)
+  billed dollars   $0.12  (cache read $0.00 | cache write $0.00 | uncached input $0.11 | output $0.0099)
   redundant input  ~17.7% of billed input tokens re-sent (approx)
   scenarios
-    as-billed        $0.19  ########################
-    no-cache         $0.19  ########################
-    optimal-cache    $0.19  ########################
-    fixed-cache    $0.0529  #######
+    as-billed        $0.12  ########################
+    no-cache         $0.12  ########################
+    optimal-cache    $0.12  ########################
+    fixed-cache    $0.0353  #######
     note (as-billed): exact: real billed usage priced at published rates (ground truth)
     note (no-cache): counterfactual: every billed input token repriced at the full uncached rate (no cache reads, no write premium)
     note (optimal-cache): simulated (approx): documented cache rules — 300s TTL sliding on read, min-cacheable gate, one breakpoint at end of messages; char-based token split scaled to billed totals
     note (fixed-cache): simulated (approx): optimal-cache rules over the breaker-repaired rendering; billed usage totals reused for the token split
   breakers
-    volatile-system | first at call index 1 | recovers ~$0.13
+    volatile-system | first at call index 1 | recovers ~$0.0884
       fix: move the volatile value (timestamp/UUID/counter) out of the system prompt — inject it in the latest user message instead
       evidence: system chars [355:374] at call 1: '...reen.\nSession: [session 2026-07-26 14:03:00]\n\nRepository layout:\n  ...' -> '..... [truncated, 196 chars total]
 
@@ -197,16 +197,14 @@ unavailable" rather than printing a number the fix couldn't deliver.
 The replay implements the provider's documented prompt caching rules (pricing
 and cache constants are versioned data in `tokenbill/pricing.py`, sourced from
 the [published pricing doc](https://platform.claude.com/docs/en/about-claude/pricing.md),
-verified 2026-07 and re-verified each release): caching operates on a
+verified 2026-09 and re-verified each release): caching operates on a
 byte-identical prefix of the rendered request in the documented render order
 tools → system → messages, per model (a cache entry written under one model is
 cold for every other model); the 5-minute cache (TTL 300 s, refreshed on
 read — a flagged assumption); a per-model minimum cacheable prefix (512–4096
-tokens); cache writes at 1.25× base input; cache reads at 0.10×. One
-deliberate rate caveat: claude-sonnet-5 has introductory billing ($2/$10 per
-MTok) through 2026-08-31, and the table carries the standard $3/$15 rates, so
-sonnet-5 dollar figures can overstate real bills during that window (the
-report's pricing footnote repeats this).
+tokens); cache writes at 1.25× base input; cache reads at 0.10× (0.025× on
+claude-fable-5-1). Dated snapshot ids such as `claude-haiku-4-5-20251001` are
+priced as their base model.
 
 Four scenarios, all priced:
 
