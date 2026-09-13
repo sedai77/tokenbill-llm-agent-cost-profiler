@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-13
+
+### Changed
+
+- README rewritten for a wider audience: a plain-language explanation of the
+  problem (why re-sent prompts cost money and what silently breaks the prompt
+  cache), screenshots of the HTML report, the detected cache breakers, and
+  `tokenbill demo` terminal output, plus a note that Token Bill is not
+  affiliated with Anthropic. Image links are absolute so they also render on
+  the PyPI project page. No code changes.
+
 ## [0.1.1] - 2026-09-13
 
 ### Fixed
@@ -64,6 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Zero runtime dependencies (pure standard library); Python 3.10+; typed
   (PEP 561 `py.typed`).
 
-[Unreleased]: https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/releases/tag/v0.1.0
