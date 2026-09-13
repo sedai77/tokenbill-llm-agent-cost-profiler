@@ -9,4 +9,4 @@ reordered tool list) that break cache hits — each with a concrete fix and the
 dollars it recovers.
 """
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
