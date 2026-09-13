@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- claude-sonnet-5 is priced at $2/$10 per MTok. Its launch rate became the
+  standard price and the scheduled 2026-09-01 increase was cancelled; the
+  table's $3/$15 overstated sonnet-5 dollars (including the demo's) by 50%.
+- Added claude-fable-5-1 ($10/$50 per MTok, 512-token minimum cacheable
+  prefix), with cache reads at its published 0.025× multiplier ($0.25/MTok)
+  rather than the standard 0.10×. Traces using it previously showed no dollars.
+- Dated snapshot model ids (`claude-haiku-4-5-20251001`, Vertex-style
+  `claude-sonnet-4-6@20260101`) resolve to their base model's pricing and
+  minimum cacheable prefix instead of reporting dollars as unknown and falling
+  back to the default 1,024-token cache gate. An exact `--model-price` entry
+  still wins.
+
 ## [0.1.0] - 2026-07-26
 
 ### Added

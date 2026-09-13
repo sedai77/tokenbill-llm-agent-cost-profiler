@@ -31,8 +31,8 @@ from tokenbill.trace import Call, Run
 
 SEED = 7
 CHARS_PER_TOKEN = 3.7
-IN_RATE = 3.00  # claude-sonnet-5 $/MTok input
-OUT_RATE = 15.00  # claude-sonnet-5 $/MTok output
+IN_RATE = 2.00  # claude-sonnet-5 $/MTok input
+OUT_RATE = 10.00  # claude-sonnet-5 $/MTok output
 READ_MULT = 0.10
 WRITE_MULT = 1.25
 MIN_CACHEABLE = 1_024  # claude-sonnet-5 minimum cacheable prefix, approx tokens
@@ -240,7 +240,7 @@ def test_timestamp_recovers_planted_volatile_system() -> None:
     billed_usd = results["as-billed"].dollars
     fixed_usd = results["fixed-cache"].dollars
     assert billed_usd is not None and fixed_usd is not None
-    # As billed: every input token uncached at $3/MTok plus outputs at $15/MTok.
+    # As billed: every input token uncached at $2/MTok plus outputs at $10/MTok.
     expected_billed = sum(
         (call.usage.total_input * IN_RATE + call.usage.output_tokens * OUT_RATE) / MTOK
         for call in calls
