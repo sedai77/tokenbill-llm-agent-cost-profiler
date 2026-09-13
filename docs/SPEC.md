@@ -190,29 +190,33 @@ class ModelPricing:
 PRICING: dict[str, ModelPricing]  # keyed by model id; source comment per entry
 ```
 
-Authoritative values (verified 2026-07; keep a "verify before each release" comment
+Authoritative values (verified 2026-09; keep a "verify before each release" comment
 + the doc URL https://platform.claude.com/docs/en/about-claude/pricing.md):
 
 | model | in/MTok | out/MTok | min cacheable prefix |
 |---|---|---|---|
+| claude-fable-5-1 | 10.00 | 50.00 | 512 (cache read multiplier 0.025) |
 | claude-opus-5 | 5.00 | 25.00 | 512 |
 | claude-fable-5 | 10.00 | 50.00 | 512 |
 | claude-opus-4-8 | 5.00 | 25.00 | 1024 |
 | claude-opus-4-7 | 5.00 | 25.00 | 2048 |
 | claude-opus-4-6 | 5.00 | 25.00 | 4096 |
-| claude-sonnet-5 | 3.00 | 15.00 | 1024 |
+| claude-sonnet-5 | 2.00 | 10.00 | 1024 |
 | claude-sonnet-4-6 | 3.00 | 15.00 | 1024 |
 | claude-haiku-4-5 | 1.00 | 5.00 | 4096 |
 
+`pricing_for(model) -> ModelPricing | None` is the only lookup path: exact id
+first, else a dated snapshot id (`-YYYYMMDD` or Vertex `@YYYYMMDD`) resolves to
+its base model's row. Simulator and breakers use it too, so snapshots get the
+base model's rates AND min-cacheable gate.
 `price_usd(model, usage) -> float | None` (None + a warning for unknown models,
 logged ONCE per model id, not per lookup — never crash; tokens still reported).
 `cost_breakdown(model, usage) -> dict[str, float]` (uncached/write/read/output
 dollars).
 
-Rate caveat: claude-sonnet-5 carries introductory billing ($2.00/$10.00 per MTok)
-through 2026-08-31; the table deliberately pins the standard $3.00/$15.00 rates
-above, and the report's pricing footnote must disclose that sonnet-5 dollar
-figures can overstate real bills during the introductory window.
+Rate note: claude-sonnet-5's $2.00/$10.00 launch rate became the standard price
+(the scheduled 2026-09-01 increase was cancelled); claude-fable-5-1 cache reads
+are 0.025x base input ($0.25/MTok), every other model 0.10x.
 
 Cache-rule constants (same file, same sourcing):
 `CACHE_TTL_SECONDS = 300`, `TTL_REFRESH_ON_READ = True` (documented assumption with

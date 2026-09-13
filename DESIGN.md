@@ -180,25 +180,25 @@ source comments):
 | Breakpoint policy | One breakpoint, end of messages, every call | Simulator's choice: optimal placement. Providers allow up to `MAX_BREAKPOINTS = 4`; the cap is not binding for this single-breakpoint policy. |
 | Minimum cacheable prefix | Per model, 512–4096 tokens (table below) | Documented. |
 | Cache write premium | 1.25× base input (5-minute-TTL writes) | Documented. |
-| Cache read rate | 0.10× base input | Documented. |
+| Cache read rate | 0.10× base input (0.025× on claude-fable-5-1) | Documented. |
 | Prefix matching | Byte-identical canonical rendering, tools → system → messages | Documented render order; rendering is our model (§2). |
 
-Pricing table (verified 2026-07 against
+Pricing table (verified 2026-09 against
 <https://platform.claude.com/docs/en/about-claude/pricing.md>; re-verified before each
-release — see `tokenbill/pricing.py`). One known deviation, stated rather than
-hidden: claude-sonnet-5 carries *introductory* billing ($2.00/$10.00 per MTok)
-through 2026-08-31; the table deliberately uses the standard rates below, so
-sonnet-5 dollar figures can overstate real bills during that window — the
-report's pricing footnote discloses this:
+release — see `tokenbill/pricing.py`). claude-sonnet-5's $2.00/$10.00 launch
+rate is now its standard price. Dated snapshot ids (`claude-haiku-4-5-20251001`,
+Vertex-style `claude-sonnet-4-6@20260101`) resolve to their base model's row —
+rates and minimum cacheable prefix both:
 
 | model | $/MTok in | $/MTok out | min cacheable prefix |
 | --- | --- | --- | --- |
+| claude-fable-5-1 | 10.00 | 50.00 | 512 |
 | claude-opus-5 | 5.00 | 25.00 | 512 |
 | claude-fable-5 | 10.00 | 50.00 | 512 |
 | claude-opus-4-8 | 5.00 | 25.00 | 1024 |
 | claude-opus-4-7 | 5.00 | 25.00 | 2048 |
 | claude-opus-4-6 | 5.00 | 25.00 | 4096 |
-| claude-sonnet-5 | 3.00 | 15.00 | 1024 |
+| claude-sonnet-5 | 2.00 | 10.00 | 1024 |
 | claude-sonnet-4-6 | 3.00 | 15.00 | 1024 |
 | claude-haiku-4-5 | 1.00 | 5.00 | 4096 |
 

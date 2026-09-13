@@ -6,11 +6,9 @@ is **exact** with respect to billed usage: Token Bill multiplies real billed
 token counts by these published rates. What is approximate elsewhere in the
 pipeline (char-based attribution) is labeled there — never here.
 
-Known deliberate deviation: ``claude-sonnet-5`` has *introductory* billing
-($2.00 in / $10.00 out per MTok) in effect through 2026-08-31; this table
-carries the standard $3.00/$15.00 rates the SPEC pins, so sonnet-5 dollar
-figures can overstate real bills during the introductory window. The report's
-pricing footnote states this.
+Model ids resolve through :func:`pricing_for`: an exact table entry wins, and
+otherwise a dated snapshot id (``claude-haiku-4-5-20251001``, or Vertex-style
+``claude-sonnet-4-6@20260101``) is priced as its base model.
 
 Verify the tables against the source before each release:
 https://platform.claude.com/docs/en/about-claude/pricing.md
@@ -19,6 +17,7 @@ https://platform.claude.com/docs/en/about-claude/pricing.md
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -44,10 +43,15 @@ class ModelPricing:
     min_cacheable_prefix_tokens: int = 1024
 
 
-# Source: https://platform.claude.com/docs/en/about-claude/pricing.md — verified 2026-07.
+# Source: https://platform.claude.com/docs/en/about-claude/pricing.md — verified 2026-09.
 # VERIFY BEFORE EACH RELEASE: rates and minimum cacheable prefix lengths change
 # between model generations; re-check every row against the doc above.
 PRICING: dict[str, ModelPricing] = {
+    # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-09).
+    # Cache hits are $0.25/MTok: 0.025x base input, not the standard 0.10x.
+    "claude-fable-5-1": ModelPricing(
+        10.00, 50.00, cache_read_multiplier=0.025, min_cacheable_prefix_tokens=512
+    ),
     # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07)
     "claude-opus-5": ModelPricing(5.00, 25.00, min_cacheable_prefix_tokens=512),
     # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07)
@@ -58,11 +62,10 @@ PRICING: dict[str, ModelPricing] = {
     "claude-opus-4-7": ModelPricing(5.00, 25.00, min_cacheable_prefix_tokens=2048),
     # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07)
     "claude-opus-4-6": ModelPricing(5.00, 25.00, min_cacheable_prefix_tokens=4096),
-    # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07).
-    # Introductory pricing of $2.00/$10.00 per MTok applies through
-    # 2026-08-31; the standard rates below are used deliberately (see module
-    # docstring) — sonnet-5 dollars can overstate bills until then.
-    "claude-sonnet-5": ModelPricing(3.00, 15.00, min_cacheable_prefix_tokens=1024),
+    # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-09).
+    # The $2.00/$10.00 launch rate is now the standard price; the scheduled
+    # 2026-09-01 increase to $3.00/$15.00 was cancelled.
+    "claude-sonnet-5": ModelPricing(2.00, 10.00, min_cacheable_prefix_tokens=1024),
     # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07)
     "claude-sonnet-4-6": ModelPricing(3.00, 15.00, min_cacheable_prefix_tokens=1024),
     # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07)
@@ -88,16 +91,34 @@ _MTOK = 1_000_000
 #: unknown-model warning per model id, not one per lookup.
 _warned_models: set[str] = set()
 
+#: Dated snapshot suffix: ``-YYYYMMDD`` (first-party) or ``@YYYYMMDD`` (Vertex).
+_SNAPSHOT_SUFFIX = re.compile(r"[-@]\d{8}$")
+
+
+def pricing_for(model: str) -> ModelPricing | None:
+    """The :data:`PRICING` row for *model*, or ``None`` when unknown.
+
+    An exact entry wins (so a ``--model-price`` for a dated id is honored);
+    otherwise a dated snapshot id resolves to its base model's row — a
+    snapshot is billed and cache-gated exactly like the model it pins.
+    """
+    entry = PRICING.get(model)
+    if entry is None:
+        base = _SNAPSHOT_SUFFIX.sub("", model)
+        if base != model:
+            entry = PRICING.get(base)
+    return entry
+
 
 def cost_breakdown(model: str, usage: Usage) -> dict[str, float] | None:
     """Billed dollars by category for one call: exact, from real usage.
 
     Returns ``{"uncached": ..., "write": ..., "read": ..., "output": ...}``
     in USD, or ``None`` (with a warning logged once per unknown model) when
-    *model* is not in :data:`PRICING` — never crash; token counts are still
+    :func:`pricing_for` finds no row — never crash; token counts are still
     reported upstream.
     """
-    pricing = PRICING.get(model)
+    pricing = pricing_for(model)
     if pricing is None:
         if model not in _warned_models:
             _warned_models.add(model)

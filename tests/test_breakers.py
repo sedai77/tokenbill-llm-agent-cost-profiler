@@ -252,6 +252,16 @@ def test_no_missing_breakpoint_below_min_cacheable_prefix() -> None:
     assert detect(run) == []
 
 
+def test_missing_breakpoint_gate_uses_snapshot_ids_base_model() -> None:
+    # ~1,400 approx tokens clears sonnet-5's 1,024 gate but not haiku-4-5's
+    # 4,096. A dated haiku id must use haiku's gate, not the 1,024 fallback.
+    run = run_of(
+        make_call(0, model="claude-haiku-4-5-20251001", breakpoints=0),
+        make_call(1, model="claude-haiku-4-5-20251001", breakpoints=0),
+    )
+    assert detect(run) == []
+
+
 def test_recurring_cause_collapses_to_first_occurrence() -> None:
     calls = [
         make_call(i, system=f"{BIG_SYSTEM}\nnow={1_784_037_780 + i}\n") for i in range(5)
