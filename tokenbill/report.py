@@ -628,11 +628,10 @@ def render_report(
         "documented cache rules; fixed-cache = optimal-cache after neutralizing the "
         "detected breakers.</li>",
         f"<li><strong>Pricing.</strong> Bundled table shipped with tokenbill "
-        f'{__version__}, verified 2026-07 against <a href="{PRICING_DOC_URL}">the '
-        "provider price list</a>. claude-sonnet-5 is billed at introductory rates "
-        "($2/$10 per MTok) through 2026-08-31; this table uses the standard $3/$15 "
-        "rates, so sonnet-5 dollar figures can overstate real bills during that "
-        "window. Re-verify before release-grade accounting.</li>",
+        f'{__version__}, verified 2026-09 against <a href="{PRICING_DOC_URL}">the '
+        "provider price list</a>. Cache reads are 0.10× base input (0.025× on "
+        "claude-fable-5-1); dated snapshot ids are priced as their base model. "
+        "Re-verify before release-grade accounting.</li>",
     ]
 
     doc = f"""<!DOCTYPE html>

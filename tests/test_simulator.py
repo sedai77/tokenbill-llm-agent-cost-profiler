@@ -9,7 +9,7 @@ import pytest
 from tokenbill.simulator import SCENARIO_NAMES, simulate
 from tokenbill.trace import Call, Run, Usage, rendered_text
 
-MODEL = "claude-sonnet-5"  # $3/MTok in, $15/MTok out, min cacheable 1024 approx tokens
+MODEL = "claude-sonnet-5"  # $2/MTok in, $10/MTok out, min cacheable 1024 approx tokens
 MTOK = 1_000_000
 
 # ~5,180 chars -> ~1,400 approx tokens: comfortably over the 1,024-token
@@ -92,9 +92,9 @@ def test_as_billed_is_exact_billed_usage_times_rates() -> None:
         "output": 100,
         "total_input": 2_150,
     }
-    # 150 uncached x $3 + 1,100 writes x $3 x 1.25 + 900 reads x $3 x 0.10
-    # + 100 output x $15, all per MTok.
-    expected = (150 * 3.0 + 1_100 * 3.0 * 1.25 + 900 * 3.0 * 0.10 + 100 * 15.0) / MTOK
+    # 150 uncached x $2 + 1,100 writes x $2 x 1.25 + 900 reads x $2 x 0.10
+    # + 100 output x $10, all per MTok.
+    expected = (150 * 2.0 + 1_100 * 2.0 * 1.25 + 900 * 2.0 * 0.10 + 100 * 10.0) / MTOK
     assert as_billed.dollars == pytest.approx(expected, rel=1e-12)
     assert "exact" in as_billed.note
 
@@ -113,8 +113,8 @@ def test_no_cache_reprices_all_input_at_full_rate() -> None:
         "output": 25,
         "total_input": 1_000,
     }
-    # All 1,000 input tokens at the full $3/MTok rate — no write premium, no reads.
-    assert no_cache.dollars == pytest.approx((1_000 * 3.0 + 25 * 15.0) / MTOK, rel=1e-12)
+    # All 1,000 input tokens at the full $2/MTok rate — no write premium, no reads.
+    assert no_cache.dollars == pytest.approx((1_000 * 2.0 + 25 * 10.0) / MTOK, rel=1e-12)
 
 
 def test_optimal_replay_reads_prefix_and_writes_extension() -> None:
@@ -140,7 +140,7 @@ def test_optimal_replay_reads_prefix_and_writes_extension() -> None:
         "total_input": total0 + total1,
     }
     expected = (
-        total0 * 3.0 * 1.25 + write1 * 3.0 + read1 * 3.0 * 0.10 + 80 * 15.0
+        total0 * 2.0 * 1.25 + write1 * 2.0 + read1 * 2.0 * 0.10 + 80 * 10.0
     ) / MTOK
     assert optimal.dollars == pytest.approx(expected, rel=1e-9)
     assert "approx" in optimal.note
@@ -208,6 +208,19 @@ def test_unknown_model_reports_tokens_without_dollars() -> None:
         assert result.dollars is None
         assert result.tokens["total_input"] == 2_100
         assert "dollars omitted" in result.note
+
+
+def test_snapshot_model_id_prices_like_its_base_model() -> None:
+    # A recorded trace carries whatever id the caller passed — often a dated
+    # snapshot. It must be priced (and gated) exactly like the base model.
+    base = [make_call(i) for i in range(3)]
+    dated = [make_call(i, model=f"{MODEL}-20260101") for i in range(3)]
+    for base_result, dated_result in zip(
+        simulate(run_of(*base)), simulate(run_of(*dated)), strict=True
+    ):
+        assert dated_result.dollars is not None
+        assert dated_result.dollars == pytest.approx(base_result.dollars, rel=1e-12)
+        assert dated_result.tokens == base_result.tokens
 
 
 def test_fixed_cache_uses_repaired_calls() -> None:

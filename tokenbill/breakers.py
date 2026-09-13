@@ -38,7 +38,7 @@ import re
 from dataclasses import dataclass, replace
 
 from tokenbill.common import canonical_json
-from tokenbill.pricing import PRICING, ModelPricing
+from tokenbill.pricing import ModelPricing, pricing_for
 
 # _as_billed/_replay are simulator internals shared within the package: the
 # per-breaker estimate needs exactly one as-billed total per run and one
@@ -249,7 +249,7 @@ def _classify_pair(prev: Call, cur: Call, first_seen_tools: list[str]) -> tuple[
         and usage.cache_read_input_tokens == 0
         and usage.cache_creation_input_tokens == 0
     ):
-        limits = PRICING.get(cur.model) or _DEFAULT_LIMITS
+        limits = pricing_for(cur.model) or _DEFAULT_LIMITS
         prev_text = rendered_text(prev)
         shared_chars = min(len(prev_text), len(rendered_text(cur)))
         prefix_tokens = approx_tokens(prev_text[:shared_chars])

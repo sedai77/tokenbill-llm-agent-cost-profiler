@@ -46,10 +46,10 @@ from dataclasses import dataclass, replace
 
 from tokenbill.pricing import (
     CACHE_TTL_SECONDS,
-    PRICING,
     TTL_REFRESH_ON_READ,
     ModelPricing,
     price_usd,
+    pricing_for,
 )
 from tokenbill.trace import Call, Run, approx_tokens, rendered_text
 
@@ -127,7 +127,7 @@ def _no_cache(calls: Sequence[Call]) -> ScenarioResult:
         tokens["uncached"] += usage.total_input
         tokens["output"] += usage.output_tokens
         tokens["total_input"] += usage.total_input
-        pricing = PRICING.get(call.model)
+        pricing = pricing_for(call.model)
         if pricing is None:
             dollars = None
         elif dollars is not None:
@@ -162,7 +162,7 @@ def _replay(calls: Sequence[Call], name: str, note: str) -> ScenarioResult:
     billing: list[tuple[ModelPricing | None, int, int, int, bool, int | None]] = []
     productive: set[int] = set()  # write positions whose entry a later call read
     for pos, call in enumerate(sorted(calls, key=lambda c: (c.ts, c.index))):
-        pricing = PRICING.get(call.model)
+        pricing = pricing_for(call.model)
         limits = pricing if pricing is not None else _DEFAULT_LIMITS
         text = rendered_text(call)
         chars = len(text)

@@ -25,32 +25,73 @@ class _Usage:
 
 
 # The authoritative table from docs/SPEC.md (source: platform.claude.com
-# pricing doc, verified 2026-07). A drift here must fail loudly.
+# pricing doc, verified 2026-09). A drift here must fail loudly.
+# model: (input $/MTok, output $/MTok, min cacheable prefix, cache read multiplier)
 SPEC_TABLE = {
-    "claude-opus-5": (5.00, 25.00, 512),
-    "claude-fable-5": (10.00, 50.00, 512),
-    "claude-opus-4-8": (5.00, 25.00, 1024),
-    "claude-opus-4-7": (5.00, 25.00, 2048),
-    "claude-opus-4-6": (5.00, 25.00, 4096),
-    "claude-sonnet-5": (3.00, 15.00, 1024),
-    "claude-sonnet-4-6": (3.00, 15.00, 1024),
-    "claude-haiku-4-5": (1.00, 5.00, 4096),
+    "claude-fable-5-1": (10.00, 50.00, 512, 0.025),
+    "claude-opus-5": (5.00, 25.00, 512, 0.10),
+    "claude-fable-5": (10.00, 50.00, 512, 0.10),
+    "claude-opus-4-8": (5.00, 25.00, 1024, 0.10),
+    "claude-opus-4-7": (5.00, 25.00, 2048, 0.10),
+    "claude-opus-4-6": (5.00, 25.00, 4096, 0.10),
+    "claude-sonnet-5": (2.00, 10.00, 1024, 0.10),
+    "claude-sonnet-4-6": (3.00, 15.00, 1024, 0.10),
+    "claude-haiku-4-5": (1.00, 5.00, 4096, 0.10),
 }
 
 
 def test_pricing_table_matches_spec_exactly() -> None:
     assert set(pricing.PRICING) == set(SPEC_TABLE)
-    for model, (input_rate, output_rate, min_prefix) in SPEC_TABLE.items():
+    for model, (input_rate, output_rate, min_prefix, read_mult) in SPEC_TABLE.items():
         entry = pricing.PRICING[model]
         assert entry.input_per_mtok == input_rate, model
         assert entry.output_per_mtok == output_rate, model
         assert entry.min_cacheable_prefix_tokens == min_prefix, model
+        assert entry.cache_read_multiplier == read_mult, model
 
 
-def test_cache_multiplier_defaults_apply_to_every_entry() -> None:
+def test_cache_write_multiplier_applies_to_every_entry() -> None:
     for model, entry in pricing.PRICING.items():
         assert entry.cache_write_multiplier == 1.25, model
-        assert entry.cache_read_multiplier == 0.10, model
+
+
+def test_fable_5_1_cache_reads_at_0_025x() -> None:
+    # Published: Fable 5.1 cache hits are $0.25/MTok (0.025x of $10), not 0.10x.
+    usage = _Usage(cache_read_input_tokens=1_000_000)
+    breakdown = pricing.cost_breakdown("claude-fable-5-1", usage)
+    assert breakdown is not None
+    assert breakdown["read"] == pytest.approx(0.25)
+
+
+@pytest.mark.parametrize(
+    ("model", "base"),
+    [
+        ("claude-haiku-4-5-20251001", "claude-haiku-4-5"),  # dated snapshot id
+        ("claude-sonnet-4-6@20260101", "claude-sonnet-4-6"),  # Vertex-style snapshot id
+    ],
+)
+def test_snapshot_ids_resolve_to_base_model(
+    model: str, base: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    usage = _Usage(input_tokens=1_000_000, output_tokens=1_000_000)
+    with caplog.at_level(logging.WARNING, logger="tokenbill.pricing"):
+        assert pricing.pricing_for(model) is pricing.PRICING[base]
+        assert pricing.price_usd(model, usage) == pytest.approx(pricing.price_usd(base, usage))
+    assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def test_snapshot_suffix_on_unknown_model_stays_unknown() -> None:
+    assert pricing.pricing_for("gpt-oss-999-20251001") is None
+
+
+def test_exact_entry_wins_over_snapshot_resolution() -> None:
+    # A user-supplied --model-price for a dated id must not be shadowed by the base row.
+    custom = pricing.ModelPricing(input_per_mtok=7.0, output_per_mtok=8.0)
+    pricing.PRICING["claude-haiku-4-5-20990101"] = custom
+    try:
+        assert pricing.pricing_for("claude-haiku-4-5-20990101") is custom
+    finally:
+        pricing.PRICING.pop("claude-haiku-4-5-20990101")
 
 
 def test_cache_rule_constants() -> None:
@@ -69,10 +110,10 @@ def test_cost_breakdown_arithmetic_sonnet_5() -> None:
     )
     breakdown = pricing.cost_breakdown("claude-sonnet-5", usage)
     assert breakdown is not None
-    assert breakdown["uncached"] == pytest.approx(3.00)
-    assert breakdown["write"] == pytest.approx(3.00 * 1.25)  # 3.75
-    assert breakdown["read"] == pytest.approx(3.00 * 0.10)  # 0.30
-    assert breakdown["output"] == pytest.approx(15.00)
+    assert breakdown["uncached"] == pytest.approx(2.00)
+    assert breakdown["write"] == pytest.approx(2.00 * 1.25)  # 2.50
+    assert breakdown["read"] == pytest.approx(2.00 * 0.10)  # 0.20
+    assert breakdown["output"] == pytest.approx(10.00)
     assert set(breakdown) == {"uncached", "write", "read", "output"}
 
 
