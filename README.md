@@ -1,43 +1,69 @@
 # Token Bill
 
-> Why is your agent bill so high? Profile the trace, find the cache breakers,
-> get your money back.
+> Why is your AI agent bill so high? Token Bill reads a log of your agent's API
+> calls and shows you, in dollars, what was wasted and the exact line to fix.
 
 [![CI](https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/actions/workflows/ci.yml/badge.svg)](https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/tokenbill)](https://pypi.org/project/tokenbill/)
 [![Python versions](https://img.shields.io/pypi/pyversions/tokenbill)](https://pypi.org/project/tokenbill/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-An agent loop re-sends nearly its entire prompt on every step: the same system
-prompt, the same tool definitions, the whole conversation so far, plus one new
-turn. Whether that re-sent prefix is billed at the cache-read rate (10% of
-base input) or at full price is the difference between a cheap run and an
-expensive one — and it hinges on byte-level details your framework never shows
-you: a timestamp interpolated into the system prompt, a tool list that changes
-order, a missing cache breakpoint.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/sedai77/tokenbill-llm-agent-cost-profiler/main/docs/images/report-overview.png" width="820"
+       alt="Token Bill HTML report: the headline waste figure, a per-call token chart, the cost of the run under four scenarios, and a detected cache breaker with its fix">
+  <br>
+  <sub>A Token Bill report for one run of the bundled demo (synthetic data; no API key needed).</sub>
+</p>
 
-Token Bill is an LLM cost optimization and agent observability tool for
-exactly this. Given a **trace** — the sequence of API calls one agent run
-made, with real billed usage — it produces:
+## The problem, in plain English
 
-1. **Token waterfalls** — where the token usage went, per call and per run:
-   cache reads vs. cache writes vs. uncached input vs. output, in tokens and
-   dollars, from the trace's real `usage`.
-2. **Redundancy analysis** — what fraction of billed input tokens re-sent
-   byte-identical prefix the model had already seen, *without* getting the
-   cache-read price for it.
-3. **Cache simulation** — the same run priced under four scenarios (as-billed,
-   no-cache, optimal-cache, fixed-cache) using the provider's documented
-   prompt caching rules.
-4. **Cache-breaker detection** — the exact orchestration choice killing your
-   cache hit rate, classified by cause, with a one-sentence fix and the
-   dollars it recovers.
-5. A **single-file HTML report** (inline SVG, no external resources) plus an
-   aligned terminal summary.
+An AI agent works in a loop. On every step it sends the model **the whole
+conversation so far**: its instructions, its list of tools, every earlier
+message, plus one new line. A 20-step task pays to send almost the same text
+20 times.
 
-Zero runtime dependencies — pure Python standard library, no optional extras,
-Python 3.10+. v0.1 models the Anthropic prompt cache; the trace schema is
-provider-neutral (adapters welcome — see roadmap).
+Anthropic softens this with a discount called the **prompt cache**. Text the
+model saw in the last few minutes costs **a tenth of the normal price** (or
+less, on some models) to send again. The catch: the discount only applies
+while the start of the request is **exactly** the same as last time, character
+for character. Change one character near the top and everything after it is
+billed at full price again.
+
+Think of a print shop that gives you 90% off reprinting any page it printed a
+few minutes ago, as long as every page before it is unchanged. Put today's
+time on page 1, and every page in the stack costs full price.
+
+The usual causes are small and easy to miss:
+
+- **A clock time or random ID** in the agent's instructions (`Current time: 14:03:07`)
+- **The tool list changing order** between steps
+- **Caching never switched on** for the request
+- **Editing earlier messages**, or **switching models** partway through
+
+Nothing warns you. The bill is just higher than it should be.
+
+## What Token Bill tells you
+
+Point it at a trace (a log of the API calls one agent run made, with the usage
+the API billed) and it reports:
+
+1. **Where the money went.** Each call split into cached text, full-price
+   text, and output, in tokens and dollars, straight from what you were billed.
+2. **How much was wasted.** The share of input you paid full price to send again.
+3. **What broke the discount, and what fixing it is worth.** The cause, the
+   step where it started, a one-sentence fix, and the dollars that fix recovers.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/sedai77/tokenbill-llm-agent-cost-profiler/main/docs/images/report-breakers.png" width="820"
+       alt="Three cache breakers detected in the demo: a timestamp in the system prompt, a tool list that changes order, and a missing cache breakpoint, each with its fix and estimated dollars recovered">
+</p>
+
+Everything runs on your machine: no account, no network, no dependencies beyond
+Python 3.10+. v0.1 covers Anthropic's prompt cache; the trace format itself is
+provider-neutral (adapters welcome, see the roadmap).
+
+Token Bill is an independent open-source project, not affiliated with or
+endorsed by Anthropic.
 
 ## 60-second start (no keys, no network)
 
@@ -54,14 +80,19 @@ tokenbill demo
 > `uv tool install tokenbill` — uv brings its own Python, and `tokenbill` is on
 > your PATH from then on.
 
-The demo runs the entire pipeline on four bundled synthetic agent scenarios
-with *planted* waste — a volatile system prompt, churning tool order, a
-missing breakpoint, and one well-behaved control — then finds exactly what was
-planted. No API key, no network, no other package. It prints the summary,
-including the headline sentence pairing the redundancy fraction with the
-dollars the fixes recover; add `-o report.html` for the HTML report. Actual
-output, trimmed to one of the four runs (the demo is deterministic, so your
-numbers will match):
+The demo runs the whole pipeline on four made-up agent runs with problems
+*planted* in them (a timestamp in the instructions, a shuffling tool list,
+caching never switched on) plus one healthy run for comparison, then finds
+exactly what was planted. No API key, no network, no other package. Add
+`-o report.html` to also get the HTML report shown above.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/sedai77/tokenbill-llm-agent-cost-profiler/main/docs/images/terminal-demo.png" width="820"
+       alt="Terminal output of tokenbill demo: a headline saying 43% of input tokens were re-sent and the fixes recover $0.26 of $0.41, then one run's token and dollar breakdown and a volatile-system breaker with its fix">
+</p>
+
+<details>
+<summary>The same output as text (trimmed to one of the four runs; the demo is deterministic, so your numbers will match)</summary>
 
 ```text
 ~43% of billed input tokens went to re-sending bytes the model had already seen; the three fixes below recover an estimated $0.26 of $0.41.
@@ -92,6 +123,8 @@ Run demo-timestamp-seed7
 
 approx (~): char-based attribution scaled to billed totals; dollar and token totals come from real billed usage.
 ```
+
+</details>
 
 ## Your first real trace (5 minutes, ~$0.05)
 
