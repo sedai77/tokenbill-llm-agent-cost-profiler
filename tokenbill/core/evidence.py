@@ -1,10 +1,8 @@
 """Published constants with sources (SPEC §3.17), read from ``core/facts.json``.
 
-Each constant is an :class:`EvidenceConstant` ``(value, source_url, finding_id, checked_on)``.
-These are
-published benchmarks and documented defaults, never fleet predictions; outputs that show one show
-its
-source and date (SPEC §1.2 rule 6).
+Each constant is an :class:`EvidenceConstant` ``(value, source_url, finding_id, checked_on)``. These
+are published benchmarks and documented defaults, never fleet predictions; outputs that show one
+show its source and date (SPEC §1.2 rule 6).
 """
 
 from __future__ import annotations

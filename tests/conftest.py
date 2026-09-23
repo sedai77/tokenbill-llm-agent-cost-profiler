@@ -1,14 +1,12 @@
 """Suite-wide guards (SPEC §8.9, F-CORE).
 
 * An autouse **socket guard** refuses every connection to a non-loopback address:
-``socket.connect`` /
-  ``connect_ex`` / ``sendto``, ``socket.create_connection`` and ``socket.getaddrinfo`` of a
-  non-local
-  host raise :class:`NetworkBlocked`. Loopback (127.0.0.0/8, ::1, ``localhost``), ``AF_UNIX`` and
-  ``socket.socketpair()`` stay allowed — asyncio's Windows event loop uses a loopback socketpair. A
-  blocked attempt also fails the test at teardown, even when the code under test swallowed the
-  error.
-  Tests that provoke a block on purpose call ``socket_guard.clear()`` afterwards.
+  ``socket.connect`` / ``connect_ex`` / ``sendto``, ``socket.create_connection`` and
+  ``socket.getaddrinfo`` of a non-local host raise :class:`NetworkBlocked`. Loopback
+  (127.0.0.0/8, ::1, ``localhost``), ``AF_UNIX`` and ``socket.socketpair()`` stay allowed —
+  asyncio's Windows event loop uses a loopback socketpair. A blocked attempt also fails the test
+  at teardown, even when the code under test swallowed the error. Tests that provoke a block on
+  purpose call ``socket_guard.clear()`` afterwards.
 * Markers (registered in pyproject.toml): ``perf`` (excluded by default), ``slow``, ``gate``,
   ``needs_ssh_keygen`` (skipped without ``ssh-keygen`` on PATH), ``local_corpus`` (skipped unless
   ``TOKENBILL_LOCAL_CORPUS=1``).

@@ -3,8 +3,8 @@
 Every record is a frozen, slotted dataclass validated in ``__post_init__``: token counts are ``int``
 in ``[0, 2**53]``, enum-typed fields are coerced to their enum (a plain value string is accepted),
 list-typed inputs are converted to tuples, and pair tuples that the SPEC declares "sorted" are
-sorted.
-Any violation raises :class:`~tokenbill.core.errors.ContractViolation` with a content-free message.
+sorted. Any violation raises :class:`~tokenbill.core.errors.ContractViolation` with a content-free
+message.
 
 ``to_json`` / ``from_json`` give a lossless JSON round trip for every record (and every dataclass of
 ``core.types``): enums by value, tuples as lists, ``Decimal`` as a decimal string, frozensets as
@@ -1044,8 +1044,7 @@ class CostLine:
 @dataclass(frozen=True, slots=True)
 class OutcomeAggregate:
     """Team-level outcome/productivity counts (Claude Code Analytics), aggregated at ingest with k
-    ≥ 5.
-    Never stored per principal. Used only as a quality guardrail and for active-developer-day
+    ≥ 5. Never stored per principal. Used only as a quality guardrail and for active-developer-day
     counts."""
 
     date_utc: str
@@ -1336,8 +1335,7 @@ def from_json(cls: type, d: Mapping[str, Any]) -> Any:
     """Decode *d* (as produced by :func:`to_json`) into an instance of the dataclass *cls*.
 
     Unknown keys, missing required keys and mistyped values raise ``ContractViolation``
-    (content-free),
-    as do the record's own ``__post_init__`` invariants.
+    (content-free), as do the record's own ``__post_init__`` invariants.
     """
     if not (isinstance(cls, type) and dataclasses.is_dataclass(cls)):
         raise TypeError("from_json expects a dataclass type")

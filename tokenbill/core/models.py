@@ -1,14 +1,12 @@
 """Model-id normalization (SPEC §3.12).
 
 Rules, in order: strip whitespace; ``<synthetic>`` → not priceable; Claude Code config aliases
-(``opus``, ``sonnet``, ``haiku``, ``fable``, ``opusplan``, ``default``, also with a ``[1m]``
-suffix) → not
-priceable; strip a trailing ``[1m]``; the Bedrock form ``[<geo>.]anthropic.<model>[-v<N>[:<M>]]``
-(ARN
-prefixes allowed) → channel hint bedrock, scope ``global`` for the ``global.`` profile else
-``regional``;
-the Vertex form ``<model>@<YYYYMMDD|latest>`` (``publishers/anthropic/models/`` prefixes allowed) →
-channel hint vertex, scope ``unknown``; a trailing ``-YYYYMMDD`` snapshot suffix is removed.
+(``opus``, ``sonnet``, ``haiku``, ``fable``, ``opusplan``, ``default``, also with a ``[1m]`` suffix)
+→ not priceable; strip a trailing ``[1m]``; the Bedrock form
+``[<geo>.]anthropic.<model>[-v<N>[:<M>]]`` (ARN prefixes allowed) → channel hint bedrock, scope
+``global`` for the ``global.`` profile else ``regional``; the Vertex form
+``<model>@<YYYYMMDD|latest>`` (``publishers/anthropic/models/`` prefixes allowed) → channel hint
+vertex, scope ``unknown``; a trailing ``-YYYYMMDD`` snapshot suffix is removed.
 
 The Bedrock version suffix is optional because current Bedrock ids carry none
 (``anthropic.claude-opus-5-5``; models overview, verified 2026-09-23); the geo → scope mapping is
@@ -53,8 +51,7 @@ def normalize_model(model_raw: str, provider_hint: str | None = None) -> ModelId
     """Normalize a reported model id to the canonical id used as ``PricingContext.model``.
 
     *provider_hint* ``"bedrock"`` / ``"vertex"`` sets the channel hint for plain ids reported by
-    those
-    channels (scope stays ``unknown``).
+    those channels (scope stays ``unknown``).
     """
     raw = (model_raw or "").strip() if isinstance(model_raw, str) else ""
     if not raw:

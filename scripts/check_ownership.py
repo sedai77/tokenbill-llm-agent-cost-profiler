@@ -7,13 +7,10 @@ Usage::
     python scripts/check_ownership.py --frozen-only --base origin/main
 
 Lists the files changed versus the merge base of ``--base`` and ``HEAD`` (committed, staged,
-unstaged
-and untracked; renames count as a delete plus an add, so moving a file checks both paths) and
-checks each
-against ``OWNERSHIP.toml``. Exit 0 when clean, 1 with one line per violation, 2 on usage errors.
-FROZEN files always violate, whatever the package. Stdlib only (Python >= 3.10: no ``tomllib``
-needed —
-a minimal parser for the subset OWNERSHIP.toml uses is included).
+unstaged and untracked; renames count as a delete plus an add, so moving a file checks both paths)
+and checks each against ``OWNERSHIP.toml``. Exit 0 when clean, 1 with one line per violation, 2 on
+usage errors. FROZEN files always violate, whatever the package. Stdlib only (Python >= 3.10: no
+``tomllib`` needed — a minimal parser for the subset OWNERSHIP.toml uses is included).
 """
 
 from __future__ import annotations

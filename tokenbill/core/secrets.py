@@ -1,8 +1,7 @@
 """Secret detection and redaction (SPEC §3.10, §8.6).
 
 Every tier reports **counts by type only** (``dq.secrets_observed``); values never leave this
-module.
-Specific detectors win over ``high_entropy`` when spans overlap.
+module. Specific detectors win over ``high_entropy`` when spans overlap.
 """
 
 from __future__ import annotations
@@ -51,13 +50,20 @@ def shannon_entropy(s: str) -> float:
     return -sum((c / n) * math.log2(c / n) for c in Counter(s).values())
 
 
+def _mixed_classes(s: str) -> bool:
+    """Upper case, lower case and digits all present: random base64 of ≥ 32 characters practically
+    always mixes them, while paths and identifiers (which share the alphabet) rarely do."""
+    return (any(c.isupper() for c in s) and any(c.islower() for c in s)
+            and any(c.isdigit() for c in s))
+
+
 def find_secrets(text: str) -> list[tuple[str, int, int]]:
     """``(type, start, end)`` spans of likely secrets in *text*, sorted by position.
 
     Types: ``anthropic_key``, ``openai_key``, ``aws_access_key``, ``github_token``, ``slack_token``,
     ``jwt``, ``pem_private_key`` and ``high_entropy`` (≥ 32 chars of a base64/hex alphabet with
-    Shannon
-    entropy ≥ 4.0 bits/char).
+    Shannon entropy ≥ 4.0 bits/char that mixes upper case, lower case and digits, so file paths and
+    identifiers do not match).
     """
     found: list[tuple[str, int, int]] = []
     taken: list[tuple[int, int]] = []
@@ -73,7 +79,8 @@ def find_secrets(text: str) -> list[tuple[str, int, int]]:
     for m in _ENTROPY_CANDIDATE.finditer(text):
         if overlaps(m.start(), m.end()):
             continue
-        if shannon_entropy(m.group()) >= _MIN_ENTROPY_BITS:
+        candidate = m.group()
+        if _mixed_classes(candidate) and shannon_entropy(candidate) >= _MIN_ENTROPY_BITS:
             found.append(("high_entropy", m.start(), m.end()))
             taken.append((m.start(), m.end()))
     found.sort(key=lambda t: (t[1], t[2], t[0]))

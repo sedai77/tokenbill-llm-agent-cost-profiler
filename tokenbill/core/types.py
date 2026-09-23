@@ -1,9 +1,8 @@
 """Shared result types (SPEC §3.5).
 
 Plain frozen dataclasses transcribed from the SPEC. Construction-time invariants that the SPEC
-states
-(``PublishedAggregate``'s publish token) are enforced; behavior owned by F-SEM (``Policy.spec()``,
-``Policy.combine()``) is delegated lazily to ``tokenbill.core.policy``.
+states (``PublishedAggregate``'s publish token) are enforced; behavior owned by F-SEM
+(``Policy.spec()``, ``Policy.combine()``) is delegated lazily to ``tokenbill.core.policy``.
 """
 
 from __future__ import annotations

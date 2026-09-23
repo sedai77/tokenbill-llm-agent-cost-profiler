@@ -123,8 +123,7 @@ def cents_to_nano(value: str | int) -> tuple[int, Decimal]:
     """Cents → ``(nano, remainder_usd)``: half-even to 1e-9 USD, ``remainder = exact − nano·1e-9``.
 
     ``|remainder| ≤ 5e-10``; RECON sums remainders into the ``cents_rounding`` residual. Never
-    raises on
-    many-decimal cents strings.
+    raises on many-decimal cents strings.
     """
     return _to_nano_with_remainder(from_cents(value))
 
@@ -147,14 +146,17 @@ def token_amount(tokens: int, usd_per_mtok: Decimal, *factors: Decimal) -> Decim
     """``tokens × usd_per_mtok × Π factors / 10**6`` in USD, exact under :data:`EXACT_CTX`.
 
     An inexact derivation raises ``decimal.Inexact`` (60 digits of precision make that a
-    malformed-input
-    signal).
+    malformed-input signal).
     """
     _check_type(tokens, (int,), "token_amount tokens")
     _check_type(usd_per_mtok, (Decimal,), "token_amount rate")
+    if not usd_per_mtok.is_finite():
+        raise ValueError("token_amount: NaN and infinity are not rates")
     amount = EXACT_CTX.multiply(Decimal(tokens), usd_per_mtok)
     for factor in factors:
         _check_type(factor, (Decimal,), "token_amount factor")
+        if not factor.is_finite():
+            raise ValueError("token_amount: NaN and infinity are not factors")
         amount = EXACT_CTX.multiply(amount, factor)
     return EXACT_CTX.divide(amount, Decimal(MTOK))
 

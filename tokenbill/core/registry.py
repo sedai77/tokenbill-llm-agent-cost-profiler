@@ -3,8 +3,8 @@
 Registration is by dotted paths fixed here; each owning package implements the class at exactly that
 path. Imports are lazy: a module that does not exist yet (its branch is not merged) raises
 ``ModuleNotFoundError`` only when that entry is requested explicitly; enumeration
-(``sniff_adapter``,
-``all_detectors``) skips it. Third-party entry points load only through ``load_plugins(True)``.
+(``sniff_adapter``, ``all_detectors``) skips it. Third-party entry points load only through
+``load_plugins(True)``.
 """
 
 from __future__ import annotations
@@ -276,11 +276,10 @@ def run_detectors(
 
     A detector whose ``requires`` is not a subset of ``ctx.capabilities`` does not run; with
     *emit_missing* it yields exactly one ``data-quality`` finding of kind ``missing-capabilities``
-    (no
-    dollars). The pipeline calls this per shard with ``emit_missing=False`` and once with no lanes
-    and
-    ``emit_missing=True``. Output is sorted by (−recoverable point or 0, detector_id, finding_id);
-    findings are returned unpublished (the caller applies ``core.kanon.rescope_findings``).
+    (no dollars). The pipeline calls this per shard with ``emit_missing=False`` and once with no
+    lanes and ``emit_missing=True``. Output is sorted by (−recoverable point or 0, detector_id,
+    finding_id); findings are returned unpublished (the caller applies
+    ``core.kanon.rescope_findings``).
     """
     detectors = all_detectors() if only is None else _explicit_detectors(only)
     findings: list[Finding] = []

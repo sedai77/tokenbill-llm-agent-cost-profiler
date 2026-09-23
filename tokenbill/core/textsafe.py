@@ -1,10 +1,8 @@
 """Terminal/output text hardening (SPEC §3.10, §8.7).
 
 ``sanitize`` removes ANSI escape sequences, C0 and C1 control characters (keeping ``\\n`` and
-``\\t``),
-DEL, and Unicode bidirectional overrides/isolates (a "Trojan source" defense for terminal output),
-then
-truncates with ``…``.
+``\\t``), DEL, and Unicode bidirectional overrides/isolates (a "Trojan source" defense for terminal
+output), then truncates with ``…``.
 """
 
 from __future__ import annotations
@@ -23,7 +21,7 @@ _ANSI_RE = re.compile(
     """,
     re.VERBOSE,
 )
-_CONTROL_RE = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f‪-‮⁦-⁩]")
+_CONTROL_RE = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
 _ELLIPSIS = "…"
 
 

@@ -99,12 +99,9 @@ CANARY_KEYS = frozenset(
 
 def plant_canary(obj: Any, *, keys: Iterable[str] | None = None) -> Any:
     """A deep copy of a JSON-like fixture with :data:`CANARY` appended to every string stored under
-    a
-    content key (:data:`CANARY_KEYS`, or *keys*), at any depth below it. A bare string gets the
-    canary
-    appended. Structural strings (``type``, ids, model names) outside content keys are left
-    untouched so
-    the fixture still parses."""
+    a content key (:data:`CANARY_KEYS`, or *keys*), at any depth below it. A bare string gets the
+    canary appended. Structural strings (``type``, ids, model names) outside content keys are left
+    untouched so the fixture still parses."""
     wanted = frozenset(keys) if keys is not None else CANARY_KEYS
 
     def walk(value: Any, planting: bool) -> Any:
@@ -266,10 +263,9 @@ def make_request(
     """One logical request with a single attempt whose serving inference carries *usage* on *model*.
 
     ``ctx_kw`` (``channel``, ``billing_path``, ``write_ttl_hint``, ``speed``, …) go to
-    :func:`make_ctx`; a
-    ``billing_path`` is mirrored into the attribution. *extra_inferences* precede the serving
-    inference
-    (e.g. a compaction iteration); *attempts* replaces the generated attempt entirely.
+    :func:`make_ctx`; a ``billing_path`` is mirrored into the attribution. *extra_inferences*
+    precede the serving inference (e.g. a compaction iteration); *attempts* replaces the generated
+    attempt entirely.
     """
     rid = request_id or stable_id("rq", lane_key, seq)
     if attribution is None:
@@ -554,11 +550,10 @@ def unit_rates_from(
 
 class FlatRates:
     """A ``Pricer`` with one flat rate card for every model: $1 input / $5 output per MTok, reads
-    ×0.1,
-    5m writes ×1.25, 1h writes ×2, other-TTL writes ×1.25, web search $0.01 per request, minimum
-    cacheable 1,024 tokens. Exact unit rates at scale 8. Basis LIST; the ``subscription`` billing
-    path
-    prices on LIST_EQUIVALENT (D26). Implements the per-line exactness table of SPEC §6.3.
+    ×0.1, 5m writes ×1.25, 1h writes ×2, other-TTL writes ×1.25, web search $0.01 per request,
+    minimum cacheable 1,024 tokens. Exact unit rates at scale 8. Basis LIST; the ``subscription``
+    billing path prices on LIST_EQUIVALENT (D26). Implements the per-line exactness table of SPEC
+    §6.3.
     """
 
     rate_card_sha256 = "flat"

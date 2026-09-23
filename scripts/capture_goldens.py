@@ -51,8 +51,8 @@ SCENARIO_SEED = 7
 def normalize(text: str, *, version: str, report_date: str) -> str:
     """Replace the version string and the report date with the golden placeholders.
 
-    The comparison test applies exactly this function to the current CLI's output (with the
-    current ``__version__`` and ``date.today().isoformat()``) before comparing bytes.
+    The comparison test applies exactly this function to the current CLI's output (with the current
+    ``__version__`` and ``date.today().isoformat()``) before comparing bytes.
     """
     return text.replace(version, VERSION_PLACEHOLDER).replace(report_date, DATE_PLACEHOLDER)
 

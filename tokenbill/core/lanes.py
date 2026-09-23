@@ -38,15 +38,11 @@ def group_lanes(
     """Group requests and events by ``lane_key`` into Lanes.
 
     Requests are sorted by ``(ts_start_ms, seq)`` and events by ``ts_ms`` (ties broken by stable
-    keys).
-    Lane kind, parent and cache scope come from the Session/Lane shells when present, else
+    keys). Lane kind, parent and cache scope come from the Session/Lane shells when present, else
     ``UNKNOWN`` / ``None`` / ``"unknown"``. Requests or events carried inside a shell are merged
-    with the
-    loose ones (a request id or an identical event counts once). ``ttl_observed``: ``"1h"`` if any
-    billed
-    ``cache_write_1h`` and no 5m, ``"5m"`` if 5m only, ``"mixed"`` if both, else ``"unknown"``.
-    Output
-    order: by ``(session_key, lane_key)``.
+    with the loose ones (a request id or an identical event counts once). ``ttl_observed``: ``"1h"``
+    if any billed ``cache_write_1h`` and no 5m, ``"5m"`` if 5m only, ``"mixed"`` if both, else
+    ``"unknown"``. Output order: by ``(session_key, lane_key)``.
     """
     shells: dict[str, Lane] = {}
     for session in sessions:
@@ -105,8 +101,7 @@ def ttl_of_last_write(lane: Lane, before_index: int) -> int | None:
 
     3600 (1h), 300 (5m), the source's ``cache_write_other_ttl_s``, or the ``write_ttl_hint`` of an
     unknown-TTL write; when one inference wrote several classes the shortest TTL is returned (the
-    tail of
-    the prefix expires first). None when there is no earlier write or its TTL is unknown.
+    tail of the prefix expires first). None when there is no earlier write or its TTL is unknown.
     """
     last = min(before_index, len(lane.requests))
     for j in range(last - 1, -1, -1):

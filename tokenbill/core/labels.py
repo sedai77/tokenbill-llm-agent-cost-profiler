@@ -2,8 +2,7 @@
 
 Every money value is a :class:`Figure` carrying evidence, basis, finality and calibration. The
 construction rules below are enforced in ``__post_init__`` (``ContractViolation``); ``add`` /
-``sub`` /
-``scale`` combine figures without ever upgrading evidence.
+``sub`` / ``scale`` combine figures without ever upgrading evidence.
 """
 
 from __future__ import annotations

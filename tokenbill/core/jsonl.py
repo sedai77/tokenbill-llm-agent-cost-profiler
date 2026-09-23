@@ -1,12 +1,9 @@
 """JSONL reading and private-file writing (SPEC §3.9, D44).
 
 Readers stream line by line with a hard per-line cap (a line over :data:`MAX_LINE_BYTES` is yielded
-as
-``b""`` so callers quarantine it as ``oversize_line``), transparently decompress ``.gz`` (and
-``.zst``
-only when the standard library has ``compression.zstd``, Python ≥ 3.14), and never raise anything
-but
-``SourceError`` for unreadable input. Writers create files owner-only.
+as ``b""`` so callers quarantine it as ``oversize_line``), transparently decompress ``.gz`` (and
+``.zst`` only when the standard library has ``compression.zstd``, Python ≥ 3.14), and never raise
+anything but ``SourceError`` for unreadable input. Writers create files owner-only.
 """
 
 from __future__ import annotations
@@ -105,9 +102,8 @@ def iter_lines(path: Path, *, start_offset: int = 0) -> Iterator[tuple[int, int,
 
     ``line_no`` counts from 1 at *start_offset*; offsets are in the (decompressed) stream. The line
     terminator is stripped; blank lines are skipped, so ``b""`` means only one thing: the line
-    exceeded
-    :data:`MAX_LINE_BYTES` (callers quarantine it as ``oversize_line``). Compressed files require
-    ``start_offset == 0``.
+    exceeded :data:`MAX_LINE_BYTES` (callers quarantine it as ``oversize_line``). Compressed files
+    require ``start_offset == 0``.
     """
     path = Path(path)
     if start_offset < 0:
@@ -181,7 +177,7 @@ def parse_json_line(raw: bytes) -> dict | None:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
         return None
-    if text.startswith("﻿"):
+    if text.startswith("\ufeff"):
         text = text[1:]
     try:
         obj = json.loads(text, parse_constant=_reject_constant)
@@ -242,13 +238,10 @@ def open_private(
     """Open *path* for writing, owner-only.
 
     POSIX: the file is created (or re-moded) ``0600`` and missing parent directories ``0700``.
-    Windows
-    (``platform == "nt"``): POSIX modes are no-ops, so an owner-only ACL is applied with ``icacls``
-    through
-    *runner* (injectable; returns the exit code). When that fails the handle's
+    Windows (``platform == "nt"``): POSIX modes are no-ops, so an owner-only ACL is applied with
+    ``icacls`` through *runner* (injectable; returns the exit code). When that fails the handle's
     ``tokenbill_acl_warning`` attribute is :data:`ACL_WARNING` (``dq.windows_acl_not_enforced``);
-    read it
-    with :func:`acl_warning`.
+    read it with :func:`acl_warning`.
     """
     path = Path(path)
     plat = platform if platform is not None else os.name

@@ -1,11 +1,9 @@
 """Loader of ``core/facts.json``, the single transcription of verified facts (SPEC §3.24, D37).
 
 ``load()`` parses the package data once (cached) into typed, immutable accessors; no other module
-parses
-the JSON. Numbers that are money or multipliers are decimal strings in the file and ``Decimal``
-here — a
-JSON float anywhere in the file is a load error. Every entry carries ``source``, ``finding``,
-``verified_on`` and ``verification`` (``"primary"`` | ``"research"``).
+parses the JSON. Numbers that are money or multipliers are decimal strings in the file and
+``Decimal`` here — a JSON float anywhere in the file is a load error. Every entry carries
+``source``, ``finding``, ``verified_on`` and ``verification`` (``"primary"`` | ``"research"``).
 """
 
 from __future__ import annotations
