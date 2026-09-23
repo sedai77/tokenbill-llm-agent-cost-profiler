@@ -166,8 +166,7 @@ def _as_usage(usage: UsageBuckets | Mapping[str, int] | None) -> UsageBuckets:
 
 def make_ctx(model: str = "claude-opus-5-5", **kw: Any) -> PricingContext:
     """A PricingContext; provider defaults to ``openai`` for ``gpt-*`` models else ``anthropic``,
-    channel
-    to the provider's first-party channel, ``model_raw`` to *model*."""
+    channel to the provider's first-party channel, ``model_raw`` to *model*."""
     provider = kw.pop("provider", "openai" if model.startswith("gpt-") else "anthropic")
     channel = kw.pop("channel", "openai_api" if provider == "openai" else "anthropic_api")
     model_raw = kw.pop("model_raw", model)
@@ -227,8 +226,7 @@ def make_attempt(
     **kw: Any,
 ) -> Attempt:
     """An Attempt; the remaining Attempt fields (``retry_layer``, ``diagnostics``,
-    ``applied_edits``,
-    ``thinking_dropped``, …) pass through *kw*."""
+    ``applied_edits``, ``thinking_dropped``, …) pass through *kw*."""
     aid = attempt_id or stable_id("at", ts_ms, attempt_no, *(i.inference_id for i in inferences))
     return Attempt(
         attempt_id=aid,
@@ -238,7 +236,6 @@ def make_attempt(
         duration_ms=duration_ms,
         outcome=outcome,
         http_status=http_status,
-        # type: ignore[arg-type]
         error_type=error_type,
         retry_layer=kw.pop("retry_layer", None),
         retry_after_ms=kw.pop("retry_after_ms", None),
@@ -377,9 +374,8 @@ def lane_from_table(
     session_key: str = "s_test",
     **request_kw: Any,
 ) -> Lane:
-    """A lane from rows of ``(ts_s, R, W5, W1, U, O)``: seconds since 0, cache reads, 5m writes, 1h
-    writes,
-    uncached input, output. ``request_kw`` go to :func:`make_request` for every row."""
+    """A lane from rows of ``(ts_s, R, W5, W1, U, O)``: seconds since 0, cache reads, 5m writes,
+    1h writes, uncached input, output. ``request_kw`` go to :func:`make_request` for every row."""
     requests = []
     for seq, row in enumerate(rows):
         ts_s, r, w5, w1, u, o = row

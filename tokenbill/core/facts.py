@@ -64,8 +64,7 @@ class SettingsKeyFact:
 @dataclass(frozen=True, slots=True)
 class EvidenceFact:
     name: str
-    type: str  # "int" | "decimal" | "decimal_pair" | "formula" |
-    # "str"
+    type: str  # "int" | "decimal" | "decimal_pair" | "formula" | "str"
     value: Decimal | int | str | tuple[Decimal, Decimal]
     source: str
     finding: str

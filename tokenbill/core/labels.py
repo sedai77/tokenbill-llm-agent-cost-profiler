@@ -252,8 +252,7 @@ def _combine(a: Figure, b: Figure, *, subtract: bool) -> Figure:
 
 def add(a: Figure, b: Figure) -> Figure:
     """``a + b``: same basis (else ContractViolation), weaker evidence, ranges add (a point is its
-    own
-    range), None if either is unpriced, UNCALIBRATED if either is, provenance union."""
+    own range), None if either is unpriced, UNCALIBRATED if either is, provenance union."""
     return _combine(a, b, subtract=False)
 
 

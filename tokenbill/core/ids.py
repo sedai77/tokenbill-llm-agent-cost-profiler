@@ -39,8 +39,8 @@ def request_id_for(
     provider: str, provider_message_id: str | None, source_id: str, locator: str
 ) -> str:
     """The logical request id: ``stable_id("rq", provider, message_id)`` when a provider message id
-    exists
-    (idempotent across sources and machines), else ``stable_id("rq", source_id, locator)``."""
+    exists (idempotent across sources and machines), else
+    ``stable_id("rq", source_id, locator)``."""
     if provider_message_id:
         return stable_id("rq", provider, provider_message_id)
     return stable_id("rq", source_id, locator)

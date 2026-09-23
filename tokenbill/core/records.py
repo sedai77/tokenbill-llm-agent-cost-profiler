@@ -156,9 +156,8 @@ def billing_class(billing_path: str | None) -> str:
     return "allowance" if billing_path == "subscription" else "billed"
 
 
-# : Allowlisted ``Attribution.extra`` keys; anything else is dropped at the adapter
-# (dq.unknown_fields).
-#: ``endpoint_scope``: "global" | "regional" (--attr; Claude Code on Vertex).
+#: Allowlisted ``Attribution.extra`` keys; anything else is dropped at the adapter
+#: (dq.unknown_fields). ``endpoint_scope``: "global" | "regional" (--attr; Claude Code on Vertex).
 EXTRA_KEYS = ("mdm_group", "gateway", "task_id", "workflow", "run_attempt", "department",
               "environment", "endpoint_scope")
 
@@ -720,8 +719,8 @@ class SourceRef:
     source_id: str        # "s_" + HMAC of the source path/name (never the raw path)
     locator: str          # "line:1234" etc.; content-free
     fidelity: Fidelity
-    # recorder 50, claude-code 40, claude-code-headless 38, anthropic-responses 35, otlp 20, other
-    # 10
+    # recorder 50, claude-code 40, claude-code-headless 38, anthropic-responses 35, otlp 20,
+    # other 10
     priority: int
 
     def __post_init__(self) -> None:
@@ -813,9 +812,8 @@ class LaneEventKind(TBEnum):
 
 
 _N = type(None)
-# : Fixed attrs schema per event kind (SPEC §3.2): key → allowed value types. Keys and types are
-# part of
-#: the contract; a key may be omitted when the source does not report it, never invented.
+#: Fixed attrs schema per event kind (SPEC §3.2): key → allowed value types. Keys and types are
+#: part of the contract; a key may be omitted when the source does not report it, never invented.
 EVENT_ATTRS: Mapping[LaneEventKind, Mapping[str, tuple[type, ...]]] = types.MappingProxyType({
     LaneEventKind.COMPACTION: {"trigger": (str,), "pre_tokens": (int,), "post_tokens": (int,),
                                "duration_ms": (int,), "dropped_tokens": (int, _N)},

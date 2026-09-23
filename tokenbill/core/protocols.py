@@ -117,7 +117,7 @@ class LedgerStore(Protocol):
 
     def iter_lanes(self, *, since_ms: int | None = None, until_ms: int | None = None,
                    # keys: team, lane_kind, billing_class, workspace_id, agent_product,
-                   # workload_class
+                   #       workload_class
                    where: Mapping[str, str] | None = None,
                    lane_keys: Collection[str] | None = None) -> Iterator[Lane]: ...
 
@@ -152,8 +152,8 @@ class LedgerStore(Protocol):
     def cost_rows(self, *, since_ms: int, until_ms: int,
                   group_by: Sequence[str]) -> list[LedgerCostRow]: ...
         # group_by ⊆ {date, provider, channel, model, team, cost_center, project, workspace_id,
-        # lane_kind,
-        #              workload_class, agent_product, billing_path}; principal never allowed
+        # lane_kind, workload_class, agent_product, billing_path}; one row per group × bucket ×
+        # basis; principal never allowed
 
     def get_cursor(self, source_id: str, unit_hmac: str) -> tuple[int, str, int, int] | None: ...
         # (byte_offset, head_sha, size, mtime_ns)

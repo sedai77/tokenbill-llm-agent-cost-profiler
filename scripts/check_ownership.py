@@ -190,8 +190,7 @@ def load_ownership(path: Path) -> Ownership:
 
 def check(package: str | None, files: Iterable[str], ownership: Ownership) -> list[str]:
     """Violations of *package* for the changed *files* (empty list = clean). With ``package=None``
-    only
-    FROZEN files are checked (integration and other non-package branches)."""
+    only FROZEN files are checked (integration and other non-package branches)."""
     if package is not None and package not in ownership.packages:
         raise KeyError(package)
     violations = []

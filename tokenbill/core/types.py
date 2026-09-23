@@ -120,9 +120,9 @@ class IngestResult:
     notes: list[DataQualityNote]
     stats: dict[str, int]            # "lines", "records", "requests", "duplicate_lines", …
     capabilities: frozenset[str]     # capabilities actually present (§5.1)
+    # Claude Code only: Σ usage over every assistant line, per normalized model (the 2.33×
+    # self-check; the pipeline prices it)
     naive_usage: dict[str, UsageBuckets] = field(default_factory=dict)
-                                     # Claude Code only: Σ usage over every assistant line, per
-                                     # model
 
 
 # ---------- pricing registry format (frozen contract; RATES implements load/validate) ----------
@@ -270,10 +270,8 @@ class UnitRates:
 
     def bucket_nano(self, bucket: str, tokens: int) -> int:
         """``scaled_to_nano(tokens × rate, scale_exp)`` for a PricedLine bucket name;
-        ``web_search`` is
-        per request (``tokens`` = requests × ``web_search_nano``). ``cache_write_unknown`` uses the
-        5m
-        (low/point) rate."""
+        ``web_search`` is per request (``tokens`` = requests × ``web_search_nano``).
+        ``cache_write_unknown`` uses the 5m (low/point) rate."""
         if bucket == "web_search":
             return tokens * self.web_search_nano
         attr = _UNIT_BUCKETS.get(bucket)
@@ -461,8 +459,7 @@ class ReplayResult:
     n_lanes: int = 0
     n_requests: int = 0
 # Precondition: every replayed lane has the same billing class (billed | allowance); mixed input
-# raises
-# UsageError. core.shards.merge_replay adds results of disjoint lane sets.
+# raises UsageError. core.shards.merge_replay adds results of disjoint lane sets.
 
 
 @dataclass(frozen=True, slots=True)

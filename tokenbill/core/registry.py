@@ -81,8 +81,8 @@ BUILTIN_DETECTORS: dict[str, str] = {  # §10 lists kinds per class
     "aggregate.org-scan": "tokenbill.recon.orgscan:OrgScan",
     "block.breakers": "tokenbill.detect.block:BlockBreakers",
 }
-CONVENTION_MODULES: tuple[str, ...] = ("tokenbill.adapters.conventions_ext",)  # import registers
-# conventions
+# importing a convention module registers its conventions
+CONVENTION_MODULES: tuple[str, ...] = ("tokenbill.adapters.conventions_ext",)
 
 #: Bytes of (decompressed) head handed to ``Adapter.sniff``.
 SNIFF_HEAD_BYTES = 64 * 1024
@@ -180,8 +180,7 @@ def _detector_entries() -> list[tuple[str, str | type]]:
 
 def all_detectors(*, notes: list[DataQualityNote] | None = None) -> list[Detector]:
     """Every registered detector, instantiated and sorted by id. Unimportable ones are skipped with
-    a
-    ``dq.detector_unavailable`` note appended to *notes* (when given) and logged."""
+    a ``dq.detector_unavailable`` note appended to *notes* (when given) and logged."""
     found: list[Detector] = []
     for det_id, entry in _detector_entries():
         try:
