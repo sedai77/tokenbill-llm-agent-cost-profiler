@@ -39,7 +39,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "hypothesis>=6.100", "coverage>=7.4"]
 
 [project.urls]
 Homepage = "https://github.com/sedai77/tokenbill-llm-agent-cost-profiler"
@@ -55,9 +55,30 @@ path = "tokenbill/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["tokenbill"]
+# Package data shipped in the wheel (JSON registries, facts, hook templates).
+artifacts = [
+  "tokenbill/core/facts.json",
+  "tokenbill/rates/data/**",
+  "tokenbill/plan/templates/**",
+]
 
 [tool.pytest.ini_options]
-addopts = "-ra"
+addopts = "-ra -m 'not perf'"
+testpaths = ["tests"]
+markers = [
+  "perf: full-size performance budgets (nightly; excluded by default)",
+  "slow: long-running tests",
+  "gate: cross-package gate tests (need sibling packages; importorskip-guarded)",
+  "needs_ssh_keygen: needs OpenSSH ssh-keygen >= 8.1 on PATH (skipped otherwise)",
+  "local_corpus: reads the real ~/.claude/projects (skipped unless TOKENBILL_LOCAL_CORPUS=1)",
+]
+
+[tool.coverage.run]
+source = ["tokenbill"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
 
 [tool.ruff]
 line-length = 100

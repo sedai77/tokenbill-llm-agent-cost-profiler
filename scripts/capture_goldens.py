@@ -94,26 +94,43 @@ def cases(scenarios: list[str]) -> list[dict[str, object]]:
         {"id": "demo_o", "argv": ["demo", "-o", "report.html"], "html": "report.html"},
     ]
     for name in scenarios:
-        out.append({"id": f"demo_scenario_{name}", "argv": ["demo", "--scenario", name],
-                    "html": None})
-        out.append({"id": f"demo_scenario_{name}_o",
-                    "argv": ["demo", "--scenario", name, "-o", "report.html"],
-                    "html": "report.html"})
+        out.append(
+            {"id": f"demo_scenario_{name}", "argv": ["demo", "--scenario", name], "html": None}
+        )
+        out.append(
+            {
+                "id": f"demo_scenario_{name}_o",
+                "argv": ["demo", "--scenario", name, "-o", "report.html"],
+                "html": "report.html",
+            }
+        )
     for seed in (7, 11):
-        out.append({"id": f"demo_seed{seed}", "argv": ["demo", "--seed", str(seed)],
-                    "html": None})
-        out.append({"id": f"demo_seed{seed}_o",
-                    "argv": ["demo", "--seed", str(seed), "-o", "report.html"],
-                    "html": "report.html"})
+        out.append({"id": f"demo_seed{seed}", "argv": ["demo", "--seed", str(seed)], "html": None})
+        out.append(
+            {
+                "id": f"demo_seed{seed}_o",
+                "argv": ["demo", "--seed", str(seed), "-o", "report.html"],
+                "html": "report.html",
+            }
+        )
     for name in scenarios:
         out.append({"id": f"analyze_{name}", "argv": ["analyze", f"{name}.jsonl"], "html": None})
-        out.append({"id": f"analyze_{name}_o",
-                    "argv": ["analyze", f"{name}.jsonl", "-o", "report.html"],
-                    "html": "report.html"})
+        out.append(
+            {
+                "id": f"analyze_{name}_o",
+                "argv": ["analyze", f"{name}.jsonl", "-o", "report.html"],
+                "html": "report.html",
+            }
+        )
     every = [f"{name}.jsonl" for name in scenarios]
     out.append({"id": "analyze_all", "argv": ["analyze", *every], "html": None})
-    out.append({"id": "analyze_all_o", "argv": ["analyze", *every, "-o", "report.html"],
-                "html": "report.html"})
+    out.append(
+        {
+            "id": "analyze_all_o",
+            "argv": ["analyze", *every, "-o", "report.html"],
+            "html": "report.html",
+        }
+    )
     return out
 
 
@@ -174,11 +191,13 @@ def capture() -> tuple[dict[str, object], dict[str, str]]:
                     "html": None,
                 }
                 files[f"{case['id']}.stdout.txt"] = normalize(
-                    stdout, version=__version__, report_date=sentinel)
+                    stdout, version=__version__, report_date=sentinel
+                )
                 if html_name is not None:
                     html = report.read_text(encoding="utf-8")
                     files[f"{case['id']}.report.html"] = normalize(
-                        html, version=__version__, report_date=sentinel)
+                        html, version=__version__, report_date=sentinel
+                    )
                     entry["html"] = f"{case['id']}.report.html"
                 manifest_cases.append(entry)
     for name, text in files.items():
@@ -188,13 +207,17 @@ def capture() -> tuple[dict[str, object], dict[str, str]]:
         "schema": GOLDEN_SCHEMA,
         "captured_from_version": __version__,
         "placeholders": {"version": VERSION_PLACEHOLDER, "report_date": DATE_PLACEHOLDER},
-        "normalization": ("text.replace(__version__, version placeholder)"
-                          ".replace(date.today().isoformat(), report_date placeholder)"),
+        "normalization": (
+            "text.replace(__version__, version placeholder)"
+            ".replace(date.today().isoformat(), report_date placeholder)"
+        ),
         "cwd": "a scratch directory holding the inputs; -o writes report.html there",
         "inputs": inputs,
         "cases": manifest_cases,
-        "sha256": {name: hashlib.sha256(text.encode("utf-8")).hexdigest()
-                   for name, text in sorted(files.items())},
+        "sha256": {
+            name: hashlib.sha256(text.encode("utf-8")).hexdigest()
+            for name, text in sorted(files.items())
+        },
     }
     return manifest, files
 
@@ -202,15 +225,21 @@ def capture() -> tuple[dict[str, object], dict[str, str]]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=REPO_ROOT / "tests" / "v2" / "golden")
-    parser.add_argument("--check", action="store_true",
-                        help="compare a fresh capture with the stored goldens; exit 1 on drift")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="compare a fresh capture with the stored goldens; exit 1 on drift",
+    )
     args = parser.parse_args(argv)
     manifest, files = capture()
     manifest_text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
     if args.check:
-        drift = [name for name, text in files.items()
-                 if not (args.out / name).exists()
-                 or (args.out / name).read_text(encoding="utf-8") != text]
+        drift = [
+            name
+            for name, text in files.items()
+            if not (args.out / name).exists()
+            or (args.out / name).read_text(encoding="utf-8") != text
+        ]
         stored = args.out / "manifest.json"
         if not stored.exists() or stored.read_text(encoding="utf-8") != manifest_text:
             drift.append("manifest.json")

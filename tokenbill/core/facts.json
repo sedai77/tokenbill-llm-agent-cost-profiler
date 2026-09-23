@@ -1,0 +1,2657 @@
+{
+ "schema": "tokenbill/facts@1",
+ "as_of": "2026-09-23",
+ "notes": "The single transcription of the SPEC §19 facts the code depends on (SPEC §3.24, D37). verification 'primary' = re-checked against the primary URL on verified_on during the wave-0 facts task; 'research' = the research phase's verification, not re-checked. Changing a fact after wave 0 is a contract change.",
+ "rates": [
+  {
+   "row_id": "anthropic/anthropic_api/claude-opus-5-5/2026-09-22",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-opus-5-5",
+   "aliases": [],
+   "generation": "5.5",
+   "effective_from": "2026-09-22",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "4.00",
+    "output": "20.00"
+   },
+   "multipliers": {
+    "cache_read": "0.05",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.20",
+    "cache_write_5m": "5.00",
+    "cache_write_1h": "8.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "fast_mode",
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive",
+    "mid_conversation_system",
+    "per_message_effort"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "finding": "anth-pricing-table-2026-09",
+   "verification": "primary",
+   "notes": "launch 2026-09-22 (retirement floor 2027-09-22); reads 0.05x (pricing footnote 2)"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-opus-5/2026-07-24",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-opus-5",
+   "aliases": [],
+   "generation": "5",
+   "effective_from": "2026-07-24",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "fast_mode",
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive",
+    "mid_conversation_system",
+    "per_message_effort"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "finding": "anth-pricing-table-2026-09",
+   "verification": "primary",
+   "notes": "released 2026-07-24 (retirement floor 2027-07-24); thinking on by default"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-opus-4-8/2026-05-28",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-opus-4-8",
+   "aliases": [],
+   "generation": "4.8",
+   "effective_from": "2026-05-28",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "fast_mode",
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive",
+    "mid_conversation_system"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "finding": "anth-pricing-table-2026-09",
+   "verification": "primary",
+   "notes": "effective_from = the documented retirement floor (https://platform.claude.com/docs/en/about-claude/model-deprecations) minus one year, Anthropic's launch + 1 year pattern; prices verified on the pricing page"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-fable-5/2026-06-09",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-fable-5",
+   "aliases": [],
+   "generation": "5",
+   "effective_from": "2026-06-09",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "1.00",
+    "cache_write_5m": "12.50",
+    "cache_write_1h": "20.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive",
+    "mid_conversation_system"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "finding": "anth-pricing-table-2026-09",
+   "verification": "primary",
+   "notes": "effective_from = the documented retirement floor (https://platform.claude.com/docs/en/about-claude/model-deprecations) minus one year, Anthropic's launch + 1 year pattern; prices verified on the pricing page"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-fable-5-1/2026-09-01",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-fable-5-1",
+   "aliases": [],
+   "generation": "5.1",
+   "effective_from": "2026-09-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "multipliers": {
+    "cache_read": "0.025",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.25",
+    "cache_write_5m": "12.50",
+    "cache_write_1h": "20.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive",
+    "mid_conversation_system",
+    "per_message_effort"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "finding": "anth-pricing-table-2026-09",
+   "verification": "primary",
+   "notes": "launch 2026-09-01 at 0.025x reads (D36; retirement floor 2027-09-01); no Priority Tier"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-mythos-5-1/2026-09-01",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-mythos-5-1",
+   "aliases": [],
+   "generation": "5.1",
+   "effective_from": "2026-09-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "multipliers": {
+    "cache_read": "0.025",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.25",
+    "cache_write_5m": "12.50",
+    "cache_write_1h": "20.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive",
+    "mid_conversation_system",
+    "per_message_effort"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "finding": "anth-pricing-table-2026-09",
+   "verification": "primary",
+   "notes": "limited availability (Project Glasswing); launch 2026-09-01 (retirement floor 2027-09-01)"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-sonnet-5/2026-06-30",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-sonnet-5",
+   "aliases": [],
+   "generation": "5",
+   "effective_from": "2026-06-30",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "2.00",
+    "output": "10.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.20",
+    "cache_write_5m": "2.50",
+    "cache_write_1h": "4.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "finding": "anth-pricing-table-2026-09",
+   "verification": "primary",
+   "notes": "launch pricing $2/$10 is now the standard price (the 2026-09-01 increase to $3/$15 was cancelled); effective_from = the documented retirement floor (https://platform.claude.com/docs/en/about-claude/model-deprecations) minus one year, Anthropic's launch + 1 year pattern; prices verified on the pricing page"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-sonnet-4-6/2026-02-17",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-sonnet-4-6",
+   "aliases": [],
+   "generation": "4.6",
+   "effective_from": "2026-02-17",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "3.00",
+    "output": "15.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.30",
+    "cache_write_5m": "3.75",
+    "cache_write_1h": "6.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "finding": "anth-pricing-table-2026-09",
+   "verification": "primary",
+   "notes": "effective_from = the documented retirement floor (https://platform.claude.com/docs/en/about-claude/model-deprecations) minus one year, Anthropic's launch + 1 year pattern; prices verified on the pricing page"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-haiku-4-5/2025-10-15",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-haiku-4-5",
+   "aliases": [],
+   "generation": "4.5",
+   "effective_from": "2025-10-15",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "1.00",
+    "output": "5.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.10",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 4096,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "finding": "anth-pricing-table-2026-09",
+   "verification": "primary",
+   "notes": "effective_from = the documented retirement floor (https://platform.claude.com/docs/en/about-claude/model-deprecations) minus one year, Anthropic's launch + 1 year pattern; prices verified on the pricing page"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-opus-5/2026-07-24",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-opus-5",
+   "aliases": [],
+   "generation": "5",
+   "effective_from": "2026-07-24",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-23",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-modifiers-geo-fast-priority"
+    }
+   ],
+   "source": "https://aws.amazon.com/bedrock/pricing/",
+   "finding": "bedrock-price-list-api",
+   "verification": "research",
+   "notes": "global endpoint prices (SPEC §19.6: input $5.00 global vs $5.50 regional, read $0.50 vs $0.55, 1h write $10 vs $11); output $25 and the 512-token minimum were not re-checked on the Bedrock page (JS-rendered; claude-opus-5 absent from the AmazonBedrockFoundationModels offer file of 2026-09-22)"
+  },
+  {
+   "row_id": "openai/openai_api/gpt-5.6-sol/2026-07-09",
+   "provider": "openai",
+   "channel": "openai_api",
+   "model": "gpt-5.6-sol",
+   "aliases": [],
+   "generation": "5.6",
+   "effective_from": "2026-07-09",
+   "effective_to": "2026-08-21",
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "30.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_other": "1.25"
+   },
+   "published_absolute": {},
+   "cache_write_other_ttl_s": 1800,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch"
+   ],
+   "enabled": false,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://developers.openai.com/api/docs/changelog",
+     "retrieved": "2026-09-23",
+     "finding": "oai-batch-longctx-residency"
+    }
+   ],
+   "source": "https://developers.openai.com/api/docs/changelog",
+   "finding": "oai-batch-longctx-residency",
+   "verification": "research",
+   "notes": "launch price derived from the 2026-08-21 changelog ('$4 input / $20 output, 20% lower input and 33% lower output pricing' => $5 / $30); cache multipliers assumed 0.1/1.25 and the long-context band unknown; ships disabled until verified (SPEC §19.8 #19, D36)"
+  },
+  {
+   "row_id": "openai/openai_api/gpt-5.6-sol/2026-08-21",
+   "provider": "openai",
+   "channel": "openai_api",
+   "model": "gpt-5.6-sol",
+   "aliases": [],
+   "generation": "5.6",
+   "effective_from": "2026-08-21",
+   "effective_to": "2026-11-22",
+   "usd_per_mtok": {
+    "input": "4.00",
+    "output": "20.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_other": "1.25"
+   },
+   "published_absolute": {
+    "cache_read": "0.40",
+    "cache_write_other": "5.00"
+   },
+   "cache_write_other_ttl_s": 1800,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 272000,
+    "usd_per_mtok": {
+     "input": "8.00",
+     "cache_read": "0.80",
+     "cache_write_other": "10.00",
+     "output": "30.00"
+    }
+   },
+   "promotion": "openai.gpt-5.6-sol.2026-08",
+   "supports": [
+    "batch"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://developers.openai.com/api/docs/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "oai-batch-longctx-residency"
+    },
+    {
+     "url": "https://developers.openai.com/api/docs/guides/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "oai-56-explicit-cache"
+    },
+    {
+     "url": "https://developers.openai.com/api/docs/changelog",
+     "retrieved": "2026-09-23",
+     "finding": "cc-timing-calendar"
+    }
+   ],
+   "source": "https://developers.openai.com/api/docs/pricing",
+   "finding": "oai-batch-longctx-residency",
+   "verification": "primary",
+   "notes": "promotional pricing 'available at least through November 21, 2026' (effective_to 2026-11-22 exclusive, then unpriced with dq.promotion_expired); long context = prompts over 272K tokens priced for the whole request; writes 1.25x, reads 0.1x, TTL 30m, min 1,024 tokens (OAI-CACHE); tokenizer_family not documented (assumed o200k)"
+  }
+ ],
+ "modifiers": [
+  {
+   "modifier_id": "anthropic.batch",
+   "kind": "multiply",
+   "factor": "0.5",
+   "base_usd_per_mtok": {},
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "anthropic_api,claude_platform_aws,foundry,bedrock",
+    "service_tier": "batch"
+   },
+   "stacking": "documented",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/batch-processing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-batch-stacking"
+    }
+   ],
+   "source": "https://platform.claude.com/docs/en/build-with-claude/batch-processing",
+   "finding": "anth-batch-stacking",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "50% on every token category incl. cache reads/writes; stacks with caching and data residency; not available with fast mode"
+  },
+  {
+   "modifier_id": "anthropic.inference_geo.us",
+   "kind": "multiply",
+   "factor": "1.1",
+   "base_usd_per_mtok": {},
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "anthropic_api,claude_platform_aws,foundry",
+    "generation_gte": "4.6",
+    "inference_geo": "us"
+   },
+   "stacking": "documented",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-modifiers-geo-fast-priority"
+    }
+   ],
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "finding": "anth-modifiers-geo-fast-priority",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "1.1x on all categories for 4.6+ models; Claude API, Claude Platform on AWS, and Foundry US Data Zone Standard deployments (the Foundry equivalence is documented on the pricing page)"
+  },
+  {
+   "modifier_id": "anthropic.fast.opus-5-5",
+   "kind": "replace_base",
+   "factor": null,
+   "base_usd_per_mtok": {
+    "input": "8.00",
+    "output": "40.00"
+   },
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "anthropic_api",
+    "model_in": "claude-opus-5-5",
+    "speed": "fast"
+   },
+   "stacking": "documented",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-modifiers-geo-fast-priority"
+    }
+   ],
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "finding": "anth-modifiers-geo-fast-priority",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "cache multipliers and data residency apply on top of the fast base; not with batch"
+  },
+  {
+   "modifier_id": "anthropic.fast.opus-5",
+   "kind": "replace_base",
+   "factor": null,
+   "base_usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "anthropic_api",
+    "model_in": "claude-opus-5,claude-opus-4-8",
+    "speed": "fast"
+   },
+   "stacking": "documented",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-modifiers-geo-fast-priority"
+    }
+   ],
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "finding": "anth-modifiers-geo-fast-priority",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "Opus 5 and Opus 4.8 fast mode $10/$50; cache multipliers apply on top"
+  },
+  {
+   "modifier_id": "bedrock.endpoint.regional",
+   "kind": "multiply",
+   "factor": "1.1",
+   "base_usd_per_mtok": {},
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "bedrock",
+    "endpoint_scope": "regional",
+    "generation_gte": "4.5"
+   },
+   "stacking": "documented",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "bedrock-price-list-api"
+    }
+   ],
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "finding": "bedrock-price-list-api",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "regional and multi-region endpoints carry a 10% premium over global for Claude 4.5 models and later (pricing page note); matches the Bedrock Price List 'Regional CRIS' vs 'Global' usage types (e.g. Sonnet 4.6 input $3.30 vs $3.00)"
+  }
+ ],
+ "settings_keys": [
+  {
+   "key": "autoCompactWindow",
+   "target": "claude-code",
+   "domain": "int 100000-1000000 (tokens; capped at the model's context window)",
+   "min_version": null,
+   "verified": true,
+   "lever_id": "cc.autocompact_window",
+   "tradeoff": true,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/settings-reference",
+   "finding": "cc-autocompact-window",
+   "verified_on": "2026-09-23",
+   "verification": "primary"
+  },
+  {
+   "key": "env.CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+   "target": "claude-code",
+   "domain": "plain integer string 100000-1000000 ('500k' is misread)",
+   "min_version": null,
+   "verified": true,
+   "lever_id": "cc.autocompact_window",
+   "tradeoff": true,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/env-vars",
+   "finding": "cc-autocompact-window",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "takes precedence over /autocompact, --autocompact and autoCompactWindow"
+  },
+  {
+   "key": "env.CLAUDE_CODE_DISABLE_1M_CONTEXT",
+   "target": "claude-code",
+   "domain": "\"1\"",
+   "min_version": null,
+   "verified": true,
+   "lever_id": null,
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/env-vars",
+   "finding": "cc-autocompact-window",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "proposed only (no lever)"
+  },
+  {
+   "key": "promptCacheTtl",
+   "target": "claude-code",
+   "domain": "\"5m\" | \"1h\"",
+   "min_version": "2.1.242",
+   "verified": true,
+   "lever_id": "cc.prompt_cache_ttl.main",
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/settings-reference",
+   "finding": "cc-ttl-managed-settings",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "value is the string \"5m\" or \"1h\" (settings reference, verified 2026-09-23)"
+  },
+  {
+   "key": "subagentPromptCacheTtl",
+   "target": "claude-code",
+   "domain": "\"5m\" | \"1h\"",
+   "min_version": "2.1.242",
+   "verified": true,
+   "lever_id": "cc.prompt_cache_ttl.subagent",
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/settings-reference",
+   "finding": "cc-ttl-managed-settings",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "value is the string \"5m\" or \"1h\" (settings reference, verified 2026-09-23); covers subagents, workflows, compaction and helper requests"
+  },
+  {
+   "key": "env.CLAUDE_CODE_PROMPT_CACHE_TTL",
+   "target": "claude-code",
+   "domain": "\"5m\" | \"1h\"",
+   "min_version": "2.1.242",
+   "verified": true,
+   "lever_id": "cc.prompt_cache_ttl.main",
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/env-vars",
+   "finding": "cc-ttl-managed-settings",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "the only accepted values; overrides promptCacheTtl and ENABLE_PROMPT_CACHING_1H"
+  },
+  {
+   "key": "env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL",
+   "target": "claude-code",
+   "domain": "\"5m\" | \"1h\"",
+   "min_version": "2.1.242",
+   "verified": true,
+   "lever_id": "cc.prompt_cache_ttl.subagent",
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/env-vars",
+   "finding": "cc-ttl-managed-settings",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "the only accepted values; overrides subagentPromptCacheTtl and ENABLE_PROMPT_CACHING_1H"
+  },
+  {
+   "key": "env.ENABLE_PROMPT_CACHING_1H",
+   "target": "claude-code",
+   "domain": "\"1\"",
+   "min_version": null,
+   "verified": true,
+   "lever_id": "cc.prompt_cache_ttl.main",
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/env-vars",
+   "finding": "cc-ttl-policy",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "requests the 1h TTL on every request; lowest precedence of the TTL controls; min version not stated in the env-var reference"
+  },
+  {
+   "key": "env.FORCE_PROMPT_CACHING_5M",
+   "target": "claude-code",
+   "domain": "\"1\"",
+   "min_version": null,
+   "verified": true,
+   "lever_id": "cc.prompt_cache_ttl.main",
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/env-vars",
+   "finding": "cc-ttl-policy",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "overrides every other TTL control"
+  },
+  {
+   "key": "model",
+   "target": "claude-code",
+   "domain": "model alias or full model id (e.g. \"claude-sonnet-5\")",
+   "min_version": null,
+   "verified": true,
+   "lever_id": "cc.default_model",
+   "tradeoff": true,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/settings-reference",
+   "finding": "cc-model-effort-mix",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "any settings file incl. managed; --model and ANTHROPIC_MODEL still override per session"
+  },
+  {
+   "key": "effortLevel",
+   "target": "claude-code",
+   "domain": "\"low\" | \"medium\" | \"high\" | \"xhigh\"",
+   "min_version": null,
+   "verified": true,
+   "lever_id": "cc.default_effort",
+   "tradeoff": true,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/settings-reference",
+   "finding": "cc-model-effort-mix",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "the documented domain has no \"max\" (SPEC §11.4 listed it); in managed, project, local and --settings files it applies to every model; CLAUDE_CODE_EFFORT_LEVEL and --effort override"
+  },
+  {
+   "key": "env.CLAUDE_CODE_SUBAGENT_MODEL",
+   "target": "claude-code",
+   "domain": "model alias or full model id",
+   "min_version": null,
+   "verified": true,
+   "lever_id": "cc.subagent_model",
+   "tradeoff": true,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/env-vars",
+   "finding": "cc-model-effort-mix",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "since 2.1.251 an agent definition's model and the spawn-time model take precedence"
+  },
+  {
+   "key": "env.ANTHROPIC_DEFAULT_OPUS_MODEL",
+   "target": "claude-code",
+   "domain": "model id",
+   "min_version": null,
+   "verified": true,
+   "lever_id": "model.same_tier_upgrade",
+   "tradeoff": true,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/env-vars",
+   "finding": "cc-same-tier-upgrade",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "also the Plan Mode model of opusplan"
+  },
+  {
+   "key": "env.ANTHROPIC_DEFAULT_SONNET_MODEL",
+   "target": "claude-code",
+   "domain": "model id",
+   "min_version": null,
+   "verified": true,
+   "lever_id": "model.same_tier_upgrade",
+   "tradeoff": true,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/env-vars",
+   "finding": "cc-same-tier-upgrade",
+   "verified_on": "2026-09-23",
+   "verification": "primary"
+  },
+  {
+   "key": "env.ANTHROPIC_DEFAULT_HAIKU_MODEL",
+   "target": "claude-code",
+   "domain": "model id",
+   "min_version": null,
+   "verified": true,
+   "lever_id": "model.same_tier_upgrade",
+   "tradeoff": true,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/env-vars",
+   "finding": "cc-same-tier-upgrade",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "also used for background functionality"
+  },
+  {
+   "key": "availableModels",
+   "target": "claude-code",
+   "domain": "array of model aliases or ids",
+   "min_version": null,
+   "verified": true,
+   "lever_id": "cc.default_model",
+   "tradeoff": true,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/settings-reference",
+   "finding": "cc-managed-settings-levers",
+   "verified_on": "2026-09-23",
+   "verification": "primary"
+  },
+  {
+   "key": "enforceAvailableModels",
+   "target": "claude-code",
+   "domain": "bool",
+   "min_version": "2.1.175",
+   "verified": true,
+   "lever_id": "cc.default_model",
+   "tradeoff": true,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/settings-reference",
+   "finding": "cc-managed-settings-levers",
+   "verified_on": "2026-09-23",
+   "verification": "primary"
+  },
+  {
+   "key": "maxEffortLevel",
+   "target": "claude-code",
+   "domain": "\"low\" | \"medium\" | \"high\" | \"xhigh\" | \"max\" (\"max\" = no cap)",
+   "min_version": "2.1.267",
+   "verified": true,
+   "lever_id": "cc.max_effort",
+   "tradeoff": true,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/settings-reference",
+   "finding": "cc-managed-settings-levers",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "applied by Claude Code on every provider; the lowest cap across scopes wins"
+  },
+  {
+   "key": "fastModePerSessionOptIn",
+   "target": "claude-code",
+   "domain": "bool",
+   "min_version": null,
+   "verified": true,
+   "lever_id": "cc.fast_mode_opt_in",
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/settings-reference",
+   "finding": "cc-sticky-escalation",
+   "verified_on": "2026-09-23",
+   "verification": "primary"
+  },
+  {
+   "key": "env.CLAUDE_CODE_DISABLE_FAST_MODE",
+   "target": "claude-code",
+   "domain": "\"1\"",
+   "min_version": null,
+   "verified": true,
+   "lever_id": "cc.fast_mode_opt_in",
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/env-vars",
+   "finding": "cc-sticky-escalation",
+   "verified_on": "2026-09-23",
+   "verification": "primary"
+  },
+  {
+   "key": "modelPricing",
+   "target": "claude-code",
+   "domain": "object {\"multiplier\": number (≤ 10), \"overrides\": {<model>: {\"input\", \"output\", \"cacheRead\", \"cacheWrite\"}}} (USD per MTok as JSON numbers)",
+   "min_version": "2.1.242",
+   "verified": true,
+   "lever_id": null,
+   "tradeoff": false,
+   "managed_only": true,
+   "source": "https://code.claude.com/docs/en/settings-reference",
+   "finding": "cc-list-price-estimates",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "managed-only; cacheWrite is a single rate (no 5m/1h split); a multiplier above 1 needs 2.1.271; applies to /usage, the status line, total_cost_usd, --max-budget-usd and OTel cost"
+  },
+  {
+   "key": "bashOutputMaxChars",
+   "target": "claude-code",
+   "domain": "positive int (clamped to 4000-128000; default 30000)",
+   "min_version": "2.1.261",
+   "verified": true,
+   "lever_id": null,
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/settings-reference",
+   "finding": "cc-tool-output-bloat",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "attrib.carry fix"
+  },
+  {
+   "key": "env.MAX_MCP_OUTPUT_TOKENS",
+   "target": "claude-code",
+   "domain": "int (default 25000; warning above 10000)",
+   "min_version": null,
+   "verified": true,
+   "lever_id": null,
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/env-vars",
+   "finding": "cc-tool-output-bloat",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "attrib.carry fix"
+  },
+  {
+   "key": "env.ENABLE_TOOL_SEARCH",
+   "target": "claude-code",
+   "domain": "\"true\" | \"false\" | \"auto\" | \"auto:N\"",
+   "min_version": null,
+   "verified": true,
+   "lever_id": "cc.tool_search",
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/env-vars",
+   "finding": "cc-gateway-cache-strip",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "unset defers MCP tools except on a non-first-party ANTHROPIC_BASE_URL and some platforms"
+  },
+  {
+   "key": "skillListingBudgetFraction",
+   "target": "claude-code",
+   "domain": "number in (0, 1] (default 0.01)",
+   "min_version": null,
+   "verified": true,
+   "lever_id": null,
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/settings-reference",
+   "finding": "cc-tool-output-bloat",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "config-tax / static-prefix fix"
+  },
+  {
+   "key": "claudeMdExcludes",
+   "target": "claude-code",
+   "domain": "array of glob patterns or absolute paths",
+   "min_version": null,
+   "verified": true,
+   "lever_id": null,
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/settings-reference",
+   "finding": "cc-tool-output-bloat",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "config-tax / static-prefix fix"
+  },
+  {
+   "key": "cleanupPeriodDays",
+   "target": "claude-code",
+   "domain": "int >= 1 (default 30; collector period + 7 recommended)",
+   "min_version": null,
+   "verified": true,
+   "lever_id": null,
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/settings-reference",
+   "finding": "ent-local-transcripts",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "collector enabler"
+  },
+  {
+   "key": "env.CLAUDE_CODE_ENABLE_TELEMETRY",
+   "target": "claude-code",
+   "domain": "\"1\"",
+   "min_version": null,
+   "verified": true,
+   "lever_id": null,
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/env-vars",
+   "finding": "cc-otel-schema",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "verification tags"
+  },
+  {
+   "key": "env.OTEL_RESOURCE_ATTRIBUTES",
+   "target": "claude-code",
+   "domain": "comma-separated key=value string",
+   "min_version": null,
+   "verified": true,
+   "lever_id": null,
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/env-vars",
+   "finding": "cc-otel-schema",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "standard OTel variable; carries tokenbill.arm / tokenbill.wave"
+  },
+  {
+   "key": "env.OTEL_METRICS_INCLUDE_ENTRYPOINT",
+   "target": "claude-code",
+   "domain": "\"true\"",
+   "min_version": "2.1.152",
+   "verified": true,
+   "lever_id": null,
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/env-vars",
+   "finding": "cc-otel-schema",
+   "verified_on": "2026-09-23",
+   "verification": "primary"
+  },
+  {
+   "key": "hooks.SessionStart",
+   "target": "claude-code",
+   "domain": "[{\"matcher\": \"resume\", \"hooks\": [{\"type\": \"command\", \"command\": <path>}]}]",
+   "min_version": null,
+   "verified": true,
+   "lever_id": "cc.cold_resume_hook",
+   "tradeoff": false,
+   "managed_only": false,
+   "source": "https://code.claude.com/docs/en/hooks",
+   "finding": "channel-code-review-hooks",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "resume/fork input carries seconds_since_last_response, context_tokens, prompt_cache_likely_expired, estimated_cache_write_usd; output may carry systemMessage"
+  }
+ ],
+ "evidence": [
+  {
+   "name": "MISS_MIN_TOKENS",
+   "type": "int",
+   "value": 2000,
+   "source": "https://code.claude.com/docs/en/costs",
+   "finding": "cc-usage-likely-cause",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "a miss re-processed more than 5% and at least 2,000 tokens (never 2,048)"
+  },
+  {
+   "name": "MISS_MIN_FRACTION",
+   "type": "decimal",
+   "value": "0.05",
+   "source": "https://code.claude.com/docs/en/costs",
+   "finding": "cc-usage-likely-cause",
+   "verified_on": "2026-09-23",
+   "verification": "primary"
+  },
+  {
+   "name": "CACHE_READ_SHARE_MEDIAN",
+   "type": "decimal",
+   "value": "0.84",
+   "source": "https://code.claude.com/docs/en/costs",
+   "finding": "anth-cache-health-thresholds",
+   "verified_on": "2026-09-23",
+   "verification": "research",
+   "notes": "Anthropic cost guide benchmark (agent loops read a median 84% of input from cache)"
+  },
+  {
+   "name": "CACHE_READ_SHARE_TOP_DECILE",
+   "type": "decimal",
+   "value": "0.94",
+   "source": "https://code.claude.com/docs/en/costs",
+   "finding": "anth-cache-health-thresholds",
+   "verified_on": "2026-09-23",
+   "verification": "research"
+  },
+  {
+   "name": "CACHE_READ_SHARE_INVESTIGATE_BELOW",
+   "type": "decimal",
+   "value": "0.80",
+   "source": "https://code.claude.com/docs/en/costs",
+   "finding": "anth-cache-health-thresholds",
+   "verified_on": "2026-09-23",
+   "verification": "research"
+  },
+  {
+   "name": "TTL_RULE_GAP_SHARE_5_60MIN",
+   "type": "decimal",
+   "value": "0.05",
+   "source": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+   "finding": "anth-fleet-benchmarks",
+   "verified_on": "2026-09-23",
+   "verification": "research",
+   "notes": "1h pays when more than 1 in 20 gaps fall in 5-60 min (cost guide)"
+  },
+  {
+   "name": "KEEPALIVE_INTERVAL_S",
+   "type": "int",
+   "value": 240,
+   "source": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+   "finding": "anth-ttl-choice-keepalive",
+   "verified_on": "2026-09-23",
+   "verification": "research",
+   "notes": "re-send with max_tokens 0 within 4 min of the previous start and every 4 min"
+  },
+  {
+   "name": "KEEPALIVE_MAX_IDLE_S",
+   "type": "int",
+   "value": 3600,
+   "source": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+   "finding": "keepalive-economics",
+   "verified_on": "2026-09-23",
+   "verification": "research"
+  },
+  {
+   "name": "KEEPALIVE_BREAK_EVEN",
+   "type": "formula",
+   "value": "κ(w/r − 1)",
+   "source": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+   "finding": "keepalive-economics",
+   "verified_on": "2026-09-23",
+   "verification": "research",
+   "notes": "κ = 240 s ping interval: ≈ 46 min at r = 0.1×, ≈ 96 min Opus 5.5, ≈ 196 min Fable 5.1"
+  },
+  {
+   "name": "CC_AUTOCOMPACT_DEFAULT_TOKENS",
+   "type": "int",
+   "value": 967000,
+   "source": "https://code.claude.com/docs/en/model-config",
+   "finding": "cc-autocompact-window",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "about 967K tokens on 1M-context models on the Anthropic API"
+  },
+  {
+   "name": "COMPACTION_SUMMARY_TOKENS_DEFAULT",
+   "type": "int",
+   "value": 20283,
+   "source": "Token Bill research corpus (SPEC-v0.2 evidence base; mechanisms and orders of magnitude only)",
+   "finding": "cc-compaction-threshold-sim",
+   "verified_on": "2026-09-23",
+   "verification": "research"
+  },
+  {
+   "name": "THINKING_SHARE_PRIOR",
+   "type": "decimal",
+   "value": "0.505",
+   "source": "Token Bill research corpus (SPEC-v0.2 evidence base; mechanisms and orders of magnitude only)",
+   "finding": "cc-output-thinking-effort",
+   "verified_on": "2026-09-23",
+   "verification": "research",
+   "notes": "share of output tokens that are thinking"
+  },
+  {
+   "name": "TOKENIZER_BAND",
+   "type": "decimal_pair",
+   "value": [
+    "1.00",
+    "1.35"
+   ],
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "finding": "anth-tokenizer-inflation",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "Claude 4.7+ tokenizer produces ~30% more tokens; band by content"
+  },
+  {
+   "name": "BATCH_CACHE_HIT_BAND",
+   "type": "decimal_pair",
+   "value": [
+    "0.30",
+    "0.98"
+   ],
+   "source": "https://platform.claude.com/docs/en/build-with-claude/batch-processing",
+   "finding": "anth-batch-stacking",
+   "verified_on": "2026-09-23",
+   "verification": "research",
+   "notes": "batch cache hits are best effort"
+  },
+  {
+   "name": "CC_FLEET_USD_PER_ACTIVE_DAY",
+   "type": "decimal",
+   "value": "13",
+   "source": "https://code.claude.com/docs/en/costs",
+   "finding": "cc-enterprise-baseline",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "around $13 per developer per active day"
+  },
+  {
+   "name": "CC_FLEET_USD_PER_ACTIVE_DAY_P90_UNDER",
+   "type": "decimal",
+   "value": "30",
+   "source": "https://code.claude.com/docs/en/costs",
+   "finding": "cc-enterprise-baseline",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "below $30 per active day for 90% of users"
+  },
+  {
+   "name": "REFUSAL_AMBIGUOUS_MAX_OUTPUT",
+   "type": "int",
+   "value": 16,
+   "source": "SPEC-v0.2 design decision (no external source)",
+   "finding": "fp-anth-refusal-iterations",
+   "verified_on": "2026-09-23",
+   "verification": "research",
+   "notes": "D10 design threshold (declined attempts with 1-16 output tokens are a billable range)"
+  },
+  {
+   "name": "CPT_DEFAULT_47PLUS_TOOL_OUTPUT",
+   "type": "decimal",
+   "value": "2.5",
+   "source": "Token Bill research corpus (SPEC-v0.2 evidence base; mechanisms and orders of magnitude only)",
+   "finding": "cc-chars-per-token-calibration",
+   "verified_on": "2026-09-23",
+   "verification": "research",
+   "notes": "bytes per token"
+  },
+  {
+   "name": "CPT_DEFAULT_LEGACY",
+   "type": "decimal",
+   "value": "3.3",
+   "source": "Token Bill research corpus (SPEC-v0.2 evidence base; mechanisms and orders of magnitude only)",
+   "finding": "cc-chars-per-token-calibration",
+   "verified_on": "2026-09-23",
+   "verification": "research",
+   "notes": "bytes per token"
+  },
+  {
+   "name": "COLD_RESUME_MIN_CONTEXT",
+   "type": "int",
+   "value": 100000,
+   "source": "Token Bill research corpus (SPEC-v0.2 evidence base; mechanisms and orders of magnitude only)",
+   "finding": "cc-cold-resume",
+   "verified_on": "2026-09-23",
+   "verification": "research"
+  },
+  {
+   "name": "FEMP_MONTHLY",
+   "type": "decimal_pair",
+   "value": [
+    "5",
+    "15"
+   ],
+   "source": "https://www.energy.gov/sites/default/files/2016/01/f28/mv_guide_4_0.pdf",
+   "finding": "ashrae-calibration-gate",
+   "verified_on": "2026-09-23",
+   "verification": "research",
+   "notes": "NMBE ±5%, CV(RMSE) ≤ 15% (FEMP M&V 4.0 Table 4-2)"
+  },
+  {
+   "name": "FEMP_HOURLY_DAILY",
+   "type": "decimal_pair",
+   "value": [
+    "10",
+    "30"
+   ],
+   "source": "https://www.energy.gov/sites/default/files/2016/01/f28/mv_guide_4_0.pdf",
+   "finding": "ashrae-calibration-gate",
+   "verified_on": "2026-09-23",
+   "verification": "research",
+   "notes": "NMBE ±10%, CV(RMSE) ≤ 30%"
+  },
+  {
+   "name": "MIN_CALIBRATION_PERIODS",
+   "type": "int",
+   "value": 12,
+   "source": "SPEC-v0.2 design decision (no external source)",
+   "finding": "D7",
+   "verified_on": "2026-09-23",
+   "verification": "research"
+  },
+  {
+   "name": "MAX_TOKENS_AGENTIC_RECOMMENDED",
+   "type": "int",
+   "value": 64000,
+   "source": "Token Bill research corpus (SPEC-v0.2 evidence base; mechanisms and orders of magnitude only)",
+   "finding": "max-tokens-truncation",
+   "verified_on": "2026-09-23",
+   "verification": "research"
+  },
+  {
+   "name": "MAX_TOKENS_AGENTIC_RECOMMENDED_XHIGH",
+   "type": "int",
+   "value": 128000,
+   "source": "Token Bill research corpus (SPEC-v0.2 evidence base; mechanisms and orders of magnitude only)",
+   "finding": "anth-output-hygiene",
+   "verified_on": "2026-09-23",
+   "verification": "research"
+  },
+  {
+   "name": "TOOL_DEFS_DEFER_THRESHOLD_TOKENS",
+   "type": "int",
+   "value": 10000,
+   "source": "Token Bill research corpus (SPEC-v0.2 evidence base; mechanisms and orders of magnitude only)",
+   "finding": "anth-tool-search-defer",
+   "verified_on": "2026-09-23",
+   "verification": "research"
+  },
+  {
+   "name": "TOOL_SEARCH_REDUCTION_BAND",
+   "type": "decimal_pair",
+   "value": [
+    "0.50",
+    "0.85"
+   ],
+   "source": "Token Bill research corpus (SPEC-v0.2 evidence base; mechanisms and orders of magnitude only)",
+   "finding": "tool-schema-bloat",
+   "verified_on": "2026-09-23",
+   "verification": "research",
+   "notes": "vendor-reported ≥ 85%, band widened"
+  },
+  {
+   "name": "EDIT_PAYBACK_FORMULA",
+   "type": "formula",
+   "value": "K* = S(α − β)/(Xβ)",
+   "source": "Token Bill research corpus (SPEC-v0.2 evidence base; mechanisms and orders of magnitude only)",
+   "finding": "history-rewrite-kstar",
+   "verified_on": "2026-09-23",
+   "verification": "research"
+  },
+  {
+   "name": "CODE_REVIEW_USD_PER_REVIEW",
+   "type": "decimal_pair",
+   "value": [
+    "15",
+    "25"
+   ],
+   "source": "Token Bill research corpus (SPEC-v0.2 evidence base; mechanisms and orders of magnitude only)",
+   "finding": "ci-review-unit-costs",
+   "verified_on": "2026-09-23",
+   "verification": "research",
+   "notes": "Anthropic Code Review average"
+  },
+  {
+   "name": "STALE_PROMPT_OUTPUT_DELTA",
+   "type": "decimal",
+   "value": "0.20",
+   "source": "SPEC-v0.2 design decision (no external source)",
+   "finding": "D34",
+   "verified_on": "2026-09-23",
+   "verification": "research",
+   "notes": "+0.20 output per call triggers the rebaseline note (design threshold)"
+  }
+ ],
+ "lifecycle": {
+  "successors": [
+   {
+    "model": "claude-fable-5",
+    "successor": "claude-fable-5-1",
+    "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+    "finding": "cc-same-tier-upgrade",
+    "verified_on": "2026-09-23",
+    "verification": "research",
+    "notes": "same tier, same tokenizer (SPEC §6.7)"
+   },
+   {
+    "model": "claude-opus-5",
+    "successor": "claude-opus-5-5",
+    "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+    "finding": "cc-same-tier-upgrade",
+    "verified_on": "2026-09-23",
+    "verification": "research",
+    "notes": "same tier, same tokenizer"
+   },
+   {
+    "model": "claude-mythos-5",
+    "successor": "claude-mythos-5-1",
+    "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+    "finding": "cc-same-tier-upgrade",
+    "verified_on": "2026-09-23",
+    "verification": "research",
+    "notes": "same tier, same tokenizer"
+   }
+  ],
+  "retirements": [
+   {
+    "model": "claude-sonnet-4-5",
+    "retirement_floor": "2026-09-29",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "cc-timing-calendar",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "tentative retirement 'not sooner than' this date on Anthropic-operated platforms"
+   },
+   {
+    "model": "claude-haiku-4-5",
+    "retirement_floor": "2026-10-15",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "cc-timing-calendar",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "tentative retirement 'not sooner than' this date on Anthropic-operated platforms"
+   },
+   {
+    "model": "claude-opus-4-5",
+    "retirement_floor": "2026-11-24",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "cc-timing-calendar",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "tentative retirement 'not sooner than' this date on Anthropic-operated platforms"
+   },
+   {
+    "model": "claude-opus-4-6",
+    "retirement_floor": "2027-02-05",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "cc-timing-calendar",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "tentative retirement 'not sooner than' this date on Anthropic-operated platforms"
+   },
+   {
+    "model": "claude-sonnet-4-6",
+    "retirement_floor": "2027-02-17",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "cc-timing-calendar",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "tentative retirement 'not sooner than' this date on Anthropic-operated platforms"
+   },
+   {
+    "model": "claude-opus-4-7",
+    "retirement_floor": "2027-04-16",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "cc-timing-calendar",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "tentative retirement 'not sooner than' this date on Anthropic-operated platforms"
+   },
+   {
+    "model": "claude-opus-4-8",
+    "retirement_floor": "2027-05-28",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "cc-timing-calendar",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "tentative retirement 'not sooner than' this date on Anthropic-operated platforms"
+   },
+   {
+    "model": "claude-fable-5",
+    "retirement_floor": "2027-06-09",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "cc-timing-calendar",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "tentative retirement 'not sooner than' this date on Anthropic-operated platforms"
+   },
+   {
+    "model": "claude-mythos-5",
+    "retirement_floor": "2027-06-09",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "cc-timing-calendar",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "tentative retirement 'not sooner than' this date on Anthropic-operated platforms"
+   },
+   {
+    "model": "claude-sonnet-5",
+    "retirement_floor": "2027-06-30",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "cc-timing-calendar",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "tentative retirement 'not sooner than' this date on Anthropic-operated platforms"
+   },
+   {
+    "model": "claude-opus-5",
+    "retirement_floor": "2027-07-24",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "cc-timing-calendar",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "tentative retirement 'not sooner than' this date on Anthropic-operated platforms"
+   },
+   {
+    "model": "claude-fable-5-1",
+    "retirement_floor": "2027-09-01",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "cc-timing-calendar",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "tentative retirement 'not sooner than' this date on Anthropic-operated platforms"
+   },
+   {
+    "model": "claude-mythos-5-1",
+    "retirement_floor": "2027-09-01",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "cc-timing-calendar",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "tentative retirement 'not sooner than' this date on Anthropic-operated platforms"
+   },
+   {
+    "model": "claude-opus-5-5",
+    "retirement_floor": "2027-09-22",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "cc-timing-calendar",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "tentative retirement 'not sooner than' this date on Anthropic-operated platforms"
+   }
+  ],
+  "retired": [
+   {
+    "model": "claude-opus-4-1",
+    "retired_on": "2026-08-05",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "anth-pricing-table-2026-09",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "retired on the Claude API; may remain billable on partner clouds"
+   },
+   {
+    "model": "claude-opus-4",
+    "retired_on": "2026-06-15",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "anth-pricing-table-2026-09",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "retired on the Claude API; may remain billable on partner clouds"
+   },
+   {
+    "model": "claude-sonnet-4",
+    "retired_on": "2026-06-15",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "anth-pricing-table-2026-09",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "retired on the Claude API; may remain billable on partner clouds"
+   },
+   {
+    "model": "claude-3-7-sonnet",
+    "retired_on": "2026-02-19",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "anth-pricing-table-2026-09",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "retired on the Claude API; may remain billable on partner clouds"
+   },
+   {
+    "model": "claude-3-5-haiku",
+    "retired_on": "2026-02-19",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "anth-pricing-table-2026-09",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "retired on the Claude API; may remain billable on partner clouds"
+   },
+   {
+    "model": "claude-3-haiku",
+    "retired_on": "2026-04-20",
+    "source": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+    "finding": "anth-pricing-table-2026-09",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "retired on the Claude API; may remain billable on partner clouds"
+   }
+  ],
+  "promotions": [
+   {
+    "promotion_id": "openai.gpt-5.6-sol.2026-08",
+    "model": "gpt-5.6-sol",
+    "channel": "openai_api",
+    "start": "2026-08-21",
+    "not_before_end": "2026-11-21",
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "finding": "cc-timing-calendar",
+    "verified_on": "2026-09-23",
+    "verification": "primary",
+    "notes": "'GPT-5.6 Sol's promotional pricing is available at least through November 21, 2026'"
+   }
+  ],
+  "announced": [
+   {
+    "model": "claude-sonnet-5-5",
+    "announced_on": "2026-09-22",
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "finding": "anth-evidence-drift",
+    "verified_on": "2026-09-23",
+    "verification": "research",
+    "notes": "announced, not on the pricing page on 2026-09-23 (not priced)"
+   },
+   {
+    "model": "claude-haiku-5-5",
+    "announced_on": "2026-09-22",
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "finding": "anth-evidence-drift",
+    "verified_on": "2026-09-23",
+    "verification": "research",
+    "notes": "announced, not on the pricing page on 2026-09-23 (not priced)"
+   }
+  ]
+ },
+ "focus_columns": {
+  "version": "1.4",
+  "ratified": "2026-06-04",
+  "dataset": "CostAndUsage",
+  "columns": [
+   {
+    "name": "AllocatedMethodId",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.3"
+   },
+   {
+    "name": "AllocatedMethodDetails",
+    "feature_level": "Recommended",
+    "allows_nulls": true,
+    "data_type": "JSON",
+    "column_type": "Dimension / Metric",
+    "introduced": "1.3"
+   },
+   {
+    "name": "AllocatedResourceId",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.3"
+   },
+   {
+    "name": "AllocatedResourceName",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.3"
+   },
+   {
+    "name": "AllocatedTags",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "JSON",
+    "column_type": "Dimension",
+    "introduced": "1.3"
+   },
+   {
+    "name": "AvailabilityZone",
+    "feature_level": "Recommended",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "0.5"
+   },
+   {
+    "name": "BilledCost",
+    "feature_level": "Mandatory",
+    "allows_nulls": false,
+    "data_type": "Decimal",
+    "column_type": "Metric",
+    "introduced": "0.5"
+   },
+   {
+    "name": "BillingAccountId",
+    "feature_level": "Mandatory",
+    "allows_nulls": false,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "0.5"
+   },
+   {
+    "name": "BillingAccountName",
+    "feature_level": "Mandatory",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "0.5"
+   },
+   {
+    "name": "BillingAccountType",
+    "feature_level": "Conditional",
+    "allows_nulls": false,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.2"
+   },
+   {
+    "name": "BillingCurrency",
+    "feature_level": "Mandatory",
+    "allows_nulls": false,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "0.5"
+   },
+   {
+    "name": "BillingPeriodEnd",
+    "feature_level": "Mandatory",
+    "allows_nulls": false,
+    "data_type": "Date/Time",
+    "column_type": "Dimension",
+    "introduced": "0.5"
+   },
+   {
+    "name": "BillingPeriodStart",
+    "feature_level": "Mandatory",
+    "allows_nulls": false,
+    "data_type": "Date/Time",
+    "column_type": "Dimension",
+    "introduced": "0.5"
+   },
+   {
+    "name": "CapacityReservationId",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.1"
+   },
+   {
+    "name": "CapacityReservationStatus",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.1"
+   },
+   {
+    "name": "ChargeCategory",
+    "feature_level": "Mandatory",
+    "allows_nulls": false,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "0.5"
+   },
+   {
+    "name": "ChargeClass",
+    "feature_level": "Mandatory",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.0"
+   },
+   {
+    "name": "ChargeDescription",
+    "feature_level": "Mandatory",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.0-preview"
+   },
+   {
+    "name": "ChargeFrequency",
+    "feature_level": "Recommended",
+    "allows_nulls": false,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.0-preview"
+   },
+   {
+    "name": "ChargePeriodEnd",
+    "feature_level": "Mandatory",
+    "allows_nulls": false,
+    "data_type": "Date/Time",
+    "column_type": "Dimension",
+    "introduced": "0.5"
+   },
+   {
+    "name": "ChargePeriodStart",
+    "feature_level": "Mandatory",
+    "allows_nulls": false,
+    "data_type": "Date/Time",
+    "column_type": "Dimension",
+    "introduced": "0.5"
+   },
+   {
+    "name": "CommitmentDiscountCategory",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.0-preview"
+   },
+   {
+    "name": "CommitmentDiscountId",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.0-preview"
+   },
+   {
+    "name": "CommitmentDiscountName",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.0-preview"
+   },
+   {
+    "name": "CommitmentDiscountQuantity",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "Decimal",
+    "column_type": "Metric",
+    "introduced": "1.1"
+   },
+   {
+    "name": "CommitmentDiscountStatus",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.0"
+   },
+   {
+    "name": "CommitmentDiscountType",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.0-preview"
+   },
+   {
+    "name": "CommitmentDiscountUnit",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.1"
+   },
+   {
+    "name": "CommitmentProgramEligibilityDetails",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "JSON",
+    "column_type": "Dimension",
+    "introduced": "1.4"
+   },
+   {
+    "name": "ConsumedQuantity",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "Decimal",
+    "column_type": "Metric",
+    "introduced": "1.0"
+   },
+   {
+    "name": "ConsumedUnit",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.0"
+   },
+   {
+    "name": "ContractApplied",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "JSON",
+    "column_type": "Dimension / Metric",
+    "introduced": "1.3"
+   },
+   {
+    "name": "ContractedCost",
+    "feature_level": "Mandatory",
+    "allows_nulls": false,
+    "data_type": "Decimal",
+    "column_type": "Metric",
+    "introduced": "1.0"
+   },
+   {
+    "name": "ContractedUnitPrice",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "Decimal",
+    "column_type": "Metric",
+    "introduced": "1.0"
+   },
+   {
+    "name": "EffectiveCost",
+    "feature_level": "Mandatory",
+    "allows_nulls": false,
+    "data_type": "Decimal",
+    "column_type": "Metric",
+    "introduced": "0.5"
+   },
+   {
+    "name": "HostProviderName",
+    "feature_level": "Mandatory",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.3"
+   },
+   {
+    "name": "InvoiceDetailId",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.4"
+   },
+   {
+    "name": "InvoiceId",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.2"
+   },
+   {
+    "name": "InvoiceIssuerName",
+    "feature_level": "Mandatory",
+    "allows_nulls": false,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "0.5"
+   },
+   {
+    "name": "ListCost",
+    "feature_level": "Mandatory",
+    "allows_nulls": false,
+    "data_type": "Decimal",
+    "column_type": "Metric",
+    "introduced": "1.0-preview"
+   },
+   {
+    "name": "ListUnitPrice",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "Decimal",
+    "column_type": "Metric",
+    "introduced": "1.0-preview"
+   },
+   {
+    "name": "PricingCategory",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.0-preview"
+   },
+   {
+    "name": "PricingCurrency",
+    "feature_level": "Conditional",
+    "allows_nulls": false,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.2"
+   },
+   {
+    "name": "PricingCurrencyContractedUnitPrice",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "Decimal",
+    "column_type": "Metric",
+    "introduced": "1.2"
+   },
+   {
+    "name": "PricingCurrencyEffectiveCost",
+    "feature_level": "Conditional",
+    "allows_nulls": false,
+    "data_type": "Decimal",
+    "column_type": "Metric",
+    "introduced": "1.2"
+   },
+   {
+    "name": "PricingCurrencyListUnitPrice",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "Decimal",
+    "column_type": "Metric",
+    "introduced": "1.2"
+   },
+   {
+    "name": "PricingQuantity",
+    "feature_level": "Mandatory",
+    "allows_nulls": true,
+    "data_type": "Decimal",
+    "column_type": "Metric",
+    "introduced": "1.0-preview"
+   },
+   {
+    "name": "PricingUnit",
+    "feature_level": "Mandatory",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.0-preview"
+   },
+   {
+    "name": "RegionId",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.0"
+   },
+   {
+    "name": "RegionName",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.0"
+   },
+   {
+    "name": "ResourceId",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "0.5"
+   },
+   {
+    "name": "ResourceName",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "0.5"
+   },
+   {
+    "name": "ResourceType",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.0-preview"
+   },
+   {
+    "name": "ServiceProviderName",
+    "feature_level": "Mandatory",
+    "allows_nulls": false,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.3"
+   },
+   {
+    "name": "ServiceCategory",
+    "feature_level": "Mandatory",
+    "allows_nulls": false,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "0.5"
+   },
+   {
+    "name": "ServiceName",
+    "feature_level": "Mandatory",
+    "allows_nulls": false,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "0.5"
+   },
+   {
+    "name": "ServiceSubcategory",
+    "feature_level": "Recommended",
+    "allows_nulls": false,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.1"
+   },
+   {
+    "name": "SkuId",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.0-preview"
+   },
+   {
+    "name": "SkuMeter",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.1"
+   },
+   {
+    "name": "SkuPriceDetails",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "JSON",
+    "column_type": "Dimension",
+    "introduced": "1.1"
+   },
+   {
+    "name": "SkuPriceId",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.0-preview"
+   },
+   {
+    "name": "SubAccountId",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "0.5"
+   },
+   {
+    "name": "SubAccountName",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "0.5"
+   },
+   {
+    "name": "SubAccountType",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "String",
+    "column_type": "Dimension",
+    "introduced": "1.2"
+   },
+   {
+    "name": "Tags",
+    "feature_level": "Conditional",
+    "allows_nulls": true,
+    "data_type": "JSON",
+    "column_type": "Dimension",
+    "introduced": "1.0-preview"
+   }
+  ],
+  "removed_in_1_4": [
+   {
+    "name": "ProviderName",
+    "replaced_by": [
+     "ServiceProviderName",
+     "HostProviderName"
+    ]
+   },
+   {
+    "name": "PublisherName",
+    "replaced_by": [
+     "ServiceProviderName",
+     "HostProviderName"
+    ]
+   }
+  ],
+  "custom_column_prefix": "x_",
+  "service_category_ai": "AI and Machine Learning",
+  "source": "https://github.com/FinOps-Open-Cost-and-Usage-Spec/FOCUS_Spec/tree/v1.4",
+  "finding": "ent-focus-1-4",
+  "verified_on": "2026-09-23",
+  "verification": "primary",
+  "notes": "65 Cost and Usage columns of FOCUS 1.4 (tag v1.4, released 2026-06-04) with feature level and nullability from each column's Content Constraints table. SPEC §14.4 names ProviderName and PublisherName: both were deprecated in 1.3 and removed in 1.4; use ServiceProviderName (mandatory) and HostProviderName (mandatory, nullable). 1.4 adds 2 datasets and 47 new columns in total (the SPEC's '47 columns')"
+ },
+ "headless_fields": [
+  {
+   "group": "claude_code_action",
+   "fields": {
+    "execution_file_path": "$RUNNER_TEMP/claude-execution-output.json",
+    "action_output": "execution_file",
+    "container": "JSON array of SDK messages",
+    "entrypoint": "claude-code-github-action"
+   },
+   "source": "https://code.claude.com/docs/en/headless",
+   "finding": "ci-headless-ingest",
+   "verified_on": "2026-09-23",
+   "verification": "research",
+   "notes": "execution-file container shape and path from the research phase; VERIFY against a real claude-code-action execution file (SPEC §19.8 #16)"
+  },
+  {
+   "group": "print_json",
+   "fields": {
+    "cost": "total_cost_usd",
+    "per_model": "modelUsage",
+    "usage": "usage",
+    "session": "session_id"
+   },
+   "source": "https://code.claude.com/docs/en/headless",
+   "finding": "ci-headless-ingest",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "claude -p --output-format json returns total_cost_usd and a per-model breakdown"
+  },
+  {
+   "group": "stream_json",
+   "fields": {
+    "step_message_id": "message.id",
+    "step_usage": "message.usage",
+    "subagent_link": "parent_tool_use_id",
+    "result_type": "result"
+   },
+   "source": "https://code.claude.com/docs/en/headless",
+   "finding": "sdk-accounting-pitfalls",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "per-step output_tokens is a placeholder (dedupe by message id); subagent messages carry parent_tool_use_id, main-conversation messages null"
+  },
+  {
+   "group": "result_message",
+   "fields": {
+    "total_cost_usd": "includes subagents; client-side estimate (provider_estimate)",
+    "modelUsage": "includes subagents (Python: model_usage)",
+    "usage": "top-level loop only (excludes subagents)",
+    "resumed": "totals include spend restored from a resumed session",
+    "crash": "a crashed session's final result may carry totals zeroed"
+   },
+   "source": "https://code.claude.com/docs/en/agent-sdk/cost-tracking",
+   "finding": "sdk-accounting-pitfalls",
+   "verified_on": "2026-09-23",
+   "verification": "primary"
+  }
+ ],
+ "sku_rules": [
+  {
+   "source_kind": "aws.cur2",
+   "pattern": "^[A-Z0-9]+-MP:[A-Z0-9]+_InputTokenCount_Global-Units$",
+   "model": null,
+   "bucket": "uncached_input",
+   "endpoint_scope": "global",
+   "service_tier": "standard",
+   "unit_tokens": 1000000,
+   "verified": false,
+   "source": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/current/us-east-1/index.json",
+   "finding": "bedrock-price-list-api",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "usage-type text checked against the AmazonBedrockFoundationModels Price List offer file (2026-09-22; pricing unit '1M tokens'); the model comes from the product (servicename / line_item_product_code), not the usage type. verified=false until a real CUR 2.0 export confirms line_item_usage_amount units (SPEC §19.8 #17); unverified rules are never used by map_sku"
+  },
+  {
+   "source_kind": "aws.cur2",
+   "pattern": "^[A-Z0-9]+-MP:[A-Z0-9]+_InputTokenCount-Units$",
+   "model": null,
+   "bucket": "uncached_input",
+   "endpoint_scope": "regional",
+   "service_tier": "standard",
+   "unit_tokens": 1000000,
+   "verified": false,
+   "source": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/current/us-east-1/index.json",
+   "finding": "bedrock-price-list-api",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "usage-type text checked against the AmazonBedrockFoundationModels Price List offer file (2026-09-22; pricing unit '1M tokens'); the model comes from the product (servicename / line_item_product_code), not the usage type. verified=false until a real CUR 2.0 export confirms line_item_usage_amount units (SPEC §19.8 #17); unverified rules are never used by map_sku"
+  },
+  {
+   "source_kind": "aws.cur2",
+   "pattern": "^[A-Z0-9]+-MP:[A-Z0-9]+_OutputTokenCount_Global-Units$",
+   "model": null,
+   "bucket": "output",
+   "endpoint_scope": "global",
+   "service_tier": "standard",
+   "unit_tokens": 1000000,
+   "verified": false,
+   "source": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/current/us-east-1/index.json",
+   "finding": "bedrock-price-list-api",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "usage-type text checked against the AmazonBedrockFoundationModels Price List offer file (2026-09-22; pricing unit '1M tokens'); the model comes from the product (servicename / line_item_product_code), not the usage type. verified=false until a real CUR 2.0 export confirms line_item_usage_amount units (SPEC §19.8 #17); unverified rules are never used by map_sku"
+  },
+  {
+   "source_kind": "aws.cur2",
+   "pattern": "^[A-Z0-9]+-MP:[A-Z0-9]+_OutputTokenCount-Units$",
+   "model": null,
+   "bucket": "output",
+   "endpoint_scope": "regional",
+   "service_tier": "standard",
+   "unit_tokens": 1000000,
+   "verified": false,
+   "source": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/current/us-east-1/index.json",
+   "finding": "bedrock-price-list-api",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "usage-type text checked against the AmazonBedrockFoundationModels Price List offer file (2026-09-22; pricing unit '1M tokens'); the model comes from the product (servicename / line_item_product_code), not the usage type. verified=false until a real CUR 2.0 export confirms line_item_usage_amount units (SPEC §19.8 #17); unverified rules are never used by map_sku"
+  },
+  {
+   "source_kind": "aws.cur2",
+   "pattern": "^[A-Z0-9]+-MP:[A-Z0-9]+_CacheReadInputTokenCount_Global-Units$",
+   "model": null,
+   "bucket": "cache_read",
+   "endpoint_scope": "global",
+   "service_tier": "standard",
+   "unit_tokens": 1000000,
+   "verified": false,
+   "source": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/current/us-east-1/index.json",
+   "finding": "bedrock-price-list-api",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "usage-type text checked against the AmazonBedrockFoundationModels Price List offer file (2026-09-22; pricing unit '1M tokens'); the model comes from the product (servicename / line_item_product_code), not the usage type. verified=false until a real CUR 2.0 export confirms line_item_usage_amount units (SPEC §19.8 #17); unverified rules are never used by map_sku"
+  },
+  {
+   "source_kind": "aws.cur2",
+   "pattern": "^[A-Z0-9]+-MP:[A-Z0-9]+_CacheReadInputTokenCount-Units$",
+   "model": null,
+   "bucket": "cache_read",
+   "endpoint_scope": "regional",
+   "service_tier": "standard",
+   "unit_tokens": 1000000,
+   "verified": false,
+   "source": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/current/us-east-1/index.json",
+   "finding": "bedrock-price-list-api",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "usage-type text checked against the AmazonBedrockFoundationModels Price List offer file (2026-09-22; pricing unit '1M tokens'); the model comes from the product (servicename / line_item_product_code), not the usage type. verified=false until a real CUR 2.0 export confirms line_item_usage_amount units (SPEC §19.8 #17); unverified rules are never used by map_sku"
+  },
+  {
+   "source_kind": "aws.cur2",
+   "pattern": "^[A-Z0-9]+-MP:[A-Z0-9]+_CacheWriteInputTokenCount_Global-Units$",
+   "model": null,
+   "bucket": "cache_write_5m",
+   "endpoint_scope": "global",
+   "service_tier": "standard",
+   "unit_tokens": 1000000,
+   "verified": false,
+   "source": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/current/us-east-1/index.json",
+   "finding": "bedrock-price-list-api",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "usage-type text checked against the AmazonBedrockFoundationModels Price List offer file (2026-09-22; pricing unit '1M tokens'); the model comes from the product (servicename / line_item_product_code), not the usage type. verified=false until a real CUR 2.0 export confirms line_item_usage_amount units (SPEC §19.8 #17); unverified rules are never used by map_sku"
+  },
+  {
+   "source_kind": "aws.cur2",
+   "pattern": "^[A-Z0-9]+-MP:[A-Z0-9]+_CacheWriteInputTokenCount-Units$",
+   "model": null,
+   "bucket": "cache_write_5m",
+   "endpoint_scope": "regional",
+   "service_tier": "standard",
+   "unit_tokens": 1000000,
+   "verified": false,
+   "source": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/current/us-east-1/index.json",
+   "finding": "bedrock-price-list-api",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "usage-type text checked against the AmazonBedrockFoundationModels Price List offer file (2026-09-22; pricing unit '1M tokens'); the model comes from the product (servicename / line_item_product_code), not the usage type. verified=false until a real CUR 2.0 export confirms line_item_usage_amount units (SPEC §19.8 #17); unverified rules are never used by map_sku"
+  },
+  {
+   "source_kind": "aws.cur2",
+   "pattern": "^[A-Z0-9]+-MP:[A-Z0-9]+_CacheWrite1hInputTokenCount_Global-Units$",
+   "model": null,
+   "bucket": "cache_write_1h",
+   "endpoint_scope": "global",
+   "service_tier": "standard",
+   "unit_tokens": 1000000,
+   "verified": false,
+   "source": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/current/us-east-1/index.json",
+   "finding": "bedrock-price-list-api",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "usage-type text checked against the AmazonBedrockFoundationModels Price List offer file (2026-09-22; pricing unit '1M tokens'); the model comes from the product (servicename / line_item_product_code), not the usage type. verified=false until a real CUR 2.0 export confirms line_item_usage_amount units (SPEC §19.8 #17); unverified rules are never used by map_sku"
+  },
+  {
+   "source_kind": "aws.cur2",
+   "pattern": "^[A-Z0-9]+-MP:[A-Z0-9]+_CacheWrite1hInputTokenCount-Units$",
+   "model": null,
+   "bucket": "cache_write_1h",
+   "endpoint_scope": "regional",
+   "service_tier": "standard",
+   "unit_tokens": 1000000,
+   "verified": false,
+   "source": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/current/us-east-1/index.json",
+   "finding": "bedrock-price-list-api",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "usage-type text checked against the AmazonBedrockFoundationModels Price List offer file (2026-09-22; pricing unit '1M tokens'); the model comes from the product (servicename / line_item_product_code), not the usage type. verified=false until a real CUR 2.0 export confirms line_item_usage_amount units (SPEC §19.8 #17); unverified rules are never used by map_sku"
+  },
+  {
+   "source_kind": "aws.cur2",
+   "pattern": "^[A-Z0-9]+-MP:[A-Z0-9]+_InputTokenCount_Global_Batch-Units$",
+   "model": null,
+   "bucket": "uncached_input",
+   "endpoint_scope": "global",
+   "service_tier": "batch",
+   "unit_tokens": 1000000,
+   "verified": false,
+   "source": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/current/us-east-1/index.json",
+   "finding": "bedrock-price-list-api",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "usage-type text checked against the AmazonBedrockFoundationModels Price List offer file (2026-09-22; pricing unit '1M tokens'); the model comes from the product (servicename / line_item_product_code), not the usage type. verified=false until a real CUR 2.0 export confirms line_item_usage_amount units (SPEC §19.8 #17); unverified rules are never used by map_sku"
+  },
+  {
+   "source_kind": "aws.cur2",
+   "pattern": "^[A-Z0-9]+-MP:[A-Z0-9]+_InputTokenCount_Batch-Units$",
+   "model": null,
+   "bucket": "uncached_input",
+   "endpoint_scope": "regional",
+   "service_tier": "batch",
+   "unit_tokens": 1000000,
+   "verified": false,
+   "source": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/current/us-east-1/index.json",
+   "finding": "bedrock-price-list-api",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "usage-type text checked against the AmazonBedrockFoundationModels Price List offer file (2026-09-22; pricing unit '1M tokens'); the model comes from the product (servicename / line_item_product_code), not the usage type. verified=false until a real CUR 2.0 export confirms line_item_usage_amount units (SPEC §19.8 #17); unverified rules are never used by map_sku"
+  },
+  {
+   "source_kind": "aws.cur2",
+   "pattern": "^[A-Z0-9]+-MP:[A-Z0-9]+_OutputTokenCount_Global_Batch-Units$",
+   "model": null,
+   "bucket": "output",
+   "endpoint_scope": "global",
+   "service_tier": "batch",
+   "unit_tokens": 1000000,
+   "verified": false,
+   "source": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/current/us-east-1/index.json",
+   "finding": "bedrock-price-list-api",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "usage-type text checked against the AmazonBedrockFoundationModels Price List offer file (2026-09-22; pricing unit '1M tokens'); the model comes from the product (servicename / line_item_product_code), not the usage type. verified=false until a real CUR 2.0 export confirms line_item_usage_amount units (SPEC §19.8 #17); unverified rules are never used by map_sku"
+  },
+  {
+   "source_kind": "aws.cur2",
+   "pattern": "^[A-Z0-9]+-MP:[A-Z0-9]+_OutputTokenCount_Batch-Units$",
+   "model": null,
+   "bucket": "output",
+   "endpoint_scope": "regional",
+   "service_tier": "batch",
+   "unit_tokens": 1000000,
+   "verified": false,
+   "source": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/current/us-east-1/index.json",
+   "finding": "bedrock-price-list-api",
+   "verified_on": "2026-09-23",
+   "verification": "primary",
+   "notes": "usage-type text checked against the AmazonBedrockFoundationModels Price List offer file (2026-09-22; pricing unit '1M tokens'); the model comes from the product (servicename / line_item_product_code), not the usage type. verified=false until a real CUR 2.0 export confirms line_item_usage_amount units (SPEC §19.8 #17); unverified rules are never used by map_sku"
+  }
+ ]
+}

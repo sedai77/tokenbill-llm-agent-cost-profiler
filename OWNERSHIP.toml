@@ -1,0 +1,330 @@
+# File ownership of Token Bill v0.2 (SPEC-v0.2 Appendix O = PLAN-v0.2 §2.1), enforced by
+# scripts/check_ownership.py (CI: .github/workflows/ownership.yml). Brace groups of the SPEC table are
+# expanded to one path each. Patterns: "*" matches within one path segment, "**" any number of segments.
+# Every repository file belongs to exactly one package, to INTEGRATION, or is FROZEN; FROZEN files are
+# never edited by anyone. Changing this file is a contract change (SPEC §21 #3).
+
+schema = "tokenbill/ownership@1"
+
+[frozen]
+paths = [
+  "tokenbill/__main__.py",
+  "tokenbill/common.py",
+  "tokenbill/trace.py",
+  "tokenbill/analyzer.py",
+  "tokenbill/simulator.py",
+  "tokenbill/breakers.py",
+  "tokenbill/report.py",
+  "tokenbill/demo_traces.py",
+  "tokenbill/py.typed",
+  "examples/**",
+  "CODE_OF_CONDUCT.md",
+  "LICENSE",
+  "tests/test_analyzer.py",
+  "tests/test_breakers.py",
+  "tests/test_cli.py",
+  "tests/test_demo_recovers_planted_waste.py",
+  "tests/test_demo_traces.py",
+  "tests/test_examples.py",
+  "tests/test_instrument.py",
+  "tests/test_performance.py",
+  "tests/test_report.py",
+  "tests/test_simulator.py",
+  "tests/test_trace.py",
+]
+
+[packages.F-CORE]
+paths = [
+  "OWNERSHIP.toml",
+  "scripts/check_ownership.py",
+  "scripts/capture_goldens.py",
+  "pyproject.toml",
+  "uv.lock",
+  ".gitignore",
+  ".github/workflows/ownership.yml",
+  "tokenbill/core/__init__.py",
+  "tokenbill/core/errors.py",
+  "tokenbill/core/records.py",
+  "tokenbill/core/money.py",
+  "tokenbill/core/labels.py",
+  "tokenbill/core/types.py",
+  "tokenbill/core/protocols.py",
+  "tokenbill/core/registry.py",
+  "tokenbill/core/ids.py",
+  "tokenbill/core/jsonl.py",
+  "tokenbill/core/textsafe.py",
+  "tokenbill/core/secrets.py",
+  "tokenbill/core/models.py",
+  "tokenbill/core/lanes.py",
+  "tokenbill/core/evidence.py",
+  "tokenbill/core/facts.py",
+  "tokenbill/core/builders.py",
+  "tokenbill/core/facts.json",
+  "tokenbill/adapters/__init__.py",
+  "tokenbill/rates/__init__.py",
+  "tokenbill/recon/__init__.py",
+  "tokenbill/store/__init__.py",
+  "tokenbill/sim/__init__.py",
+  "tokenbill/detect/__init__.py",
+  "tokenbill/plan/__init__.py",
+  "tokenbill/verify/__init__.py",
+  "tokenbill/outputs/__init__.py",
+  "tokenbill/finops/__init__.py",
+  "tokenbill/synth/__init__.py",
+  "tokenbill/pipeline/__init__.py",
+  "tokenbill/commands/__init__.py",
+  "tests/conftest.py",
+  "tests/v2/__init__.py",
+  "tests/v2/core/**",
+  "tests/v2/golden/**",
+]
+
+[packages.F-SEM]
+paths = [
+  "tokenbill/core/conventions.py",
+  "tokenbill/core/cache_rules.py",
+  "tokenbill/core/transitions.py",
+  "tokenbill/core/shapley.py",
+  "tokenbill/core/policy.py",
+  "tokenbill/core/shards.py",
+  "tokenbill/core/findings.py",
+  "tests/v2/sem/**",
+]
+
+[packages.F-KIT]
+paths = [
+  "tokenbill/core/testing.py",
+  "tokenbill/core/catalog.py",
+  "tokenbill/core/keys.py",
+  "tokenbill/core/kanon.py",
+  "tests/v2/kit/**",
+  "tests/v2/gates/**",
+]
+
+[packages.RATES]
+paths = [
+  "tokenbill/pricing.py",
+  "tokenbill/rates/schema.py",
+  "tokenbill/rates/engine.py",
+  "tokenbill/rates/contract.py",
+  "tokenbill/rates/billing_rules.py",
+  "tokenbill/rates/verify.py",
+  "tokenbill/rates/data/**",
+  "tests/test_pricing.py",
+  "tests/v2/rates/**",
+  "tests/v2/fixtures/rates/**",
+]
+
+[packages.CC]
+paths = [
+  "tokenbill/adapters/claude_code.py",
+  "tokenbill/adapters/cc_collect.py",
+  "tokenbill/adapters/cc_headless.py",
+  "tests/v2/claude_code/**",
+  "tests/v2/fixtures/claude_code/**",
+]
+
+[packages.TRACE]
+paths = [
+  "tokenbill/adapters/fingerprint.py",
+  "tokenbill/adapters/trace_v1.py",
+  "tokenbill/adapters/trace_v2.py",
+  "tokenbill/instrument.py",
+  "tests/v2/trace/**",
+  "tests/v2/fixtures/trace/**",
+]
+
+[packages.TELEM]
+paths = [
+  "tokenbill/adapters/conventions_ext.py",
+  "tokenbill/adapters/otel.py",
+  "tokenbill/adapters/openai.py",
+  "tokenbill/adapters/bedrock.py",
+  "tokenbill/adapters/anthropic_responses.py",
+  "tests/v2/telemetry/**",
+  "tests/v2/fixtures/telemetry/**",
+]
+
+[packages.ADMIN]
+paths = [
+  "tokenbill/adapters/anthropic_admin.py",
+  "tokenbill/adapters/openai_admin.py",
+  "tokenbill/adapters/cloud_billing.py",
+  "tests/v2/admin/**",
+  "tests/v2/fixtures/admin/**",
+]
+
+[packages.RECON]
+paths = [
+  "tokenbill/recon/reconcile.py",
+  "tokenbill/recon/residuals.py",
+  "tokenbill/recon/costmap.py",
+  "tokenbill/recon/pull.py",
+  "tokenbill/recon/orgscan.py",
+  "tests/v2/recon/**",
+  "tests/v2/fixtures/recon/**",
+]
+
+[packages.STORE]
+paths = [
+  "tokenbill/store/schema.py",
+  "tokenbill/store/db.py",
+  "tokenbill/store/merge.py",
+  "tokenbill/store/rollups.py",
+  "tokenbill/store/retention.py",
+  "tokenbill/store/pseudonym.py",
+  "tests/v2/store/**",
+]
+
+[packages.REPLAY]
+paths = [
+  "tokenbill/sim/usage_replay.py",
+  "tokenbill/sim/calibrate.py",
+  "tests/v2/sim/**",
+]
+
+[packages.BLOCK]
+paths = [
+  "tokenbill/sim/block_replay.py",
+  "tokenbill/detect/block.py",
+  "tests/v2/blocksim/**",
+  "tests/v2/fixtures/blocksim/**",
+]
+
+[packages.SYNTH-ORACLE]
+paths = [
+  "tokenbill/synth/oracle.py",
+  "tokenbill/synth/lanes_gen.py",
+  "tests/v2/synth_oracle/**",
+]
+
+[packages.SYNTH-FLEET]
+paths = [
+  "tokenbill/synth/fleet.py",
+  "tokenbill/synth/truth.py",
+  "tokenbill/synth/writers.py",
+  "tests/v2/synth_fleet/**",
+]
+
+[packages.VERIFY]
+paths = [
+  "tokenbill/verify/stats.py",
+  "tokenbill/verify/estimators.py",
+  "tokenbill/verify/its.py",
+  "tokenbill/verify/ab.py",
+  "tokenbill/verify/rollout.py",
+  "tokenbill/verify/label_policy.py",
+  "tokenbill/verify/receipts.py",
+  "tokenbill/verify/panel.py",
+  "tests/v2/verify/**",
+]
+
+[packages.DETECT-CACHE]
+paths = [
+  "tokenbill/detect/cache_miss.py",
+  "tokenbill/detect/cache_ttl.py",
+  "tokenbill/detect/cache_structure.py",
+  "tests/v2/detect_cache/**",
+]
+
+[packages.DETECT-OTHER]
+paths = [
+  "tokenbill/detect/context.py",
+  "tokenbill/detect/premium.py",
+  "tokenbill/detect/model.py",
+  "tokenbill/detect/failure.py",
+  "tokenbill/detect/automation.py",
+  "tokenbill/detect/tail.py",
+  "tests/v2/detect_other/**",
+]
+
+[packages.PLAN]
+paths = [
+  "tokenbill/plan/action_plan.py",
+  "tokenbill/plan/realization.py",
+  "tokenbill/plan/policy_pack.py",
+  "tokenbill/plan/litellm.py",
+  "tokenbill/plan/effectiveness.py",
+  "tokenbill/plan/templates/**",
+  "tests/v2/plan/**",
+]
+
+[packages.OUT]
+paths = [
+  "tokenbill/outputs/result_json.py",
+  "tokenbill/outputs/terminal.py",
+  "tokenbill/outputs/html.py",
+  "tokenbill/outputs/focus.py",
+  "tokenbill/outputs/sarif.py",
+  "tokenbill/outputs/ccusage.py",
+  "tokenbill/outputs/showback.py",
+  "tokenbill/finops/allocation.py",
+  "tokenbill/finops/workload.py",
+  "tests/v2/outputs/**",
+  "tests/v2/finops/**",
+]
+
+[packages.WIRING]
+paths = [
+  "tokenbill/config.py",
+  "tokenbill/pipeline/common.py",
+  "tests/v2/wiring/**",
+]
+
+[packages.CLI-LEDGER]
+paths = [
+  "tokenbill/cli.py",
+  "tokenbill/pipeline/ledger.py",
+  "tokenbill/commands/demo.py",
+  "tokenbill/commands/analyze.py",
+  "tokenbill/commands/init.py",
+  "tokenbill/commands/collect.py",
+  "tokenbill/commands/ingest.py",
+  "tokenbill/commands/bill.py",
+  "tokenbill/commands/reconcile.py",
+  "tokenbill/commands/export.py",
+  "tokenbill/commands/showback.py",
+  "tokenbill/commands/pricing.py",
+  "tokenbill/commands/purge.py",
+  "tests/v2/cli_ledger/**",
+]
+
+[packages.CLI-SAVINGS]
+paths = [
+  "tokenbill/gate.py",
+  "tokenbill/pipeline/savings.py",
+  "tokenbill/pipeline/verification.py",
+  "tokenbill/commands/scan.py",
+  "tokenbill/commands/me.py",
+  "tokenbill/commands/calibrate.py",
+  "tokenbill/commands/findings.py",
+  "tokenbill/commands/whatif.py",
+  "tokenbill/commands/policy.py",
+  "tokenbill/commands/measure.py",
+  "tokenbill/commands/ab.py",
+  "tokenbill/commands/receipt.py",
+  "tokenbill/commands/check.py",
+  "tokenbill/commands/report.py",
+  "tests/v2/cli_savings/**",
+]
+
+[packages.INTEGRATION]
+paths = [
+  "tokenbill/__init__.py",
+  "README.md",
+  "DESIGN.md",
+  "CHANGELOG.md",
+  "CONTRIBUTING.md",
+  "SECURITY.md",
+  "Makefile",
+  "docs/**",
+  ".github/**",
+  "scripts/sbom.py",
+  "scripts/check_zero_deps.py",
+  "scripts/repro_check.sh",
+  "scripts/perf_gates.py",
+  "tests/v2/e2e/**",
+]
+exclude = [
+  ".github/workflows/ownership.yml",
+]
