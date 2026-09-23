@@ -1,0 +1,25 @@
+~67% of billed input tokens went to re-sending bytes the model had already seen; the fix below recovers an estimated $0.0882 of $0.12.
+bundled demo scenario 'tool-churn' (seed 7) | 1 run | 14 calls | models: claude-sonnet-5
+[synthetic demo data: bundled scenarios with planted waste]
+
+Run demo-tool-churn-seed7
+  billed tokens    cache read 0 | cache write 0 | uncached input 56,734 | output 993
+  billed dollars   $0.12  (cache read $0.00 | cache write $0.00 | uncached input $0.11 | output $0.0099)
+  redundant input  ~66.8% of billed input tokens re-sent (approx)
+  scenarios
+    as-billed        $0.12  ########################
+    no-cache         $0.12  ########################
+    optimal-cache  $0.0641  ############
+    fixed-cache    $0.0352  #######
+    note (as-billed): exact: real billed usage priced at published rates (ground truth)
+    note (no-cache): counterfactual: every billed input token repriced at the full uncached rate (no cache reads, no write premium)
+    note (optimal-cache): simulated (approx): documented cache rules — 300s TTL sliding on read, min-cacheable gate, one breakpoint at end of messages; char-based token split scaled to billed totals
+    note (fixed-cache): simulated (approx): optimal-cache rules over the breaker-repaired rendering; billed usage totals reused for the token split
+  breakers
+    tool-churn | first at call index 4 | recovers ~$0.0882
+      fix: send tool definitions in one fixed order on every call (sort them once at startup); reordering rewrites the cached prefix
+      evidence: tool order changed at call 4: first seen ['read_file', 'edit_file', 'run_command', 'search_code'] -> ['edit_file', 'run_... [truncated, 157 chars total]
+
+approx (~): char-based attribution scaled to billed totals; dollar and token totals come from real billed usage.
+Report written to report.html
+next: record a real agent and analyze its trace — see "Your first real trace" in the README
