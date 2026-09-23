@@ -1,7 +1,7 @@
 """SPEC §16.2: the v0.1.2 goldens exist, are non-empty and match their manifest.
 
-The byte-for-byte comparison against the current CLI is owned by CLI-LEDGER; this test only guards the
-captured artifacts and the capture script's normalization contract.
+The byte-for-byte comparison against the current CLI is owned by CLI-LEDGER; this test only guards
+the captured artifacts and the capture script's normalization contract.
 """
 
 from __future__ import annotations
