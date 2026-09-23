@@ -12,14 +12,12 @@ from collections import Counter
 
 __all__ = ["SECRET_TYPES", "find_secrets", "redact", "shannon_entropy"]
 
+#: PEM private keys: a BEGIN header through the first END footer after it (the header alone when no
+#: footer follows). Matched in one linear pass (:func:`_pem_spans`) — a lazy ``BEGIN.*?END`` regex
+#: rescans to the end of the text for every footer-less header, quadratic on hostile content.
+_PEM_BEGIN = re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----")
+_PEM_END = re.compile(r"-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----")
 _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    (
-        "pem_private_key",
-        re.compile(
-            r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----"
-            r"(?:[\s\S]*?-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----)?"
-        ),
-    ),
     ("anthropic_key", re.compile(r"(?<![A-Za-z0-9_-])sk-ant-[A-Za-z0-9_-]{10,}")),
     ("openai_key", re.compile(r"(?<![A-Za-z0-9_-])sk-(?!ant-)[A-Za-z0-9_-]{20,}")),
     ("aws_access_key", re.compile(r"(?<![A-Z0-9])AKIA[0-9A-Z]{16}(?![A-Z0-9])")),
@@ -39,7 +37,7 @@ _ENTROPY_CANDIDATE = re.compile(r"[A-Za-z0-9+/=_-]{32,}")
 _MIN_ENTROPY_BITS = 4.0
 
 #: Every type ``find_secrets`` may report.
-SECRET_TYPES = tuple(name for name, _ in _PATTERNS) + ("high_entropy",)
+SECRET_TYPES = ("pem_private_key", *(name for name, _ in _PATTERNS), "high_entropy")
 
 
 def shannon_entropy(s: str) -> float:
@@ -51,10 +49,38 @@ def shannon_entropy(s: str) -> float:
 
 
 def _mixed_classes(s: str) -> bool:
-    """Upper case, lower case and digits all present: random base64 of ≥ 32 characters practically
-    always mixes them, while paths and identifiers (which share the alphabet) rarely do."""
+    """Upper case, lower case and digits all present."""
     return (any(c.isupper() for c in s) and any(c.islower() for c in s)
             and any(c.isdigit() for c in s))
+
+
+def _is_high_entropy(candidate: str) -> bool:
+    """SPEC §3.10: ≥ 32 characters of the base64/hex alphabet (the caller's regex) with Shannon
+    entropy ≥ 4.0 bits/char. One narrow exception keeps file paths out: a candidate containing
+    ``/`` must also mix upper case, lower case and digits (``/usr/local/lib/python3/site-packages``
+    shares the alphabet; a random token with a ``/`` practically always mixes all three)."""
+    if shannon_entropy(candidate) < _MIN_ENTROPY_BITS:
+        return False
+    return "/" not in candidate or _mixed_classes(candidate)
+
+
+def _pem_spans(text: str) -> list[tuple[int, int]]:
+    """``(start, end)`` of every PEM private key: header through the first footer after it, or the
+    header alone; linear time (the footer search only ever moves forward)."""
+    spans: list[tuple[int, int]] = []
+    footer: re.Match[str] | None = None
+    no_more_footers = False
+    covered = 0
+    for header in _PEM_BEGIN.finditer(text):
+        if header.start() < covered:  # inside the previous key
+            continue
+        if not no_more_footers and (footer is None or footer.start() < header.end()):
+            footer = _PEM_END.search(text, header.end())
+            no_more_footers = footer is None
+        end = footer.end() if footer is not None and not no_more_footers else header.end()
+        spans.append((header.start(), end))
+        covered = end
+    return spans
 
 
 def find_secrets(text: str) -> list[tuple[str, int, int]]:
@@ -62,8 +88,8 @@ def find_secrets(text: str) -> list[tuple[str, int, int]]:
 
     Types: ``anthropic_key``, ``openai_key``, ``aws_access_key``, ``github_token``, ``slack_token``,
     ``jwt``, ``pem_private_key`` and ``high_entropy`` (≥ 32 chars of a base64/hex alphabet with
-    Shannon entropy ≥ 4.0 bits/char that mixes upper case, lower case and digits, so file paths and
-    identifiers do not match).
+    Shannon entropy ≥ 4.0 bits/char; a candidate containing ``/`` must also mix upper case, lower
+    case and digits, so file paths do not match — see :func:`_is_high_entropy`).
     """
     found: list[tuple[str, int, int]] = []
     taken: list[tuple[int, int]] = []
@@ -71,6 +97,9 @@ def find_secrets(text: str) -> list[tuple[str, int, int]]:
     def overlaps(start: int, end: int) -> bool:
         return any(start < e and s < end for s, e in taken)
 
+    for start, end in _pem_spans(text):
+        found.append(("pem_private_key", start, end))
+        taken.append((start, end))
     for name, pattern in _PATTERNS:
         for m in pattern.finditer(text):
             if not overlaps(m.start(), m.end()):
@@ -79,8 +108,7 @@ def find_secrets(text: str) -> list[tuple[str, int, int]]:
     for m in _ENTROPY_CANDIDATE.finditer(text):
         if overlaps(m.start(), m.end()):
             continue
-        candidate = m.group()
-        if _mixed_classes(candidate) and shannon_entropy(candidate) >= _MIN_ENTROPY_BITS:
+        if _is_high_entropy(m.group()):
             found.append(("high_entropy", m.start(), m.end()))
             taken.append((m.start(), m.end()))
     found.sort(key=lambda t: (t[1], t[2], t[0]))

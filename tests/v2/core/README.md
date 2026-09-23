@@ -11,13 +11,13 @@ Coverage: `uv run --extra dev coverage run -m pytest tests/v2/core && uv run --e
 |---|---|
 | `strategies.py` | hypothesis strategies that build valid instances of every §3.2 record (area-local helper) |
 | `test_records.py` | record validation, enum formatting (3.12 trap), `UsageBuckets` rules and `__add__`, `Request`/`Lane` properties, lane-event attrs schema, lossless `to_json`/`from_json` for every record and several §3.5 types (hypothesis), malformed-document fuzz |
-| `test_money.py` | §3.3 acceptance values, half-even rounding, remainders, scaled-vs-Decimal agreement (hypothesis), display |
+| `test_money.py` | §3.3 acceptance values, half-even rounding, remainders, hostile exponents bounded, scaled-vs-Decimal agreement (hypothesis), display |
 | `test_labels.py` | every `Figure` construction rule, `add`/`sub`/`scale`, billed eligibility, associativity (hypothesis) |
 | `test_types.py` | publish token, `Policy` observed/delegation to `core.policy`, `UnitRates`, report helpers, field-name spot checks, runtime-checkable protocols |
 | `test_registry.py` | exact string maps, lazy loading, sniffing (64 KiB head, `.gz`, broken sniffers), unimportable detectors, exactly one missing-capabilities finding, `only=`, plugins only when enabled |
 | `test_ids.py` | stable ids, HMAC pseudonyms, key ids, request ids, opaque refs |
-| `test_jsonl.py` | head sha, plain/gzip/zstd guard, offsets, oversize lines, `parse_json_line` (fuzz), 0600/0700 modes, the Windows ACL path through a fake runner, canonical/deterministic `write_jsonl` |
-| `test_textsafe_secrets.py` | ANSI/C0/C1/bidi stripping and truncation (hypothesis), every secret type, redaction counts |
+| `test_jsonl.py` | head sha, plain/gzip/zstd guard, the `.zst` branch through a stand-in `compression.zstd` (and the real codec on Python ≥ 3.14), corrupt streams → `SourceError`, offsets, oversize lines, `parse_json_line` (fuzz; overflowing number literals refused like Infinity), 0600/0700 modes, the Windows ACL path through a fake runner, canonical/deterministic `write_jsonl` |
+| `test_textsafe_secrets.py` | ANSI/C0/C1/bidi stripping and truncation (hypothesis), every secret type, the SPEC `high_entropy` rule (with the path exception), PEM spans equal to the reference regex (hypothesis) in linear time, redaction counts |
 | `test_models_lanes.py` | SPEC §6.9 case 16 ids, Bedrock/Vertex/ARN forms, `<synthetic>`, config aliases (fuzz), `group_lanes`, `ttl_of_last_write` |
 | `test_facts_evidence.py` | facts.json loads, every entry carries `source`/`finding`/`verified_on`/`verification`, FakePricer rows and modifiers, §6.9 cases 1–4 and 18 recomputed from facts, settings keys, lifecycle, FOCUS 1.4 columns, evidence constants, Appendix A.12 |
 | `test_builders.py` | canary helpers, record builders, `lane_from_table`, `FlatRates` (scale 8, per-line exactness table of §6.3, unit rates == `price_usage` on 200 random usages) |

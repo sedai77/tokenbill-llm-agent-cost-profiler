@@ -141,3 +141,61 @@ def test_redact_properties(text: str) -> None:
     assert sum(counts.values()) == len(found)
     for _, s, e in found:
         assert text[s:e] not in red or not text[s:e].strip()
+
+
+def test_high_entropy_follows_the_spec_rule() -> None:
+    """SPEC §3.10: ≥ 32 base64/hex-alphabet chars with entropy ≥ 4.0 bits/char. Tokens that lack
+    one character class (lower case + digits, or letters without digits) are secrets too."""
+    lower_digits = "a8f3k2m9x7q1w5e6r4t0y8u2i3o7p1s5d9f2g4h6"  # base36-style API token
+    no_digits = "nDxmWxLUqAxNCYyGisYByhJSODeGRzgEtEkQpVwZ"  # base64url without a digit
+    for token in (lower_digits, no_digits):
+        assert shannon_entropy(token) >= 4.0
+        assert [t for t, _, _ in find_secrets(f"token: {token} ;")] == ["high_entropy"]
+    # paths share the alphabet; with a "/" all three classes are required
+    for path in (
+        "/Users/example/Library/ApplicationSupport",
+        "/usr/local/lib/python3/site-packages/tokenbill",
+    ):
+        assert shannon_entropy(path) >= 4.0 and find_secrets(path) == []
+    slashed = "Zq8Lr2Vx9Ty4/Wm7Ns1Pk5Hd3Fg6Jc0Bv8Qa2Xe"  # standard base64 with a "/"
+    assert [t for t, _, _ in find_secrets(slashed)] == ["high_entropy"]
+    assert find_secrets("0123456789abcdef" * 2) == [("high_entropy", 0, 32)]  # exactly 4.0 bits
+
+
+_OLD_PEM = re.compile(
+    r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----"
+    r"(?:[\s\S]*?-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----)?"
+)
+
+
+@given(
+    st.lists(
+        st.sampled_from(
+            [
+                "-----BEGIN PRIVATE KEY-----",
+                "-----BEGIN RSA PRIVATE KEY-----",
+                "-----END PRIVATE KEY-----",
+                "-----END EC PRIVATE KEY-----",
+                "MIIBOgIBAAJBAKj34",
+                "\n",
+                " x ",
+            ]
+        ),
+        max_size=12,
+    )
+)
+@settings(max_examples=300, deadline=None)
+def test_pem_spans_match_the_lazy_regex(parts: list[str]) -> None:
+    text = "".join(parts)
+    expected = [(m.start(), m.end()) for m in _OLD_PEM.finditer(text)]
+    assert [(s, e) for t, s, e in find_secrets(text) if t == "pem_private_key"] == expected
+
+
+def test_pem_scan_is_linear_on_footerless_headers() -> None:
+    import time
+
+    text = "-----BEGIN PRIVATE KEY----- x " * 30_000  # the lazy regex took minutes here
+    started = time.perf_counter()
+    found = find_secrets(text)
+    assert time.perf_counter() - started < 5
+    assert len(found) == 30_000 and {t for t, _, _ in found} == {"pem_private_key"}
