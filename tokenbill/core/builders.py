@@ -43,6 +43,7 @@ __all__ = [
     "CANARY",
     "CANARY_EMAIL",
     "CANARY_KEYS",
+    "STRUCTURAL_KEYS",
     "FlatRates",
     "assert_no_canary",
     "lane_from_table",
@@ -92,7 +93,24 @@ CANARY_KEYS = frozenset(
         "result",
         "summary",
         "title",
-        "message",
+    }
+)
+#: Structural keys whose values are never planted, even inside a content subtree.
+STRUCTURAL_KEYS = frozenset(
+    {
+        "type",
+        "id",
+        "model",
+        "role",
+        "name",
+        "tool_use_id",
+        "uuid",
+        "parentUuid",
+        "sessionId",
+        "requestId",
+        "timestamp",
+        "stop_reason",
+        "subtype",
     }
 )
 
@@ -100,15 +118,18 @@ CANARY_KEYS = frozenset(
 def plant_canary(obj: Any, *, keys: Iterable[str] | None = None) -> Any:
     """A deep copy of a JSON-like fixture with :data:`CANARY` appended to every string stored under
     a content key (:data:`CANARY_KEYS`, or *keys*), at any depth below it. A bare string gets the
-    canary appended. Structural strings (``type``, ids, model names) outside content keys are left
-    untouched so the fixture still parses."""
+    canary appended. Structural keys (:data:`STRUCTURAL_KEYS`: ``type``, ids, model names) are never
+    planted, so the fixture still parses."""
     wanted = frozenset(keys) if keys is not None else CANARY_KEYS
 
     def walk(value: Any, planting: bool) -> Any:
         if isinstance(value, str):
             return f"{value} {CANARY}" if planting else value
         if isinstance(value, Mapping):
-            return {k: walk(v, planting or k in wanted) for k, v in value.items()}
+            return {
+                k: copy.deepcopy(v) if k in STRUCTURAL_KEYS else walk(v, planting or k in wanted)
+                for k, v in value.items()
+            }
         if isinstance(value, list):
             return [walk(v, planting) for v in value]
         return copy.deepcopy(value)
