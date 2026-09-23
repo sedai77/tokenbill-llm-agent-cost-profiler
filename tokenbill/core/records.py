@@ -1109,12 +1109,18 @@ class UsageRecord:
 # lossless JSON round trip
 # ---------------------------------------------------------------------------------------------
 
+_FIELD_NAMES: dict[type, tuple[str, ...]] = {}
+
+
 def _enc(value: Any) -> Any:
     t = type(value)
     if t is str or t is int or t is bool or value is None:
         return value
     if t is tuple or t is list:
         return [_enc(v) for v in value]
+    names = _FIELD_NAMES.get(t)
+    if names is not None:
+        return {name: _enc(getattr(value, name)) for name in names}
     if isinstance(value, Enum):
         return value.value
     if t is Decimal:
@@ -1122,7 +1128,8 @@ def _enc(value: Any) -> Any:
             raise TypeError("to_json: non-finite Decimal")
         return str(value)
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        return {f.name: _enc(getattr(value, f.name)) for f in dataclasses.fields(value)}
+        names = _FIELD_NAMES[t] = tuple(f.name for f in dataclasses.fields(value))
+        return {name: _enc(getattr(value, name)) for name in names}
     if t is frozenset or t is set:
         return sorted(_enc(v) for v in value)
     if isinstance(value, Mapping):
@@ -1212,11 +1219,19 @@ def _decoder(hint: Any) -> Callable[[Any], Any]:
                 return inner(v)
             return dec_opt
 
+        primitive = all(a in (str, int, bool) for a in arms)
+
         def dec_union(v: Any) -> Any:
             if v is None:
                 if nullable:
                     return None
                 raise _DecodeError("unexpected null")
+            if primitive:  # e.g. str | int | bool: JSON already carries the right type
+                t = type(v)
+                if (t is bool and bool in arms) or (t is int and int in arms) or (
+                        t is str and str in arms):
+                    return v
+                raise _DecodeError("value matches no union arm")
             for arm in arms:
                 if _json_matches(arm, v):
                     return _decoder(arm)(v)
@@ -1314,17 +1329,22 @@ def _dataclass_decoder(cls: type) -> Callable[[Any], Any]:
                        or f.default_factory is not dataclasses.MISSING)
         specs.append((f.name, hints[f.name], has_default))
     names = frozenset(name for name, _, _ in specs)
+    # Field decoders are resolved on first use (not here) so self-referential types such as
+    # ResolvedRates.scope_range do not recurse while the decoder is being built.
+    field_decoders: list[Callable[[Any], Any] | None] = [None] * len(specs)
 
     def dec(v: Any) -> Any:
         if not isinstance(v, dict):
             raise _DecodeError(f"{cls.__name__}: expected an object")
-        unknown = set(v) - names
-        if unknown:
+        if not names.issuperset(v):
             raise _DecodeError(f"{cls.__name__}: unknown key")
         kwargs = {}
-        for name, hint, has_default in specs:
+        for i, (name, hint, has_default) in enumerate(specs):
             if name in v:
-                kwargs[name] = _decoder(hint)(v[name])
+                d = field_decoders[i]
+                if d is None:
+                    d = field_decoders[i] = _decoder(hint)
+                kwargs[name] = d(v[name])
             elif not has_default:
                 raise _DecodeError(f"{cls.__name__}: missing key {name}")
         return cls(**kwargs)
