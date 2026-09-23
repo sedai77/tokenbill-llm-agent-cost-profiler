@@ -1,0 +1,380 @@
+{
+  "captured_from_version": "0.1.2",
+  "cases": [
+    {
+      "argv": [
+        "demo"
+      ],
+      "exit_code": 0,
+      "html": null,
+      "id": "demo",
+      "stderr_empty": true,
+      "stdout": "demo.stdout.txt"
+    },
+    {
+      "argv": [
+        "demo",
+        "-o",
+        "report.html"
+      ],
+      "exit_code": 0,
+      "html": "demo_o.report.html",
+      "id": "demo_o",
+      "stderr_empty": true,
+      "stdout": "demo_o.stdout.txt"
+    },
+    {
+      "argv": [
+        "demo",
+        "--scenario",
+        "well-behaved"
+      ],
+      "exit_code": 0,
+      "html": null,
+      "id": "demo_scenario_well-behaved",
+      "stderr_empty": true,
+      "stdout": "demo_scenario_well-behaved.stdout.txt"
+    },
+    {
+      "argv": [
+        "demo",
+        "--scenario",
+        "well-behaved",
+        "-o",
+        "report.html"
+      ],
+      "exit_code": 0,
+      "html": "demo_scenario_well-behaved_o.report.html",
+      "id": "demo_scenario_well-behaved_o",
+      "stderr_empty": true,
+      "stdout": "demo_scenario_well-behaved_o.stdout.txt"
+    },
+    {
+      "argv": [
+        "demo",
+        "--scenario",
+        "timestamp"
+      ],
+      "exit_code": 0,
+      "html": null,
+      "id": "demo_scenario_timestamp",
+      "stderr_empty": true,
+      "stdout": "demo_scenario_timestamp.stdout.txt"
+    },
+    {
+      "argv": [
+        "demo",
+        "--scenario",
+        "timestamp",
+        "-o",
+        "report.html"
+      ],
+      "exit_code": 0,
+      "html": "demo_scenario_timestamp_o.report.html",
+      "id": "demo_scenario_timestamp_o",
+      "stderr_empty": true,
+      "stdout": "demo_scenario_timestamp_o.stdout.txt"
+    },
+    {
+      "argv": [
+        "demo",
+        "--scenario",
+        "tool-churn"
+      ],
+      "exit_code": 0,
+      "html": null,
+      "id": "demo_scenario_tool-churn",
+      "stderr_empty": true,
+      "stdout": "demo_scenario_tool-churn.stdout.txt"
+    },
+    {
+      "argv": [
+        "demo",
+        "--scenario",
+        "tool-churn",
+        "-o",
+        "report.html"
+      ],
+      "exit_code": 0,
+      "html": "demo_scenario_tool-churn_o.report.html",
+      "id": "demo_scenario_tool-churn_o",
+      "stderr_empty": true,
+      "stdout": "demo_scenario_tool-churn_o.stdout.txt"
+    },
+    {
+      "argv": [
+        "demo",
+        "--scenario",
+        "no-cache"
+      ],
+      "exit_code": 0,
+      "html": null,
+      "id": "demo_scenario_no-cache",
+      "stderr_empty": true,
+      "stdout": "demo_scenario_no-cache.stdout.txt"
+    },
+    {
+      "argv": [
+        "demo",
+        "--scenario",
+        "no-cache",
+        "-o",
+        "report.html"
+      ],
+      "exit_code": 0,
+      "html": "demo_scenario_no-cache_o.report.html",
+      "id": "demo_scenario_no-cache_o",
+      "stderr_empty": true,
+      "stdout": "demo_scenario_no-cache_o.stdout.txt"
+    },
+    {
+      "argv": [
+        "demo",
+        "--seed",
+        "7"
+      ],
+      "exit_code": 0,
+      "html": null,
+      "id": "demo_seed7",
+      "stderr_empty": true,
+      "stdout": "demo_seed7.stdout.txt"
+    },
+    {
+      "argv": [
+        "demo",
+        "--seed",
+        "7",
+        "-o",
+        "report.html"
+      ],
+      "exit_code": 0,
+      "html": "demo_seed7_o.report.html",
+      "id": "demo_seed7_o",
+      "stderr_empty": true,
+      "stdout": "demo_seed7_o.stdout.txt"
+    },
+    {
+      "argv": [
+        "demo",
+        "--seed",
+        "11"
+      ],
+      "exit_code": 0,
+      "html": null,
+      "id": "demo_seed11",
+      "stderr_empty": true,
+      "stdout": "demo_seed11.stdout.txt"
+    },
+    {
+      "argv": [
+        "demo",
+        "--seed",
+        "11",
+        "-o",
+        "report.html"
+      ],
+      "exit_code": 0,
+      "html": "demo_seed11_o.report.html",
+      "id": "demo_seed11_o",
+      "stderr_empty": true,
+      "stdout": "demo_seed11_o.stdout.txt"
+    },
+    {
+      "argv": [
+        "analyze",
+        "well-behaved.jsonl"
+      ],
+      "exit_code": 0,
+      "html": null,
+      "id": "analyze_well-behaved",
+      "stderr_empty": true,
+      "stdout": "analyze_well-behaved.stdout.txt"
+    },
+    {
+      "argv": [
+        "analyze",
+        "well-behaved.jsonl",
+        "-o",
+        "report.html"
+      ],
+      "exit_code": 0,
+      "html": "analyze_well-behaved_o.report.html",
+      "id": "analyze_well-behaved_o",
+      "stderr_empty": true,
+      "stdout": "analyze_well-behaved_o.stdout.txt"
+    },
+    {
+      "argv": [
+        "analyze",
+        "timestamp.jsonl"
+      ],
+      "exit_code": 0,
+      "html": null,
+      "id": "analyze_timestamp",
+      "stderr_empty": true,
+      "stdout": "analyze_timestamp.stdout.txt"
+    },
+    {
+      "argv": [
+        "analyze",
+        "timestamp.jsonl",
+        "-o",
+        "report.html"
+      ],
+      "exit_code": 0,
+      "html": "analyze_timestamp_o.report.html",
+      "id": "analyze_timestamp_o",
+      "stderr_empty": true,
+      "stdout": "analyze_timestamp_o.stdout.txt"
+    },
+    {
+      "argv": [
+        "analyze",
+        "tool-churn.jsonl"
+      ],
+      "exit_code": 0,
+      "html": null,
+      "id": "analyze_tool-churn",
+      "stderr_empty": true,
+      "stdout": "analyze_tool-churn.stdout.txt"
+    },
+    {
+      "argv": [
+        "analyze",
+        "tool-churn.jsonl",
+        "-o",
+        "report.html"
+      ],
+      "exit_code": 0,
+      "html": "analyze_tool-churn_o.report.html",
+      "id": "analyze_tool-churn_o",
+      "stderr_empty": true,
+      "stdout": "analyze_tool-churn_o.stdout.txt"
+    },
+    {
+      "argv": [
+        "analyze",
+        "no-cache.jsonl"
+      ],
+      "exit_code": 0,
+      "html": null,
+      "id": "analyze_no-cache",
+      "stderr_empty": true,
+      "stdout": "analyze_no-cache.stdout.txt"
+    },
+    {
+      "argv": [
+        "analyze",
+        "no-cache.jsonl",
+        "-o",
+        "report.html"
+      ],
+      "exit_code": 0,
+      "html": "analyze_no-cache_o.report.html",
+      "id": "analyze_no-cache_o",
+      "stderr_empty": true,
+      "stdout": "analyze_no-cache_o.stdout.txt"
+    },
+    {
+      "argv": [
+        "analyze",
+        "well-behaved.jsonl",
+        "timestamp.jsonl",
+        "tool-churn.jsonl",
+        "no-cache.jsonl"
+      ],
+      "exit_code": 0,
+      "html": null,
+      "id": "analyze_all",
+      "stderr_empty": true,
+      "stdout": "analyze_all.stdout.txt"
+    },
+    {
+      "argv": [
+        "analyze",
+        "well-behaved.jsonl",
+        "timestamp.jsonl",
+        "tool-churn.jsonl",
+        "no-cache.jsonl",
+        "-o",
+        "report.html"
+      ],
+      "exit_code": 0,
+      "html": "analyze_all_o.report.html",
+      "id": "analyze_all_o",
+      "stderr_empty": true,
+      "stdout": "analyze_all_o.stdout.txt"
+    }
+  ],
+  "cwd": "a scratch directory holding the inputs; -o writes report.html there",
+  "inputs": {
+    "no-cache.jsonl": {
+      "scenario": "no-cache",
+      "seed": 7,
+      "sha256": "9e81341861f2a909bc5aec9f82733a4a54301392c9763b81157d0d1bba92bdc4",
+      "writer": "tokenbill.trace.write_trace"
+    },
+    "timestamp.jsonl": {
+      "scenario": "timestamp",
+      "seed": 7,
+      "sha256": "baaa7f2ae24666bc99c0e6af51ec856ab00687eab3118c2e4c81ebe0fd4a15e9",
+      "writer": "tokenbill.trace.write_trace"
+    },
+    "tool-churn.jsonl": {
+      "scenario": "tool-churn",
+      "seed": 7,
+      "sha256": "f9a1524fd6569a2cd1d1f5bf6e4d19242737aaca399d3c1bc6dc07ad6ba2b0e4",
+      "writer": "tokenbill.trace.write_trace"
+    },
+    "well-behaved.jsonl": {
+      "scenario": "well-behaved",
+      "seed": 7,
+      "sha256": "3410cdde01dbd8c5df47ac58190dd534d822052a8ab90c15dffe21ccdf5968a4",
+      "writer": "tokenbill.trace.write_trace"
+    }
+  },
+  "normalization": "text.replace(__version__, version placeholder).replace(date.today().isoformat(), report_date placeholder)",
+  "placeholders": {
+    "report_date": "{{REPORT_DATE}}",
+    "version": "{{TOKENBILL_VERSION}}"
+  },
+  "schema": "tokenbill/goldens@1",
+  "sha256": {
+    "analyze_all.stdout.txt": "41829bde0f3983f8915139f572c8fc9c633694e57e887383364626d935ffc5f3",
+    "analyze_all_o.report.html": "31e433084d3cf043103d67eadf873d4b07e0a15b09c9c5a82b7dbda32e708cf0",
+    "analyze_all_o.stdout.txt": "b407120f57819646ee3f1d55414b7aa6703ce5441121756cee647257f9a4f5cb",
+    "analyze_no-cache.stdout.txt": "cb4932f5e5919ef0df7ae39ab3af919a66fd11a674a87581c2fe1a36906d63e7",
+    "analyze_no-cache_o.report.html": "9a2512297c0e8ed32700fb96fc1b8d027e6b08f388c8d9163196d61d8cd7ee5f",
+    "analyze_no-cache_o.stdout.txt": "9fe8adaba38ec6557ae0b34fc441ba20fbaabc448cc33bb73361e5758e3a77a6",
+    "analyze_timestamp.stdout.txt": "f9f0ea5a3ce331222d06abe4f62339b013edfa65e6e81ae3c357db552f19320c",
+    "analyze_timestamp_o.report.html": "e0b9c171da2f71f02fb16830cd9db6d1ac2143fac91f35f61c3ec5eb8257c862",
+    "analyze_timestamp_o.stdout.txt": "ed15a3aac7841919b0487ddeb7353144427b7a04dfc2168540c503626c821323",
+    "analyze_tool-churn.stdout.txt": "34c2273a8194bdaec347bfe00e887ed9694171fb96fb713c01db16afa9d20802",
+    "analyze_tool-churn_o.report.html": "c49972a4f40d38de6ff6be9015f7c505c91163d14df113a3f36deab78112ebe2",
+    "analyze_tool-churn_o.stdout.txt": "805c0a38e9c9323f0caffb35d8442ba64d6707c929e7c9719f2eb5e5086b7fe9",
+    "analyze_well-behaved.stdout.txt": "1528a3760bc2abb9ce1661be1028516d268ea5618f60d648698339124bd992c3",
+    "analyze_well-behaved_o.report.html": "d316e4c8cd8ca597bd01196b3df41b007d04f281899f528b3ce0e7cbdf8e4182",
+    "analyze_well-behaved_o.stdout.txt": "8d44a5aa37eb01e4d52beb400adef630c1667b2671a351ebeeccab00107f7690",
+    "demo.stdout.txt": "f38809fc5924a59d8c710337129c3a91b078dc99221b3523494350a68010ff77",
+    "demo_o.report.html": "57813ac75530ce73065096c52d549351c87666009e3ff8841924c70143575603",
+    "demo_o.stdout.txt": "5ff73bcf13c52a451466687f0af9dbea099ce5721dffd09e7916ae4621a75297",
+    "demo_scenario_no-cache.stdout.txt": "5f43579e8e335d9a58f254112448fd7a0cae45da5e950715afeaa093779f316a",
+    "demo_scenario_no-cache_o.report.html": "264d3376d1760d2d4ddd9a2c3cfce5e2ede3d549250d881e2041095a75818b56",
+    "demo_scenario_no-cache_o.stdout.txt": "e9723482999938ae09b17f279b238bec001e5397ce245d4802a8b4f18b94e42e",
+    "demo_scenario_timestamp.stdout.txt": "b72a3a95f2572a1272934e29a4d7e28e5d8b9bcda6e6b55b069011f29dbb497a",
+    "demo_scenario_timestamp_o.report.html": "6d1049deb9c9f8dcfea47f91c4a7cc1fd1cccf52b872aaef21806eb6987af101",
+    "demo_scenario_timestamp_o.stdout.txt": "2a51eacbdebfbd1dc203c3ed29ab7dc49c01acc1c0f8aae643d5ef079384e768",
+    "demo_scenario_tool-churn.stdout.txt": "e174eaa78f8c992dbc7dcc5557b82b168ad7fca0e3539f98e2bf62d0aabfcf9c",
+    "demo_scenario_tool-churn_o.report.html": "0d9cdde8b65cba7702810bbb96ffc04250bb388a649c582b5bfa0c48594ad87c",
+    "demo_scenario_tool-churn_o.stdout.txt": "88737ea879767c2fd9c4fda6d0bc20ffbf2af135c0a9b4db387299b0d81a4882",
+    "demo_scenario_well-behaved.stdout.txt": "8e252ac94bf8336662dbe41a0b6f95d2ca8dca5c6b2c069e502845a39e8ccb8a",
+    "demo_scenario_well-behaved_o.report.html": "696cdb82b0bb295036c0153a6fc8eb66ee0476d32b103e596064db05fd3b5d81",
+    "demo_scenario_well-behaved_o.stdout.txt": "1c8d3e26ab0ad79e18a62620486847fce49b84d9d28624ae27d3737cd2c99fff",
+    "demo_seed11.stdout.txt": "f93ffc5aacc89d6d8bf75a47587698b0b35c3a079e95fd461b667b721b5808d4",
+    "demo_seed11_o.report.html": "30d42255aeb4cf544e534b9967311cdbf8d09a64fdf468701ce4f4b3c2888a23",
+    "demo_seed11_o.stdout.txt": "5c27d430b26ece81d21c64aa778bf7274430a0b27517627e06bbb246e4d7ab8d",
+    "demo_seed7.stdout.txt": "f38809fc5924a59d8c710337129c3a91b078dc99221b3523494350a68010ff77",
+    "demo_seed7_o.report.html": "57813ac75530ce73065096c52d549351c87666009e3ff8841924c70143575603",
+    "demo_seed7_o.stdout.txt": "5ff73bcf13c52a451466687f0af9dbea099ce5721dffd09e7916ae4621a75297"
+  }
+}

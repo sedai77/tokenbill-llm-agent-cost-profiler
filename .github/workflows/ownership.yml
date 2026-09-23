@@ -1,0 +1,36 @@
+# Ownership gate (SPEC §21 #2, PLAN §1.2): a package branch (pkg/<ID>) may change only the files
+# OWNERSHIP.toml assigns to <ID>; no branch may change a FROZEN file. Owned by F-CORE.
+name: ownership
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  ownership:
+    name: ownership
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: check ownership
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          case "$HEAD_REF" in
+            pkg/*)
+              python scripts/check_ownership.py --package "${HEAD_REF#pkg/}" --base "origin/$BASE_REF"
+              ;;
+            *)
+              python scripts/check_ownership.py --frozen-only --base "origin/$BASE_REF"
+              ;;
+          esac
