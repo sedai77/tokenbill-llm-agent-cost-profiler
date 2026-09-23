@@ -12,3 +12,7 @@ analyze input (the four demo scenarios, seed 7, written with the frozen `trace.w
 The byte-identical comparison against the v0.2 CLI is owned by CLI-LEDGER: run each argv, apply
 `normalize(text, version=__version__, report_date=date.today().isoformat())`, compare with the file.
 Do not edit these files; re-capture only from a v0.1.2 checkout (`--check` verifies determinism).
+
+`.gitattributes` (`* -text`) keeps these files byte-identical on checkouts with `core.autocrlf=true`
+(the default on Windows runners); without it Git rewrites every LF as CRLF and the pinned sha256 and
+the byte comparison fail. Read goldens as bytes (or with `newline=""`), never with newline translation.

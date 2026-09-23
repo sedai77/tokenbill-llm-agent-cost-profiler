@@ -1,0 +1,3 @@
+# The goldens are compared byte for byte (SPEC §16.2) and pinned by sha256 in manifest.json:
+# never convert their line endings on checkout (Windows runners default to core.autocrlf=true).
+* -text

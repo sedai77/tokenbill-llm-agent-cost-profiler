@@ -23,7 +23,7 @@ Coverage: `uv run --extra dev coverage run -m pytest tests/v2/core && uv run --e
 | `test_builders.py` | canary helpers, record builders, `lane_from_table`, `FlatRates` (scale 8, per-line exactness table of §6.3, unit rates == `price_usage` on 200 random usages) |
 | `test_no_float_money.py` | AST scan of the §2.4 money paths (paths not merged yet are skipped) |
 | `test_guards.py` | socket guard (non-loopback refused; loopback, `socketpair`, `AF_UNIX`, asyncio allowed), ownership glob/TOML/table, a temp git repo where an out-of-package file and a FROZEN file are flagged |
-| `test_goldens.py` | goldens exist, are non-empty, match `manifest.json`, carry placeholders |
+| `test_goldens.py` | goldens exist, are non-empty, match `manifest.json`, carry placeholders, survive a `core.autocrlf=true` checkout byte-identical |
 
 ## Fixtures and provenance
 

@@ -9,6 +9,8 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -106,3 +108,29 @@ def test_pinning_falls_back_when_the_cli_has_no_date(monkeypatch: pytest.MonkeyP
     monkeypatch.delattr(cli, "date")
     with capture._pinned_report_date() as today:
         assert today == datetime.date.today().isoformat()
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not available")
+def test_goldens_survive_an_autocrlf_checkout(tmp_path: Path) -> None:
+    """Windows runners check out with core.autocrlf=true; the goldens' .gitattributes keeps them
+    byte-identical (their sha256 is pinned in manifest.json and CLI-LEDGER compares bytes)."""
+    golden = (GOLDEN / "demo.stdout.txt").read_bytes()
+    assert b"\r" not in golden
+    repo = tmp_path / "repo"
+    (repo / "g").mkdir(parents=True)
+    shutil.copy(GOLDEN / ".gitattributes", repo / "g" / ".gitattributes")
+    (repo / "g" / "demo.stdout.txt").write_bytes(golden)
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-c", "core.autocrlf=true", "-c", "user.email=t@example.com",
+             "-c", "user.name=t", *args],
+            cwd=repo, check=True, capture_output=True,
+        )
+
+    git("init", "-q")
+    git("add", "-A")
+    git("commit", "-q", "-m", "goldens")
+    (repo / "g" / "demo.stdout.txt").unlink()
+    git("checkout", "--", "g/demo.stdout.txt")
+    assert (repo / "g" / "demo.stdout.txt").read_bytes() == golden
