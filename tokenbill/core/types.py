@@ -81,12 +81,13 @@ class SourceInfo:
 class IngestOptions:
     content_tier: ContentTier = ContentTier.NONE
     identity_mode: str = "install"   # "install" | "central" | "two-stage" | "central-ingest" (§5.1)
-    # HMACs MCP/skill/plugin/tool names, cwd, repo, api keys, workspaces (h_)
-    name_key: bytes = b""
+    # HMACs MCP/skill/plugin/tool names, cwd, repo, api keys, workspaces (h_). Key material is kept
+    # out of repr() so a logged or asserted IngestOptions never prints a key.
+    name_key: bytes = field(default=b"", repr=False)
     name_key_id: str = ""
     # install key (install), collection key (two-stage), org key (central-ingest); None in central
     # collectors
-    principal_key: bytes | None = None
+    principal_key: bytes | None = field(default=None, repr=False)
     principal_key_id: str | None = None
     principal_ref: str | None = None # opaque employee/device id supplied by MDM (collector modes)
     # defaults from --attr / OTEL_RESOURCE_ATTRIBUTES / MDM
@@ -841,8 +842,9 @@ class PublishedAggregate:     # the only aggregate type renderers/exporters acce
     suppressed_rows: int
     suppressed_users: int
     # must be core.types._PUBLISH_TOKEN (else ContractViolation); only core.kanon.publish and
-    # core.testing.published_for_tests pass it
-    token: object = field(repr=False)
+    # core.testing.published_for_tests pass it. A construction guard, not data: to_json leaves it
+    # out, so from_json cannot rebuild a PublishedAggregate (only publish() makes one).
+    token: object = field(repr=False, metadata={"tokenbill.json": False})
 
     def __post_init__(self) -> None:
         if self.token is not _PUBLISH_TOKEN:

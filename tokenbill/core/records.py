@@ -1128,7 +1128,10 @@ def _enc(value: Any) -> Any:
             raise TypeError("to_json: non-finite Decimal")
         return str(value)
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        names = _FIELD_NAMES[t] = tuple(f.name for f in dataclasses.fields(value))
+        names = _FIELD_NAMES[t] = tuple(
+            f.name for f in dataclasses.fields(value)
+            if f.metadata.get("tokenbill.json", True)  # e.g. PublishedAggregate.token is not data
+        )
         return {name: _enc(getattr(value, name)) for name in names}
     if t is frozenset or t is set:
         return sorted(_enc(v) for v in value)
@@ -1149,7 +1152,10 @@ def to_json(obj: Any) -> dict[str, Any]:
     """Encode a record (any dataclass instance) as a JSON-compatible dict.
 
     Enums become their values, tuples lists, ``Decimal`` decimal strings, frozensets sorted lists.
-    Floats are refused (money is never float, SPEC §2.4).
+    Floats are refused (money is never float, SPEC §2.4). Fields marked
+    ``metadata={"tokenbill.json": False}`` are left out: ``PublishedAggregate.token`` is a
+    construction guard, so a ``RunResult`` with published breakdowns encodes, while ``from_json``
+    still refuses to rebuild a ``PublishedAggregate`` (only ``core.kanon.publish`` makes one).
     """
     if not dataclasses.is_dataclass(obj) or isinstance(obj, type):
         raise TypeError("to_json expects a dataclass instance")

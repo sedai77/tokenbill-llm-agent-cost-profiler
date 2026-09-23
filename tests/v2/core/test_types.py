@@ -29,6 +29,40 @@ def test_published_aggregate_requires_the_token() -> None:
         dataclasses.replace(pa, token=object())
 
 
+def test_published_aggregate_encodes_without_token_and_never_decodes() -> None:
+    """RunResult/BillSummary with published breakdowns must encode (result@2, fixture dumps); the
+    token is a construction guard, not data, and decoding cannot forge a PublishedAggregate."""
+    from tokenbill.core.labels import Basis, zero
+    from tokenbill.core.records import from_json, to_json
+
+    total = t.PricedTotal(zero(Basis.LIST), None, None, 0, 0, 0, "1")
+    row = t.AggRow((("team", "a"),), 5, 1, UsageBuckets(output=1), total)
+    pa = t.PublishedAggregate(("team",), (row,), (0, 1), 5, 0, 0, token=t._PUBLISH_TOKEN)
+    doc = to_json(pa)
+    assert "token" not in doc and doc["k"] == 5 and doc["rows"][0]["n_users"] == 5
+    with pytest.raises(ContractViolation):
+        from_json(t.PublishedAggregate, doc)
+    with pytest.raises(ContractViolation):
+        from_json(t.PublishedAggregate, {**doc, "token": None})
+    rr = t.RunResult(
+        command="bill",
+        window=(0, 1),
+        inputs=(),
+        privacy=t.PrivacyInfo("none", None, "install", 5, 0),
+        rate_card=None,
+        bill=t.BillSummary(total=total, esr=None, breakdowns=(("team", pa),)),
+    )
+    enc = to_json(rr)
+    assert enc["bill"]["breakdowns"][0][1]["group_by"] == ["team"]
+
+
+def test_ingest_options_repr_hides_key_material() -> None:
+    opts = t.IngestOptions(name_key=b"name-key-SECRET", principal_key=b"principal-SECRET")
+    assert "SECRET" not in repr(opts)
+    assert opts.name_key == b"name-key-SECRET" and opts.principal_key == b"principal-SECRET"
+    assert t.IngestOptions().name_key == b"" and t.IngestOptions().principal_key is None
+
+
 def test_policy_observed() -> None:
     obs = t.Policy.observed()
     assert obs == t.Policy(name="observed") and obs.is_observed()
