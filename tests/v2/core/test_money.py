@@ -101,6 +101,25 @@ def test_remainder_invariant(value: Decimal) -> None:
     assert abs(rem) <= Decimal("5E-10")
 
 
+def test_hostile_exponents_are_bounded() -> None:
+    """Source amounts are parsed from files: an extreme exponent must neither hang nor exhaust
+    memory (it used to build a 10**999999999 integer)."""
+    assert usd_str_to_nano("1E-999999999") == (0, Decimal("1E-999999999"))
+    assert cents_to_nano("5E-100000") == (0, Decimal("5E-100002"))
+    for bad in ("1E+999999999", "-1E+5000"):
+        with pytest.raises(ValueError, match="out of range"):
+            usd_str_to_nano(bad)
+    with pytest.raises(ValueError, match="out of range"):
+        cents_to_nano("1E+99999")
+    with pytest.raises(ValueError, match="out of range"):
+        decimal_to_nano(Decimal("1E+999999999"))
+    assert decimal_to_nano(Decimal("4E-999999999")) == 0
+    tiny = "0." + "0" * 5000 + "1"  # more digits than int() accepts from a string
+    assert usd_str_to_nano(tiny) == (0, Decimal(tiny))
+    nano, rem = usd_str_to_nano("1." + "5" * 5000)
+    assert nano == 1_555_555_556 and abs(rem) <= Decimal("5E-10")
+
+
 def test_decimal_to_nano() -> None:
     assert decimal_to_nano(Decimal("0.0000000005")) == 0
     assert decimal_to_nano(Decimal("0.0000000015")) == 2

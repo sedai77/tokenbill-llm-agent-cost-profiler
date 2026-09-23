@@ -8,6 +8,8 @@ traps ``Inexact``; each (inference, bucket) line is rounded half-even **once** t
 from __future__ import annotations
 
 from decimal import (
+    MAX_EMAX,
+    MIN_EMIN,
     ROUND_HALF_EVEN,
     Context,
     Decimal,
@@ -46,6 +48,11 @@ RATIO_CTX = Context(
 NANO_PER_USD = 10**9
 MICRO_PER_USD = 10**6
 MTOK = 10**6
+
+#: Rounded amounts must stay below 10**_MAX_NANO_EXP nano-USD. Far beyond any real amount; the bound
+#: keeps hostile exponents in source strings (``"1E+999999999"``) from exhausting time and memory.
+_MAX_NANO_EXP = 4000
+_ONE = Decimal(1)
 
 
 def _check_type(value: object, allowed: tuple[type, ...], what: str) -> None:
@@ -87,15 +94,22 @@ def _div_half_even(n: int, d: int) -> int:
 
 
 def _decimal_to_int_half_even(d: Decimal, shift: int) -> int:
-    """``round_half_even(d × 10**shift)`` computed exactly with integers."""
-    sign, digits, exp = d.as_tuple()
-    n = int("".join(map(str, digits)) or "0")
-    if sign:
-        n = -n
-    e = exp + shift  # type: ignore[operator]
-    if e >= 0:
-        return n * 10**e
-    return _div_half_even(n, 10 ** (-e))
+    """``round_half_even(d × 10**shift)``, exact for any number of digits (one rounding).
+
+    Magnitudes of 10**_MAX_NANO_EXP and above raise ``ValueError``; values below 0.1 after the
+    shift are 0 without touching their (possibly huge negative) exponent.
+    """
+    if not d:  # zero, whatever its exponent
+        return 0
+    x = _shift(d, shift)
+    adjusted = x.adjusted()  # exponent of the most significant digit
+    if adjusted >= _MAX_NANO_EXP:
+        raise ValueError("amount out of range")
+    if adjusted < -1:  # |x| < 0.1
+        return 0
+    ctx = Context(prec=adjusted + 2, rounding=ROUND_HALF_EVEN, Emin=MIN_EMIN, Emax=MAX_EMAX,
+                  traps=[InvalidOperation])
+    return int(x.quantize(_ONE, context=ctx))
 
 
 def usd(value: str | int | Decimal) -> Decimal:
@@ -112,9 +126,14 @@ def from_cents(value: str | int) -> Decimal:
 
 def _to_nano_with_remainder(amount_usd: Decimal) -> tuple[int, Decimal]:
     nano = _decimal_to_int_half_even(amount_usd, 9)
+    if nano == 0:  # the whole amount is remainder (exact, whatever its exponent)
+        return 0, amount_usd
     scaled = _shift(amount_usd, 9)
-    digits = len(scaled.as_tuple().digits) + len(str(abs(nano))) + 2
-    ctx = Context(prec=max(60, digits), rounding=ROUND_HALF_EVEN, traps=[InvalidOperation, Inexact])
+    _, digits, exp = scaled.as_tuple()
+    # Enough precision for the exact difference: every digit of both operands, aligned.
+    prec = len(digits) + abs(exp) + Decimal(nano).adjusted() + 3  # type: ignore[arg-type]
+    ctx = Context(prec=prec, rounding=ROUND_HALF_EVEN, Emin=MIN_EMIN, Emax=MAX_EMAX,
+                  traps=[InvalidOperation, Inexact])
     remainder_scaled = ctx.subtract(scaled, Decimal(nano))
     return nano, _shift(remainder_scaled, -9)
 
