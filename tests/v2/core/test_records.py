@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
-from dataclasses import replace
+import typing
+from dataclasses import dataclass, replace
 from decimal import Decimal
 
 import pytest
@@ -713,3 +715,50 @@ def test_from_json_mutation_fuzz(cls: type, data: st.DataObject, junk: object) -
         r.from_json(cls, doc)
     except ContractViolation:
         pass
+
+
+@dataclass(frozen=True)
+class _Mixed:
+    """A generic dataclass exercising non-primitive unions in the JSON decoder."""
+
+    a: tuple[int, ...] | r.UsageBuckets | None = None
+    b: r.LaneKind | Decimal | None = None
+    c: dict[str, int] | bool | None = None
+    d: typing.Any = None
+    e: frozenset[str] = frozenset()
+    f: list[r.LaneKind] = dataclasses.field(default_factory=list)
+    g: typing.Union[int, str] = 0  # noqa: UP007 - exercise typing.Union spelling
+    h: tuple = ()
+
+
+def test_from_json_generic_unions() -> None:
+    cases = [
+        _Mixed(
+            a=(1, 2),
+            b=r.LaneKind.MAIN,
+            c={"x": 1},
+            d={"free": [1]},
+            e=frozenset({"z", "y"}),
+            f=[r.LaneKind.HELPER],
+            g="s",
+            h=(1, "x"),
+        ),
+        _Mixed(a=r.UsageBuckets(output=2), b=Decimal("1.5"), c=True, g=5),
+        _Mixed(),
+    ]
+    for obj in cases:
+        doc = json.loads(json.dumps(r.to_json(obj)))
+        assert r.from_json(_Mixed, doc) == obj
+    for bad in (
+        {"a": "text"},
+        {"b": [1]},
+        {"c": "x"},
+        {"g": None},
+        {"g": 1.5},
+        {"e": "x"},
+        {"f": ["nope"]},
+        {"a": {"output": -1}},
+    ):
+        with pytest.raises(ContractViolation):
+            r.from_json(_Mixed, bad)
+    assert r.from_json(_Mixed, {"b": "7"}).b == Decimal("7")  # a string that is not a LaneKind

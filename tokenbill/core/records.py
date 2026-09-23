@@ -1203,6 +1203,9 @@ def _decoder(hint: Any) -> Callable[[Any], Any]:
                 raise _DecodeError("expected null")
             return None
         return dec_none
+    if hint in (tuple, list, frozenset, set, dict):  # bare builtins: no element type to check
+        hint = {tuple: tuple[Any, ...], list: list[Any], frozenset: frozenset[Any],
+                set: frozenset[Any], dict: dict[str, Any]}[hint]
     origin = typing.get_origin(hint)
     args = typing.get_args(hint)
     if origin in _UNION_TYPES:
@@ -1238,8 +1241,6 @@ def _decoder(hint: Any) -> Callable[[Any], Any]:
             raise _DecodeError("value matches no union arm")
         return dec_union
     if origin is tuple:
-        if not args:
-            return lambda v: tuple(_as_list(v))
         if len(args) == 2 and args[1] is Ellipsis:
             item = _decoder(args[0])
             return lambda v: tuple(item(x) for x in _as_list(v))
