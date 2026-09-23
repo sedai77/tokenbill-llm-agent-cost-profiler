@@ -17,8 +17,10 @@ Usage::
 
     python scripts/capture_goldens.py [--out tests/v2/golden] [--check]
 
-``--check`` recaptures into memory and exits 1 if any stored golden differs (used to prove the
-capture is deterministic). The script imports only frozen v0.1 modules and ``tokenbill.cli``.
+``--check`` recaptures into memory and exits 1 if any stored golden (or the manifest, ignoring the
+captured version string) differs: it proves the capture is deterministic and, run on a later tree,
+that ``demo``/``analyze`` output is still byte-identical. The script imports only frozen v0.1
+modules and ``tokenbill.cli``.
 """
 
 from __future__ import annotations
@@ -66,15 +68,20 @@ class _PinnedDate(_dt.date):
 
 
 @contextlib.contextmanager
-def _pinned_report_date() -> Iterator[None]:
+def _pinned_report_date() -> Iterator[str]:
+    """Pin the CLI's report date to the sentinel when ``tokenbill.cli`` exposes ``date`` (v0.1.2);
+    otherwise leave it alone. Yields the report date string the outputs will contain."""
     import tokenbill.cli as cli
 
-    original = cli.date
-    cli.date = _PinnedDate  # type: ignore[misc]
+    original = getattr(cli, "date", None)
+    if original is None:
+        yield _dt.date.today().isoformat()
+        return
+    cli.date = _PinnedDate  # type: ignore[attr-defined]
     try:
-        yield
+        yield SENTINEL_DATE.isoformat()
     finally:
-        cli.date = original  # type: ignore[misc]
+        cli.date = original  # type: ignore[attr-defined]
 
 
 @contextlib.contextmanager
@@ -166,13 +173,12 @@ def capture() -> tuple[dict[str, object], dict[str, str]]:
     from tokenbill.cli import main
     from tokenbill.demo_traces import SCENARIOS
 
-    sentinel = SENTINEL_DATE.isoformat()
     files: dict[str, str] = {}
     manifest_cases: list[dict[str, object]] = []
     with tempfile.TemporaryDirectory(prefix="tokenbill-goldens-") as tmp:
         work = Path(tmp)
         inputs = write_inputs(work)
-        with _chdir(work), _pinned_report_date():
+        with _chdir(work), _pinned_report_date() as report_date:
             for case in cases(list(SCENARIOS)):
                 argv = list(case["argv"])  # type: ignore[call-overload]
                 html_name = case["html"]
@@ -191,12 +197,12 @@ def capture() -> tuple[dict[str, object], dict[str, str]]:
                     "html": None,
                 }
                 files[f"{case['id']}.stdout.txt"] = normalize(
-                    stdout, version=__version__, report_date=sentinel
+                    stdout, version=__version__, report_date=report_date
                 )
                 if html_name is not None:
                     html = report.read_text(encoding="utf-8")
                     files[f"{case['id']}.report.html"] = normalize(
-                        html, version=__version__, report_date=sentinel
+                        html, version=__version__, report_date=report_date
                     )
                     entry["html"] = f"{case['id']}.report.html"
                 manifest_cases.append(entry)
@@ -241,7 +247,13 @@ def main(argv: list[str] | None = None) -> int:
             or (args.out / name).read_text(encoding="utf-8") != text
         ]
         stored = args.out / "manifest.json"
-        if not stored.exists() or stored.read_text(encoding="utf-8") != manifest_text:
+        volatile = ("captured_from_version",)  # the version string moves on; the bytes must not
+        fresh = {k: v for k, v in manifest.items() if k not in volatile}
+        if not stored.exists() or {
+            k: v
+            for k, v in json.loads(stored.read_text(encoding="utf-8")).items()
+            if k not in volatile
+        } != json.loads(json.dumps(fresh)):
             drift.append("manifest.json")
         for name in drift:
             print(f"drift: {name}", file=sys.stderr)

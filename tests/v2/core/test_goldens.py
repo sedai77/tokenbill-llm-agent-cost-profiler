@@ -12,6 +12,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[3]
 GOLDEN = REPO / "tests" / "v2" / "golden"
 
@@ -74,3 +76,33 @@ def test_normalize_contract() -> None:
     assert out == "tokenbill {{TOKENBILL_VERSION}} on {{REPORT_DATE}}"
     ids = [c["id"] for c in capture.cases(["a"])]
     assert ids[:2] == ["demo", "demo_o"] and "analyze_a_o" in ids and ids[-1] == "analyze_all_o"
+
+
+def test_capture_check_is_deterministic(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    capture = _capture_module()
+    assert capture.main(["--check"]) == 0
+    out = tmp_path / "golden"
+    assert capture.main(["--out", str(out)]) == 0
+    assert capture.main(["--check", "--out", str(out)]) == 0
+    (out / "demo.stdout.txt").write_text("tampered", encoding="utf-8")
+    manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    manifest["cases"] = manifest["cases"][:1]
+    (out / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    capsys.readouterr()
+    assert capture.main(["--check", "--out", str(out)]) == 1
+    err = capsys.readouterr().err
+    assert "drift: demo.stdout.txt" in err and "drift: manifest.json" in err
+
+
+def test_pinning_falls_back_when_the_cli_has_no_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    import datetime
+
+    import tokenbill.cli as cli
+
+    capture = _capture_module()
+    with capture._pinned_report_date() as pinned:
+        assert pinned == "1999-12-31" and cli.date.today().isoformat() == "1999-12-31"
+    assert cli.date is datetime.date
+    monkeypatch.delattr(cli, "date")
+    with capture._pinned_report_date() as today:
+        assert today == datetime.date.today().isoformat()
