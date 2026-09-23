@@ -8,7 +8,8 @@ import json
 import os
 import stat
 import sys
-from collections.abc import Sequence
+import types
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import pytest
@@ -81,6 +82,68 @@ def test_zstd_error_message_on_this_python(tmp_path: Path) -> None:
         list(iter_lines(p))
 
 
+class _StandInZstdError(Exception):
+    """Like ``compression.zstd.ZstdError``: not an OSError."""
+
+
+def install_stand_in_zstd(
+    monkeypatch: pytest.MonkeyPatch, opener: Callable[[Path, str], object]
+) -> None:
+    """Make ``importlib.import_module("compression.zstd")`` return a stand-in (the real module
+    exists only on Python >= 3.14), so the ``.zst`` branches run on every supported Python."""
+    package = types.ModuleType("compression")
+    module = types.ModuleType("compression.zstd")
+    module.open = opener  # type: ignore[attr-defined]
+    module.ZstdError = _StandInZstdError  # type: ignore[attr-defined]
+    package.zstd = module  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "compression", package)
+    monkeypatch.setitem(sys.modules, "compression.zstd", module)
+
+
+def test_zst_branch_reads_through_compression_zstd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # the stand-in "decompresses" gzip bytes; what is tested is the routing, not the codec
+    install_stand_in_zstd(monkeypatch, lambda path, mode: gzip.open(path, mode))
+    p = tmp_path / "otel.jsonl.zst"
+    p.write_bytes(gzip.compress(b'{"a":1}\n{"b":2}\n'))
+    with open_text(p) as f:
+        assert f.read() == b'{"a":1}\n{"b":2}\n'
+    assert list(iter_lines(p)) == [(1, 0, b'{"a":1}'), (2, 8, b'{"b":2}')]
+    with pytest.raises(ValueError):
+        list(iter_lines(p, start_offset=1))
+
+
+def test_zst_corrupt_stream_is_a_source_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Corrupt:
+        def readline(self, size: int = -1) -> bytes:
+            raise _StandInZstdError("bad frame")
+
+        def close(self) -> None:
+            pass
+
+    install_stand_in_zstd(monkeypatch, lambda path, mode: Corrupt())
+    p = tmp_path / "otel.jsonl.zst"
+    p.write_bytes(b"\x28\xb5\x2f\xfd")
+    with pytest.raises(SourceError, match="corrupt stream"):
+        list(iter_lines(p))
+
+
+def test_zst_with_the_real_codec(tmp_path: Path) -> None:
+    zstd = pytest.importorskip("compression.zstd")  # Python >= 3.14
+    payload = b"".join(b'{"n":%d}\n' % i for i in range(1000))
+    p = tmp_path / "otel.jsonl.zst"
+    p.write_bytes(zstd.compress(payload))
+    assert [line for _, _, line in iter_lines(p)] == payload.splitlines()
+    blob = zstd.compress(payload)
+    bad = tmp_path / "bad.jsonl.zst"
+    bad.write_bytes(blob[: len(blob) // 2])
+    with pytest.raises(SourceError):
+        list(iter_lines(bad))
+
+
 def test_iter_lines_offsets_blank_lines_and_crlf(tmp_path: Path) -> None:
     p = tmp_path / "f.jsonl"
     p.write_bytes(b'{"a":1}\n\n  \r\n{"b":2}\r\n{"c":3}')
@@ -150,6 +213,9 @@ def test_parse_json_line() -> None:
     assert parse_json_line(b'{"a": 1.5}') == {
         "a": 1.5
     }  # floats parse; validators reject them later
+    for overflow in (b'{"a": 1e400}', b'{"a": [-1E999]}', b'{"a": {"b": 2.5e308}}'):
+        assert parse_json_line(overflow) is None  # overflows to infinity: refused like Infinity
+    assert parse_json_line(b'{"a": 1e308, "b": 1e-400}') == {"a": 1e308, "b": 0.0}
 
 
 @given(st.binary(max_size=200))

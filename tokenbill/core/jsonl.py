@@ -13,6 +13,7 @@ import hashlib
 import importlib
 import json
 import logging
+import math
 import os
 import re
 import subprocess
@@ -58,6 +59,16 @@ def _zstd_module() -> Any | None:
         return None
 
 
+def _decompression_errors(kind: str) -> tuple[type[BaseException], ...]:
+    """Errors a decompressing read may raise; ``.zst`` adds ``compression.zstd.ZstdError``, which
+    is not an ``OSError``, so a corrupt stream still surfaces as ``SourceError``."""
+    if kind == "zst":
+        err = getattr(_zstd_module(), "ZstdError", None)
+        if isinstance(err, type) and issubclass(err, Exception):
+            return (*_DECOMPRESSION_ERRORS, err)
+    return _DECOMPRESSION_ERRORS
+
+
 def _kind(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix == ".gz":
@@ -91,7 +102,7 @@ def open_text(path: Path) -> IO[bytes]:
             zstd = _zstd_module()
             if zstd is None:
                 raise SourceError(f"{path.name}: {ZSTD_MESSAGE}")
-            return zstd.open(path, "rb")  # pragma: no cover - Python >= 3.14 only
+            return zstd.open(path, "rb")
         return open(path, "rb")
     except OSError as exc:
         raise SourceError(f"{path.name}: unreadable ({type(exc).__name__})") from None
@@ -106,10 +117,12 @@ def iter_lines(path: Path, *, start_offset: int = 0) -> Iterator[tuple[int, int,
     require ``start_offset == 0``.
     """
     path = Path(path)
+    kind = _kind(path)
     if start_offset < 0:
         raise ValueError("start_offset must be >= 0")
-    if start_offset and _kind(path) != "plain":
+    if start_offset and kind != "plain":
         raise ValueError("compressed files require start_offset 0")
+    errors = _decompression_errors(kind)
     f = open_text(path)
     try:
         if start_offset:
@@ -119,7 +132,7 @@ def iter_lines(path: Path, *, start_offset: int = 0) -> Iterator[tuple[int, int,
         while True:
             try:
                 chunk = f.readline(MAX_LINE_BYTES + 1)
-            except _DECOMPRESSION_ERRORS as exc:
+            except errors as exc:
                 raise SourceError(
                     f"{path.name}: corrupt stream at byte {offset} ({type(exc).__name__})"
                 ) from None
@@ -133,7 +146,7 @@ def iter_lines(path: Path, *, start_offset: int = 0) -> Iterator[tuple[int, int,
                 while True:
                     try:
                         rest = f.readline(_CHUNK)
-                    except _DECOMPRESSION_ERRORS as exc:
+                    except errors as exc:
                         raise SourceError(
                             f"{path.name}: corrupt stream at byte {offset} ({type(exc).__name__})"
                         ) from None
@@ -168,9 +181,19 @@ def _reject_constant(token: str) -> Any:
     raise ValueError(f"non-finite number {token}")
 
 
+def _finite_float(token: str) -> float:
+    """A JSON number with a fraction or exponent; ``1e400`` overflows to infinity and is refused
+    like the ``Infinity`` literal (not money: adapters reject non-int token counts anyway)."""
+    value = float(token)
+    if not math.isfinite(value):
+        raise ValueError("non-finite number")
+    return value
+
+
 def parse_json_line(raw: bytes) -> dict | None:
-    """Parse one JSONL line: a ``dict``, or None for invalid UTF-8/JSON, non-objects, NaN/Infinity,
-    excessive nesting and strings holding unpaired surrogates."""
+    """Parse one JSONL line: a ``dict``, or None for invalid UTF-8/JSON, non-objects, NaN/Infinity
+    (including number literals that overflow to infinity), excessive nesting and strings holding
+    unpaired surrogates."""
     if not raw:
         return None
     try:
@@ -180,7 +203,7 @@ def parse_json_line(raw: bytes) -> dict | None:
     if text.startswith("\ufeff"):
         text = text[1:]
     try:
-        obj = json.loads(text, parse_constant=_reject_constant)
+        obj = json.loads(text, parse_constant=_reject_constant, parse_float=_finite_float)
     except (ValueError, RecursionError):
         return None
     if not isinstance(obj, dict):

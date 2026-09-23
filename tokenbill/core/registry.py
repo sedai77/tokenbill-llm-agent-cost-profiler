@@ -141,10 +141,10 @@ def _read_head(path: Path) -> bytes:
             zstd = importlib.import_module("compression.zstd")
         except ImportError:
             return raw
-        try:  # pragma: no cover - Python >= 3.14 only
+        try:  # Python >= 3.14 (or an injected stand-in in tests)
             with zstd.open(path, "rb") as zf:
                 return zf.read(SNIFF_HEAD_BYTES)
-        except Exception:  # pragma: no cover
+        except Exception:  # corrupt stream: sniff the raw bytes
             return raw
     return raw
 

@@ -115,6 +115,25 @@ def test_sniff_adapter(tmp_path: Path, only_test_adapters: None) -> None:
         reg.sniff_adapter(tmp_path / "missing.jsonl")
 
 
+def test_sniff_decompresses_zst_through_compression_zstd(
+    tmp_path: Path, only_test_adapters: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+    import types
+
+    package, module = types.ModuleType("compression"), types.ModuleType("compression.zstd")
+    module.open = lambda path, mode: gzip.open(path, mode)  # type: ignore[attr-defined]
+    package.zstd = module  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "compression", package)
+    monkeypatch.setitem(sys.modules, "compression.zstd", module)
+    zst = tmp_path / "x.jsonl.zst"
+    zst.write_bytes(gzip.compress(b'{"hello": 3}\n'))
+    assert isinstance(reg.sniff_adapter(zst), JsonAdapter)  # head decompressed
+    corrupt = tmp_path / "raw.zst"
+    corrupt.write_bytes(b'{"hello": "not compressed"}')
+    assert isinstance(reg.sniff_adapter(corrupt), JsonAdapter)  # falls back to the raw head
+
+
 def test_sniff_reads_at_most_64_kib(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[int] = []
 
