@@ -7,6 +7,8 @@ from decimal import Decimal
 from importlib import resources
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from tokenbill.core import evidence
 from tokenbill.core.errors import ContractViolation
@@ -419,3 +421,20 @@ def test_keepalive_break_even_appendix_a12() -> None:
     )  # 57.5 min with τ
     with pytest.raises(ContractViolation):
         evidence.keepalive_break_even_s(w, Decimal("0"))
+
+
+json_values = st.recursive(
+    st.none() | st.booleans() | st.integers() | st.text(max_size=8),
+    lambda c: st.lists(c, max_size=3) | st.dictionaries(st.text(max_size=8), c, max_size=4),
+    max_leaves=12,
+)
+
+
+@given(json_values, st.sampled_from(sorted(_raw())))
+@settings(max_examples=200, deadline=None)
+def test_parse_fuzz_only_contract_violations(value: object, key: str) -> None:
+    for doc in (value, {"schema": FACTS_SCHEMA, key: value}, {**_raw(), key: value}):
+        try:
+            parse(json.dumps(doc))
+        except ContractViolation:
+            pass

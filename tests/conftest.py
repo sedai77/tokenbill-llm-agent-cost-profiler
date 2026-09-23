@@ -10,6 +10,8 @@
 * Markers (registered in pyproject.toml): ``perf`` (excluded by default), ``slow``, ``gate``,
   ``needs_ssh_keygen`` (skipped without ``ssh-keygen`` on PATH), ``local_corpus`` (skipped unless
   ``TOKENBILL_LOCAL_CORPUS=1``).
+* Hypothesis: with ``CI`` set, the ``ci`` profile derandomizes example generation so CI runs are
+  reproducible (``HYPOTHESIS_PROFILE`` selects another registered profile).
 """
 
 from __future__ import annotations
@@ -22,6 +24,18 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
+
+try:  # hypothesis is a dev dependency; the guards below must not require it
+    from hypothesis import settings as _hypothesis_settings
+except ImportError:  # pragma: no cover
+    _hypothesis_settings = None
+
+if _hypothesis_settings is not None:
+    _hypothesis_settings.register_profile("ci", derandomize=True, deadline=None, print_blob=True)
+    _hypothesis_settings.register_profile("dev", deadline=None)
+    _profile = os.environ.get("HYPOTHESIS_PROFILE") or ("ci" if os.environ.get("CI") else None)
+    if _profile:
+        _hypothesis_settings.load_profile(_profile)
 
 
 class NetworkBlocked(RuntimeError):

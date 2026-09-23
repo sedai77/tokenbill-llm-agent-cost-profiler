@@ -694,3 +694,22 @@ def test_from_json_fuzz_only_contract_violations(doc: dict) -> None:
             r.from_json(cls, doc)
         except ContractViolation:
             pass
+
+
+_junk = st.recursive(
+    st.none() | st.booleans() | st.integers(-(2**60), 2**60) | st.text(max_size=6),
+    lambda c: st.lists(c, max_size=3) | st.dictionaries(st.text(max_size=12), c, max_size=4),
+    max_leaves=10,
+)
+
+
+@given(st.sampled_from(list(RECORD_STRATEGIES)), st.data(), _junk)
+@settings(max_examples=300, deadline=None, suppress_health_check=list(HealthCheck))
+def test_from_json_mutation_fuzz(cls: type, data: st.DataObject, junk: object) -> None:
+    """A valid document with one field replaced by junk decodes or raises ContractViolation only."""
+    doc = r.to_json(data.draw(RECORD_STRATEGIES[cls]))
+    doc[data.draw(st.sampled_from(sorted(doc)))] = junk
+    try:
+        r.from_json(cls, doc)
+    except ContractViolation:
+        pass

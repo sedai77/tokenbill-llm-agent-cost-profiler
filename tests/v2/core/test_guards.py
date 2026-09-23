@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -157,6 +159,16 @@ def test_toml_subset_parser() -> None:
     for bad in ("a = 1\n", "a = [\n", "junk\n", 'a = "x"\n[a]\n'):
         with pytest.raises(ValueError):
             check_ownership.parse_toml_subset(bad)
+
+
+@given(st.text(alphabet='ab[]"#=, .\n\\-_', max_size=80))
+@settings(max_examples=300, deadline=None)
+def test_toml_subset_parser_fuzz(text: str) -> None:
+    try:
+        result = check_ownership.parse_toml_subset(text)
+    except ValueError:
+        return
+    assert isinstance(result, dict)
 
 
 def test_ownership_table_mirrors_appendix_o() -> None:

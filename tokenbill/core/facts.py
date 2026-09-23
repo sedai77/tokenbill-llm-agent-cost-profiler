@@ -396,16 +396,15 @@ def parse(text: str) -> Facts:
         raise ContractViolation(f"facts: schema must be {FACTS_SCHEMA}")
     try:
         facts = Facts(raw)
-    except (KeyError, TypeError) as exc:
-        raise ContractViolation(
-            f"facts: malformed document ({type(exc).__name__}: {exc})"
-        ) from None
-    for section, entry in facts.entries():
-        for key in META_KEYS:
-            if not isinstance(entry.get(key), str) or not entry[key]:
-                raise ContractViolation(f"facts: an entry of {section} lacks {key}")
-        if entry["verification"] not in VERIFICATIONS:
-            raise ContractViolation(f"facts: an entry of {section} has an unknown verification")
+        entries = list(facts.entries())
+        for section, entry in entries:
+            for key in META_KEYS:
+                if not isinstance(entry.get(key), str) or not entry[key]:
+                    raise ContractViolation(f"facts: an entry of {section} lacks {key}")
+            if entry["verification"] not in VERIFICATIONS:
+                raise ContractViolation(f"facts: an entry of {section} has an unknown verification")
+    except (KeyError, TypeError, AttributeError, IndexError, ValueError, ArithmeticError) as exc:
+        raise ContractViolation(f"facts: malformed document ({type(exc).__name__})") from None
     return facts
 
 
