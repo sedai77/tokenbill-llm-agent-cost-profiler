@@ -349,6 +349,13 @@ def _policy_module():  # lazy import of F-SEM's module (it does not exist before
     return policy
 
 
+def _policy_hook(name: str):  # an optional core.policy function, or None (wave 0, or not defined)
+    try:
+        return getattr(_policy_module(), name, None)
+    except ImportError:
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class Policy:
     name: str
@@ -372,11 +379,19 @@ class Policy:
 
     @classmethod
     def observed(cls) -> Policy:
-        """The observed (identity) policy: every field at its default, name ``"observed"``."""
-        return cls(name="observed")
+        """The observed (identity) policy: every field at its default, name ``"observed"``.
+
+        Delegates to ``core.policy.observed`` when F-SEM defines it (§3.19 does not list one)."""
+        hook = _policy_hook("observed")
+        return hook() if hook is not None else cls(name="observed")
 
     def is_observed(self) -> bool:
-        """True when every field except ``name`` is at its default (the policy changes nothing)."""
+        """True when every field except ``name`` is at its default (the policy changes nothing).
+
+        Delegates to ``core.policy.is_observed`` when F-SEM defines it."""
+        hook = _policy_hook("is_observed")
+        if hook is not None:
+            return bool(hook(self))
         return dataclasses.replace(self, name="observed") == Policy(name="observed")
 
     def combine(self, other: Policy) -> Policy:
@@ -389,9 +404,9 @@ class Policy:
         return _policy_module().to_spec(self)
 
 
-# Selector grammar: "all" | "lane_kind:<LaneKind>" | "agent_type:<name>" | "team:<team>" |
-# "agent_product:<name>" | "billing_path:<path>" | "workload:<class>" | "model:<id>";
-#                   comma = AND (§9.5).
+# Selector grammar: "all" | "lane_kind:<LaneKind>" | "agent_type:<name>" | "team:<team>"
+#   | "agent_product:<name>" | "billing_path:<path>" | "workload:<class>" | "model:<id>";
+#   comma = AND (§9.5).
 
 
 @dataclass(frozen=True, slots=True)

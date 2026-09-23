@@ -59,6 +59,11 @@ def test_policy_delegates_lazily_to_core_policy(monkeypatch: pytest.MonkeyPatch)
     assert a.spec() == "spec:a"
     assert a.combine(b).name == "a+b"
     assert calls == ["to_spec", "combine"]
+    assert a.is_observed() and t.Policy.observed().name == "observed"  # local fallback
+    fake.is_observed = lambda p: calls.append("is_observed") or False  # type: ignore[attr-defined]
+    fake.observed = lambda: t.Policy(name="from-policy")  # type: ignore[attr-defined]
+    assert not a.is_observed() and t.Policy.observed().name == "from-policy"
+    assert calls[-1] == "is_observed"
 
 
 def test_calibration_report_calibration() -> None:
