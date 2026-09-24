@@ -967,18 +967,21 @@ def _coverage(rows: Sequence[ReconRow]) -> tuple[str | None, str | None]:
     return _pct(lt, pt), _pct(ln, inv)
 
 
+def _has_spend(row: ReconRow) -> bool:
+    return not _is_info(row) and ((row.ledger_nano or 0) > 0 or (row.ledger_tokens or 0) > 0)
+
+
 def _spend_channels(rows: Sequence[ReconRow]) -> set[str]:
-    return {key_value(r.key, "channel") or "" for r in rows
-            if not _is_info(r) and ((r.ledger_nano or 0) > 0 or (r.ledger_tokens or 0) > 0)}
+    """Channels whose rows (keyed by a ``channel`` dim) carry ledger spend."""
+    return {key_value(r.key, "channel") or "" for r in rows if _has_spend(r)}
 
 
-def _overall(verdicts: Sequence[ChannelVerdict], rows: Sequence[ReconRow]) -> str:
+def _overall(verdicts: Sequence[ChannelVerdict], spend: set[str]) -> str:
     """SPEC §12.4: ``insufficient_data`` when no channel has invoice data; ``reconciled`` iff every
     channel with ledger spend (or, without any, every channel with invoice data) is reconciled."""
     with_invoice = [v for v in verdicts if v.verdict != "insufficient_data"]
     if not with_invoice:
         return "insufficient_data"
-    spend = _spend_channels(rows)
     considered = [v for v in verdicts if v.channel in spend] or with_invoice
     return "reconciled" if all(v.verdict == "reconciled" for v in considered) else "not_reconciled"
 
@@ -1213,7 +1216,8 @@ def reconcile(ledger: Iterable[UsageRecord], aggregates: Sequence[UsageAggregate
         second_outcome = _assemble(engine.channels, led2, providers, engine.invoices,
                                    tolerance=tolerance, unexplained_pct=unexplained,
                                    provisional=engine.provisional)
-        rerun_verdict = _overall(second_outcome.verdicts, second_outcome.report_rows)
+        rerun_verdict = _overall(second_outcome.verdicts,
+                                 _spend_channels(second_outcome.report_rows))
     return _report(outcome, engine, tolerance, unexplained,
                    overlays[0][0] if overlays else None, rerun_verdict)
 
@@ -1246,7 +1250,7 @@ def _report(outcome: _Outcome, engine: _Engine, tolerance: Decimal, unexplained:
         effective_discount=tuple(sorted(outcome.discounts.items())),
         residuals=tuple(sorted(outcome.residuals.items(), key=lambda kv: residual_order(kv[0]))),
         unexplained_nano=outcome.unexplained, channels=tuple(outcome.verdicts),
-        verdict=_overall(outcome.verdicts, rows), finality=finality,
+        verdict=_overall(outcome.verdicts, _spend_channels(rows)), finality=finality,
         suggested_contract=suggested, rerun_verdict=rerun_verdict)
 
 
@@ -1327,7 +1331,12 @@ def merge_reports(reports: Sequence[ReconciliationReport]) -> ReconciliationRepo
         raise ContractViolation("merge_reports: several different suggested contracts")
     starts = [r.window[0] for r in reports if r.window[0]]
     ends = [r.window[1] for r in reports if r.window[1]]
-    verdict = _overall(verdicts, rows)
+    spend = _spend_channels(rows)
+    for r in reports:  # an extension's rows need not carry a channel dim (e.g. Copilot's)
+        if not any(key_value(row.key, "channel") for row in r.rows) and any(
+                _has_spend(row) for row in r.rows):
+            spend.update(c.channel for c in r.channels)
+    verdict = _overall(verdicts, spend)
     return ReconciliationReport(
         window=(min(starts) if starts else "", max(ends) if ends else ""),
         tolerance_pct=first.tolerance_pct,

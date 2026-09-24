@@ -77,6 +77,19 @@ def test_verdict_recomputed_over_the_union() -> None:
         "insufficient_data")
 
 
+def test_extension_rows_without_a_channel_dim_count_as_spend() -> None:
+    row = ReconRow(key=(("month", "2026-08"), ("entity", "org:acme"), ("layer", "L2")),
+                   ledger_tokens=10, provider_tokens=10, ledger_nano=7, priced_provider_nano=7,
+                   invoice_nano=9, rate_card_error_pct=None, coverage_pct=None,
+                   status="unexplained", residual_code=None)
+    failing = _copilot("not_reconciled", rows=(row,))
+    merged = merge_reports([_recon(), failing])
+    assert merged.verdict == "not_reconciled"
+    idle = dataclasses.replace(row, ledger_tokens=0, ledger_nano=0)
+    assert merge_reports([_recon(), _copilot("not_reconciled", rows=(idle,))]).verdict == (
+        "reconciled")
+
+
 def test_conflicting_decisions_raise() -> None:
     with pytest.raises(ContractViolation):
         merge_reports([_copilot(), _copilot(decisions=(("convention:s_1", "incl"),),

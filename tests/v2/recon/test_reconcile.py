@@ -502,6 +502,32 @@ def test_enterprise_cost_is_channel_total_and_prefers_the_cost_report() -> None:
     assert both.channels[0].invoice_sources == ("anthropic.cost_report",)
 
 
+def test_unpriced_ledger_usage_is_unknown_not_zero() -> None:
+    a = agg()
+    odd = record({"uncached_input": 500}, model="claude-unknown-9", n=3)
+    report = reconcile([record(), odd], [a], cost_lines(a), PRICER, today=TODAY)
+    (row,) = rows_where(report, model="claude-unknown-9")
+    assert row.ledger_tokens == 500 and row.ledger_nano is None
+
+
+def test_openai_costs_reconcile_on_totals_with_our_price_as_list() -> None:
+    from tokenbill.core.builders import make_cost_line
+    day, today = "2026-08-25", "2026-10-30"
+    usage = {"uncached_input": 1_000_000, "output": 100_000}
+    a = agg(usage, date=day, model="gpt-5.6-sol", channel="openai_api",
+            source_kind="openai.usage", ws="proj_a")
+    listed = sum(priced_buckets(a).values())
+    line = make_cost_line(listed * 9 // 10, date_utc=day, channel="openai_api", model=None,
+                          source_kind="openai.costs", cost_type=None, token_type=None,
+                          workspace_id="proj_a", description="gpt-5.6-sol, input")
+    rec = record(usage, date=day, model="gpt-5.6-sol", channel="openai_api", ws="proj_a",
+                 provider="openai")
+    report = reconcile([rec], [a], [line], PRICER, today=today)
+    assert dict(report.effective_discount) == {"openai_api:*:*": "0.1"}
+    assert verdicts(report) == {"openai_api": "reconciled"}
+    assert report.channels[0].mapping_verified is False
+
+
 def test_cc_analytics_team_coverage_rows_are_informational() -> None:
     aggs, lines = _pair()
     cc = agg({"uncached_input": 1000, "output": 10}, source_kind="anthropic.cc_analytics",
