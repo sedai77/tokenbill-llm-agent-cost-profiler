@@ -15,11 +15,11 @@ D40.
 | `test_perf.py` | SPEC §17 in a fresh interpreter: PR variant 20,000 lines ≤ 3 s and ≤ 150 MB; marker `perf`: 200,000 lines ≥ 25,000 assistant lines/s, ≤ 30 s, ≤ 150 MB |
 | `test_gate.py` | marker `gate` (merge gate 1): collector chunks vs one-shot import through the real `SqliteStore`; the fixture tree priced by the real `RateCard` equals the fakes |
 
-Measured on the build machine (Apple silicon, Python 3.12, load average ~4 from other builders):
-200,000 lines (138k assistant lines, 59k requests, ~200 MB of JSONL) in ~5.2 s ≈ 26k assistant
-lines/s, peak RSS 143–146 MB. The margins are thin (≈ 5% on throughput, ≈ 3% on memory); the hot
-paths are listed in "Design notes". Collector state: ~10 KB of parser context plus the 2,000
-recent uuids (~80 KB) per transcript.
+Measured on the build machine (Apple silicon, Python 3.12, load average 3–5 from other builders):
+200,000 lines (138k assistant lines, 59k requests, ~200 MB of JSONL) in 5.0–5.3 s ≈ 26–28k
+assistant lines/s, peak RSS 134–146 MB. The margins are modest (≈ 5–10% on throughput and memory);
+the hot paths are listed in "Design notes". Collector state: ~10 KB of parser context plus the
+2,000 recent uuids (~80 KB) per transcript.
 
 ## Fixtures (`tests/v2/fixtures/claude_code/`)
 
