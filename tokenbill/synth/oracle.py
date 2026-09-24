@@ -266,6 +266,57 @@ class _Prev:
 
 
 @dataclass
+class _Context:
+    """Context-transform state along a lane (§9.3.3–§9.3.4)."""
+
+    removed: int = 0                 # tokens a compaction / resume removed from later requests
+    first_total: int | None = None   # T_0 of the lane's first serving request
+
+
+@dataclass
+class _Work:
+    """A request with a serving inference while it is being replayed: the policy split
+    ``(R', W', U', T')`` starts as the step-1 serving usage and is rewritten by the rules."""
+
+    req: Request
+    lane: Lane
+    t: Transition | None             # observed transition (None for the lane's first request)
+    prev: _Prev | None
+    gap: int | None
+    source: Inference                # the observed serving inference
+    serving: _Item                   # after step 1
+    others: list[tuple[Inference, _Item]]   # passthrough inferences after step 1
+    usage: UsageBuckets              # serving usage after step 1 and the effort cap
+    reads: int
+    writes: int
+    uncached: int
+    model: str                       # serving model after remap
+    created: _WClass                 # where rewritten writes go
+    sensitive: bool = False          # a range source was met (evaluate low/high scenarios)
+    total_obs: int = 0               # observed T (scenario-scaled)
+    total: int = 0                   # T'
+    extras: list[tuple[Inference, int]] = field(default_factory=list)   # (call, priced at ts)
+    flipped: bool = False
+    skip_cache_state: bool = False
+    nohit_split: tuple[int, int, int] | None = None
+    alive: Callable[[], bool] = field(default=lambda: False)
+
+    def warm(self) -> bool:
+        """Flip to a hit: ``R' = min(E', T' − U')`` with ``E' = min(P'_{i−1}, T')``, the
+        appended tokens written (§9.3.1)."""
+        expected = min(self.prev.prefix, self.total) if self.prev is not None else 0
+        self.reads = min(expected, self.total - self.uncached)
+        self.writes = self.total - self.uncached - self.reads
+        self.flipped = True
+        return True
+
+
+def _tau_obs(t: Transition) -> int:
+    """The observed TTL of a transition in seconds (300 s when unknown)."""
+    return t.ttl_s if t.ttl_s is not None else TTL_5M_S
+
+
+@dataclass
 class _ReqOut:
     """One request replayed in one scenario."""
 
@@ -661,160 +712,82 @@ class ReferenceReplay:
 
     def _replay_lane(self, lane: Lane, plan: _LanePlan, run: _Run, scen: _Scenario, *,
                      count: bool = False) -> tuple[list[_ReqOut], bool]:
-        """Replay one lane in one scenario; returns the per-request records and whether anything
-        in the lane is range-sensitive (so the low/high scenarios must be evaluated)."""
-        policy, pricer = run.policy, run.pricer
+        """Replay one lane in one scenario, request by request, in the §9.3 order; returns the
+        per-request records and whether anything in the lane is range-sensitive (so the low and
+        high scenarios must be evaluated too)."""
         transitions = run.transitions[lane.lane_key]
         outs: list[_ReqOut] = []
         sensitive = False
         prev: _Prev | None = None
-        removed = 0
-        first_total: int | None = None
+        context = _Context()
         for req in lane.requests:
             t = transitions.get(req.request_id)
-            attempts = self._kept_attempts(req, t, policy)
+            attempts = self._kept_attempts(req, t, run.policy)
             source = req.serving_inference
-            # ---- (1) rate transforms on every billable inference -------------------------
-            items: list[tuple[Inference, _Item]] = []
-            for att in attempts:
-                for inf in att.inferences:
-                    if inf.billable is False and inf is not source:
-                        continue
-                    item, band_sensitive = self._rate_transform(inf, att.ts_start_ms, plan, scen,
-                                                                pricer, policy)
-                    sensitive = sensitive or band_sensitive
-                    items.append((inf, item))
+            # (1) rate transforms on every billable inference
+            items, band_sensitive = self._rate_transforms(attempts, source, plan, scen, run)
+            sensitive = sensitive or band_sensitive
             if source is None:
                 outs.append(self._passthrough_only(req, items, plan, run))
                 continue
-            serving = next(item for inf, item in items if inf is source)
-            others = [(inf, item) for inf, item in items if inf is not source]
-            s_usage = serving.usage
-            if plan.effort is not None and _effort_rank(req.params.effort) > plan.effort[0]:
-                s_usage = self._effort_cap(s_usage, plan.effort[1], scen)
-                sensitive = True
-            ts = req.ts_start_ms
-            reads, writes, uncached = s_usage.cache_read, s_usage.cache_write, \
-                s_usage.uncached_input
-            total_obs = reads + writes + uncached
-            r_p, w_p, u_p, t_p = reads, writes, uncached, total_obs
-            gap = ts - prev.ts_ms if prev is not None else None
-            extras: list[tuple[Inference, int]] = []   # (inserted inference, priced at ts)
-            flipped = False
-            nohit_split: tuple[int, int, int] | None = None
-            skip_cache_state = False
-            model_p = serving.ctx.model or req.model
-            state = {"sensitive": False}
-            alive: Callable[[], bool] = _never if prev is None or gap is None else partial(
-                self._alive, req, prev, model_p, lane, t, gap, plan, run, scen, state)
-            created = self._created_class(plan, source, t)
-            # ---- (2) context transforms ---------------------------------------------------
-            if plan.compaction is not None or plan.cold_resume is not None:
-                if prev is not None and (self._context_reset(lane, prev.ts_ms, ts)
-                                         or 2 * total_obs < prev.total_obs):
-                    removed = 0
-                if first_total is None:
-                    first_total = total_obs
-                effective = total_obs - removed
-                new = total_obs if prev is None else max(0, total_obs - prev.total_obs)
-                is_alive = prev is not None and alive()
-                if plan.compaction is not None and effective > plan.compaction[0]:
-                    summary = plan.compaction[1]
-                    cache_read = min(prev.prefix, effective) if is_alive else 0  # type: ignore[union-attr]
-                    comp_usage = _with_writes(
-                        UsageBuckets(cache_read=cache_read, output=summary),
-                        effective - cache_read, created)
-                    extras.append((self._extra(req, InferenceKind.COMPACTION, 0, comp_usage,
-                                               serving.ctx), ts))
-                    t_p = summary + new
-                    r_p, u_p = 0, min(uncached, t_p)
-                    w_p = t_p - u_p
-                    removed = total_obs - t_p
-                    skip_cache_state = True
-                elif (plan.cold_resume is not None and prev is not None and not is_alive
-                      and effective > plan.cold_resume[1]):
-                    action, _minimum, summary = plan.cold_resume
-                    if action == "compact":
-                        extras.append((self._extra(
-                            req, InferenceKind.OTHER, 0,
-                            UsageBuckets(uncached_input=effective, output=summary), serving.ctx),
-                            ts))
-                        t_p = summary + new
-                    else:
-                        t_p = (first_total or 0) + new
-                    r_p, u_p = 0, min(uncached, t_p)
-                    w_p = t_p - u_p
-                    removed = total_obs - t_p
-                    skip_cache_state = True
-                elif removed > 0:
-                    r_p = max(0, reads - removed)
-                    w_p = writes if reads >= removed else max(0, writes - (removed - reads))
-                    t_p = r_p + w_p + uncached
-            # ---- (3) cache-state transforms -----------------------------------------------
-            if not skip_cache_state:
-                before = (r_p, w_p, u_p)
-                r_p, w_p, u_p, flipped = self._cache_state(
-                    req, lane, t, prev, gap, r_p, w_p, u_p, t_p, source, plan, run, scen,
-                    alive, state)
-                if flipped:
-                    nohit_split = before
-            # keepalive pings for the idle gap before this request (non-clairvoyant daemon)
-            if plan.keepalive is not None and prev is not None and gap is not None:
-                interval, max_idle = plan.keepalive
-                n = ping_count(gap, interval, max_idle)
-                for k in range(1, n + 1):
-                    sent = prev.ts_ms + k * interval * 1000
-                    extras.append((self._extra(
-                        req, InferenceKind.KEEPALIVE, k,
-                        UsageBuckets(cache_read=prev.prefix, uncached_input=prev.uncached),
-                        prev.ctx, ts_ms=sent), sent))
-                if count:
-                    run.pings += n
-                    run.hindsight_pings += max(0, -(-(gap - KEEPALIVE_TTL_S * 1000)
-                                                    // (interval * 1000)))
-            sensitive = sensitive or state["sensitive"]
-            # ---- (4) tail and (5) pricing -------------------------------------------------
-            final, r_p, w_p, u_p, batch_used = self._finish(
-                req, lane, source, serving, s_usage, r_p, w_p, u_p, created, plan, run, scen)
-            sensitive = sensitive or batch_used
-            priced_items = [
-                _Item(final, serving.ctx if not batch_used else
-                      replace(serving.ctx, service_tier="batch"), serving.billable,
-                      serving.usage_source, serving.output_upper, serving.ts_ms)]
-            if source.billable is False:
-                priced_items = []
-            for _inf, item in others:     # passthrough: observed pricing unless a rate transform
-                priced_items.append(self._tail_item(item, plan, batch_used, rerate=False))
-            for extra, sent in extras:
-                priced_items.append(self._tail_item(
-                    _Item(extra.usage, extra.pricing, True, UsageSource.FINAL, None, sent),
-                    plan, batch_used, rerate=True))
-            extras_final = tuple(
-                replace(e, usage=_rerate(e.usage, _class_for_ttl(plan.ttl_s))
-                        if plan.ttl_s else e.usage) for e, _sent in extras)
-            unchanged = (final == source.usage and serving.ctx == source.pricing
-                         and not extras and not batch_used and len(attempts) == len(req.attempts)
-                         and all(item.usage == inf.usage and item.ctx == inf.pricing
-                                 for inf, item in others))
-            figure = run.observed[req.request_id] if unchanged else self._price(
-                priced_items, run)
-            nohit = None
-            if flipped and run.calibrated and nohit_split is not None:
-                nohit_usage = self._finish(req, lane, source, serving, s_usage, *nohit_split,
-                                           created, plan, run, scen)[0]
-                nohit = self._price([replace(priced_items[0], usage=nohit_usage),
-                                     *priced_items[1:]], run) if priced_items else figure
+            w = self._work(req, lane, t, prev, source, items, plan, run, scen)
+            # (2) context transforms, (3) cache-state transforms, keepalive pings
+            self._context_transforms(w, plan, context)
+            self._cache_state(w, plan, run, scen)
+            self._keepalive_pings(w, plan, run, count=count)
+            # (4) tail and (5) pricing
+            out, batch_used = self._tail_and_price(w, attempts, plan, run, scen)
+            sensitive = sensitive or w.sensitive or batch_used
             if count:
-                run.added_calls += sum(1 for e, _ in extras
+                run.added_calls += sum(1 for e, _ in w.extras
                                        if e.kind is not InferenceKind.KEEPALIVE)
-                run.flips += int(flipped)
-            outs.append(_ReqOut(request=req, usage=final, extras=extras_final, figure=figure,
-                                changed=not unchanged, flipped=flipped, gap_ms=gap, nohit=nohit))
-            prev = _Prev(request=req, ts_ms=ts, total_obs=total_obs, total=r_p + w_p + u_p,
-                         uncached=u_p, prefix=r_p + w_p, model=model_p, ctx=serving.ctx)
+                run.flips += int(w.flipped)
+            outs.append(out)
+            prev = _Prev(request=req, ts_ms=req.ts_start_ms, total_obs=w.total_obs,
+                         total=w.reads + w.writes + w.uncached, uncached=w.uncached,
+                         prefix=w.reads + w.writes, model=w.model, ctx=w.serving.ctx)
         return outs, sensitive
 
+    def _work(self, req: Request, lane: Lane, t: Transition | None, prev: _Prev | None,
+              source: Inference, items: list[tuple[Inference, _Item]], plan: _LanePlan,
+              run: _Run, scen: _Scenario) -> _Work:
+        """The working record of a request with a serving inference: the step-1 serving usage
+        (with the effort cap) and its split as the starting policy split."""
+        serving = next(item for inf, item in items if inf is source)
+        usage = serving.usage
+        effort_applied = plan.effort is not None and \
+            _effort_rank(req.params.effort) > plan.effort[0]
+        if effort_applied:
+            usage = self._effort_cap(usage, plan.effort[1], scen)  # type: ignore[index]
+        gap = req.ts_start_ms - prev.ts_ms if prev is not None else None
+        w = _Work(req=req, lane=lane, t=t, prev=prev, gap=gap, source=source, serving=serving,
+                  others=[(inf, item) for inf, item in items if inf is not source],
+                  usage=usage, reads=usage.cache_read, writes=usage.cache_write,
+                  uncached=usage.uncached_input, model=serving.ctx.model or req.model,
+                  created=self._created_class(plan, source, t), sensitive=effort_applied)
+        w.total_obs = w.total = w.reads + w.writes + w.uncached
+        if prev is not None and gap is not None:
+            w.alive = partial(self._alive, w, plan, run, scen)
+        return w
+
     # ---- step 1 ------------------------------------------------------------------------------
+
+    def _rate_transforms(self, attempts: Sequence[Attempt], source: Inference | None,
+                         plan: _LanePlan, scen: _Scenario, run: _Run
+                         ) -> tuple[list[tuple[Inference, _Item]], bool]:
+        """Step 1 on every billable inference of the kept attempts (the serving inference is
+        kept even when it is not billable: the cache chain still uses it)."""
+        items = []
+        sensitive = False
+        for att in attempts:
+            for inf in att.inferences:
+                if inf.billable is False and inf is not source:
+                    continue
+                item, band_sensitive = self._rate_transform(inf, att.ts_start_ms, plan, scen,
+                                                            run.pricer, run.policy)
+                sensitive = sensitive or band_sensitive
+                items.append((inf, item))
+        return items, sensitive
 
     @staticmethod
     def _rate_transform(inf: Inference, ts_ms: int, plan: _LanePlan, scen: _Scenario,
@@ -874,27 +847,27 @@ class ReferenceReplay:
         return own if own is not None else TTL_5M_S
 
     @staticmethod
-    def _within(gap_ms: int, tau_s: int, scen: _Scenario, state: dict[str, bool]) -> bool:
+    def _within(gap_ms: int, tau_s: int, scen: _Scenario, w: _Work) -> bool:
         """``gap ≤ τ``; within ±10 s of τ the transition is ambiguous: the point follows the rule,
         the low scenario takes the hit and the high scenario the miss (§9.2)."""
         limit = tau_s * 1000
         if abs(gap_ms - limit) <= AMBIGUITY_MS:
-            state["sensitive"] = True
+            w.sensitive = True
             if scen.ambiguous_alive is not None:
                 return scen.ambiguous_alive
         return gap_ms <= limit
 
-    def _alive(self, req: Request, prev: _Prev, model_p: str, lane: Lane, t: Transition | None,
-               gap: int, plan: _LanePlan, run: _Run, scen: _Scenario,
-               state: dict[str, bool]) -> bool:
+    def _alive(self, w: _Work, plan: _LanePlan, run: _Run, scen: _Scenario) -> bool:
         """alive_π(i) (§9.2): same serving model after remap, no reset, no un-repaired parameter
         change, same cache scope (always, within a lane), and the keepalive horizon or
         ``gap ≤ τπ``."""
-        if model_p != prev.model:
+        prev, gap = w.prev, w.gap
+        assert prev is not None and gap is not None
+        if w.model != prev.model:
             return False
-        if self._transition_reset(lane, prev.ts_ms, req):
+        if self._transition_reset(w.lane, prev.ts_ms, w.req):
             return False
-        change = _param_change(req, prev.request)
+        change = _param_change(w.req, prev.request)
         if change is not None and not (change == "fast-toggle" and run.policy.fast_off):
             return False
         if plan.keepalive is not None:
@@ -902,8 +875,7 @@ class ReferenceReplay:
             n = ping_count(gap, interval, max_idle)
             return gap <= KEEPALIVE_TTL_S * 1000 or \
                 n * interval * 1000 + KEEPALIVE_TTL_S * 1000 >= gap
-        return self._within(gap, self._tau_here(plan, t, req.serving_inference), scen,  # type: ignore[arg-type]
-                            state)
+        return self._within(gap, self._tau_here(plan, w.t, w.source), scen, w)
 
     @staticmethod
     def _transition_reset(lane: Lane, prev_ts: int, req: Request) -> bool:
@@ -919,80 +891,193 @@ class ReferenceReplay:
         """§9.3.3: an observed COMPACTION or CLEAR event in ``(ts_{i−1}, ts_i]``."""
         return any(ev.kind in _CONTEXT_RESETS and prev_ts < ev.ts_ms <= ts for ev in lane.events)
 
-    # ---- step 3 ------------------------------------------------------------------------------
+    # ---- step 2: context transforms ----------------------------------------------------------
 
-    def _cache_state(self, req: Request, lane: Lane, t: Transition | None, prev: _Prev | None,
-                     gap: int | None, r_p: int, w_p: int, u_p: int, t_p: int,
-                     source: Inference, plan: _LanePlan, run: _Run, scen: _Scenario,
-                     alive: Callable[[], bool], state: dict[str, bool]
-                     ) -> tuple[int, int, int, bool]:
-        """Repairs, TTL two-way flips, keepalive flips and ``fast_off`` flips (§9.3.1, §9.3.2,
-        §9.3.5, §9.3.6). Returns ``(R', W', U', flipped_to_hit)``."""
-        policy = run.policy
+    def _context_transforms(self, w: _Work, plan: _LanePlan, context: _Context) -> None:
+        """§9.3.3 / §9.3.4: resets, then the compaction window, else cold resume, else the tokens
+        removed by an earlier compaction or resume come out of this request."""
+        if plan.compaction is None and plan.cold_resume is None:
+            return
+        prev = w.prev
+        if prev is not None and (self._context_reset(w.lane, prev.ts_ms, w.req.ts_start_ms)
+                                 or 2 * w.total_obs < prev.total_obs):
+            context.removed = 0
+        if context.first_total is None:
+            context.first_total = w.total_obs
+        if plan.compaction is not None and self._compaction_window(w, plan.compaction, context):
+            return
+        if plan.cold_resume is not None and self._cold_resume(w, plan.cold_resume, context):
+            return
+        self._remove_tokens(w, context.removed)
 
-        def warm() -> tuple[int, int, int, bool]:
-            expected = min(prev.prefix, t_p) if prev is not None else 0
-            reads = min(expected, t_p - u_p)
-            return reads, t_p - u_p - reads, u_p, True
+    def _compaction_window(self, w: _Work, compaction: tuple[int, int],
+                           context: _Context) -> bool:
+        """§9.3.3: above the window ``w``, insert a COMPACTION call (reading the live prefix when
+        alive_π, writing the rest, emitting ``S_c``) and restart the request from
+        ``S_c + new_i``."""
+        window, summary = compaction
+        effective = w.total_obs - context.removed
+        if effective <= window:
+            return False
+        reads = min(w.prev.prefix, effective) if w.prev is not None and w.alive() else 0
+        call = _with_writes(UsageBuckets(cache_read=reads, output=summary), effective - reads,
+                            w.created)
+        w.extras.append((self._extra(w.req, InferenceKind.COMPACTION, 0, call, w.serving.ctx),
+                         w.req.ts_start_ms))
+        self._restart(w, summary + self._new_tokens(w), context)
+        return True
 
-        # restore_caching rewrites every request of an eligible lane
+    def _cold_resume(self, w: _Work, cold_resume: tuple[str, int, int],
+                     context: _Context) -> bool:
+        """§9.3.4: at a transition that is not alive with more than ``min_ctx`` effective
+        tokens, ``compact`` inserts a cold summarization call and restarts from ``S_c + new_i``;
+        ``clear`` restarts from the lane's first context ``T_0 + new_i``."""
+        action, minimum, summary = cold_resume
+        effective = w.total_obs - context.removed
+        if w.prev is None or effective <= minimum or w.alive():
+            return False
+        if action == "compact":
+            call = UsageBuckets(uncached_input=effective, output=summary)
+            w.extras.append((self._extra(w.req, InferenceKind.OTHER, 0, call, w.serving.ctx),
+                             w.req.ts_start_ms))
+            self._restart(w, summary + self._new_tokens(w), context)
+        else:
+            self._restart(w, (context.first_total or 0) + self._new_tokens(w), context)
+        return True
+
+    @staticmethod
+    def _new_tokens(w: _Work) -> int:
+        """``new_i = max(0, T_i − T_{i−1})``, and ``T_0`` for the first request (§9.3.3)."""
+        return w.total_obs if w.prev is None else max(0, w.total_obs - w.prev.total_obs)
+
+    @staticmethod
+    def _restart(w: _Work, total: int, context: _Context) -> None:
+        """The request becomes ``T'`` fresh tokens: ``R' = 0``, ``U' = min(U, T')``, the rest
+        written; ``removed = T − T'``; step 3 is skipped for it."""
+        w.total, w.reads = total, 0
+        w.uncached = min(w.usage.uncached_input, total)
+        w.writes = total - w.uncached
+        context.removed = w.total_obs - total
+        w.skip_cache_state = True
+
+    @staticmethod
+    def _remove_tokens(w: _Work, removed: int) -> None:
+        """Tokens removed earlier come out of this request's reads first, then its writes."""
+        if removed <= 0:
+            return
+        reads, writes = w.reads, w.writes
+        w.reads = max(0, reads - removed)
+        w.writes = writes if reads >= removed else max(0, writes - (removed - reads))
+        w.total = w.reads + w.writes + w.uncached
+
+    # ---- step 3: cache-state transforms ------------------------------------------------------
+
+    def _cache_state(self, w: _Work, plan: _LanePlan, run: _Run, scen: _Scenario) -> None:
+        """§9.3.1, §9.3.2, §9.3.5, §9.3.6 in a fixed order; the first rule that applies wins.
+        The split before a flip to a hit is kept for calibrated mode (§9.4)."""
+        if w.skip_cache_state:
+            return
+        before = (w.reads, w.writes, w.uncached)
         if plan.restore_caching:
-            if prev is None:
-                return 0, t_p, 0, False
-            tau = plan.ttl_s or TTL_5M_S
-            if gap is not None and self._within(gap, tau, scen, state):
-                reads = min(prev.total, t_p)
-                return reads, t_p - reads, 0, True
-            return 0, t_p, 0, False
-        # lane-first repairs
-        rid = req.request_id
-        if prev is None:
-            if rid in run.fanout:
-                moved = min(w_p, run.fanout[rid])
-                return r_p + moved, w_p - moved, u_p, moved > 0
-            if rid in run.shared_ci:
-                reads = min(run.shared_ci[rid], t_p - u_p)
-                return reads, t_p - u_p - reads, u_p, True
-            return r_p, w_p, u_p, False
-        if t is None:
-            return r_p, w_p, u_p, False
-        assert gap is not None
-        tau_obs = t.ttl_s if t.ttl_s is not None else TTL_5M_S
-        if t.is_miss_event:
-            if plan.keepalive is not None:
-                if t.cause == "ttl-expiry" and alive():
-                    return warm()
-            elif plan.ttl_s is not None and plan.ttl_s > tau_obs:
-                if t.cause == "ttl-expiry" and alive():
-                    return warm()
-            if policy.fast_off and t.cause == "param-change" and t.sub_cause == "fast-toggle" \
-                    and alive():
-                return warm()
-            if "fallback_credit" in policy.repairs and t.cause == "model-switch" \
-                    and t.sub_cause == "refusal-fallback" \
-                    and 5 * source.usage.cache_write >= 4 * t.expected_reuse:
-                return warm()
-        elif plan.ttl_s is not None and plan.ttl_s < tau_obs:
-            if not self._within(gap, plan.ttl_s, scen, state) and gap <= tau_obs * 1000:
-                floor = run.floor.get((lane.cache_scope_key, req.model), 0)
-                reads = min(floor, t_p - u_p)
-                return reads, t_p - u_p - reads, u_p, False
-        if self._retry_affected(req, t, policy):
-            return warm()
-        return r_p, w_p, u_p, False
+            self._restore_caching(w, plan, scen)
+        elif w.prev is None:
+            self._lane_first_repairs(w, run)
+        elif w.t is not None:
+            rules = (self._keepalive_flip, self._ttl_flip, self._fast_off_flip,
+                     self._fallback_credit, self._ttl_hit_to_miss, self._retry_backoff_cap)
+            any(rule(w, plan, run, scen) for rule in rules)
+        if w.flipped:
+            w.nohit_split = before
+
+    def _restore_caching(self, w: _Work, plan: _LanePlan, scen: _Scenario) -> None:
+        """``restore_caching``: request 0 writes ``T_0``; later requests read ``min(T'_{i−1},
+        T_i)`` when ``gap ≤ τπ`` (default 300 s), else write everything; nothing uncached."""
+        w.uncached = 0
+        if w.prev is not None and w.gap is not None and \
+                self._within(w.gap, plan.ttl_s or TTL_5M_S, scen, w):
+            w.reads = min(w.prev.total, w.total)
+            w.flipped = True
+        else:
+            w.reads = 0
+        w.writes = w.total - w.reads
+
+    @staticmethod
+    def _lane_first_repairs(w: _Work, run: _Run) -> None:
+        """``stagger_fanout`` (a later group member reads the group's shared prefix) and
+        ``shared_ci_prefix`` (a later CI run reads ``S_ci``) on a lane's first request."""
+        rid = w.req.request_id
+        if rid in run.fanout:
+            moved = min(w.writes, run.fanout[rid])
+            w.reads, w.writes = w.reads + moved, w.writes - moved
+            w.flipped = moved > 0
+        elif rid in run.shared_ci:
+            w.reads = min(run.shared_ci[rid], w.total - w.uncached)
+            w.writes = w.total - w.uncached - w.reads
+            w.flipped = True
+
+    @staticmethod
+    def _keepalive_flip(w: _Work, plan: _LanePlan, run: _Run, scen: _Scenario) -> bool:
+        """§9.3.2: an alive TTL-expiry miss on a keepalive lane becomes a hit (5m writes)."""
+        t = w.t
+        assert t is not None
+        return (plan.keepalive is not None and t.is_miss_event and t.cause == "ttl-expiry"
+                and w.alive() and w.warm())
+
+    @staticmethod
+    def _ttl_flip(w: _Work, plan: _LanePlan, run: _Run, scen: _Scenario) -> bool:
+        """§9.3.1 miss → hit (``τπ > τ_obs``): an alive TTL-expiry miss reads ``E'``."""
+        t = w.t
+        assert t is not None
+        return (plan.ttl_s is not None and plan.ttl_s > _tau_obs(t) and t.is_miss_event
+                and t.cause == "ttl-expiry" and w.alive() and w.warm())
+
+    @staticmethod
+    def _fast_off_flip(w: _Work, plan: _LanePlan, run: _Run, scen: _Scenario) -> bool:
+        """§9.3.5 ``fast_off``: an alive fast-toggle miss becomes a hit."""
+        t = w.t
+        assert t is not None
+        return (run.policy.fast_off and t.is_miss_event and t.cause == "param-change"
+                and t.sub_cause == "fast-toggle" and w.alive() and w.warm())
+
+    @staticmethod
+    def _fallback_credit(w: _Work, plan: _LanePlan, run: _Run, scen: _Scenario) -> bool:
+        """``fallback_credit``: a refusal-fallback miss whose first call on the new model wrote
+        ``≥ 0.8·E`` reads ``E`` at the new model's read rate."""
+        t = w.t
+        assert t is not None
+        return ("fallback_credit" in run.policy.repairs and t.is_miss_event
+                and t.cause == "model-switch" and t.sub_cause == "refusal-fallback"
+                and 5 * w.source.usage.cache_write >= 4 * t.expected_reuse and w.warm())
+
+    def _ttl_hit_to_miss(self, w: _Work, plan: _LanePlan, run: _Run, scen: _Scenario) -> bool:
+        """§9.3.1 hit → miss (``τπ < τ_obs``): a hit whose gap exceeds τπ (and not τ_obs) falls
+        back to the static-prefix floor ``S``."""
+        t, gap = w.t, w.gap
+        assert t is not None and gap is not None
+        if plan.ttl_s is None or t.is_miss_event or plan.ttl_s >= _tau_obs(t):
+            return False
+        if self._within(gap, plan.ttl_s, scen, w) or gap > _tau_obs(t) * 1000:
+            return False
+        floor = run.floor.get((w.lane.cache_scope_key, w.req.model), 0)
+        w.reads = min(floor, w.total - w.uncached)
+        w.writes = w.total - w.uncached - w.reads
+        return True
+
+    def _retry_backoff_cap(self, w: _Work, plan: _LanePlan, run: _Run, scen: _Scenario) -> bool:
+        """``retry_backoff_cap``: the final attempt of an affected request is warm."""
+        return self._retry_affected(w.req, w.t, run.policy) and w.warm()
 
     @staticmethod
     def _retry_affected(req: Request, t: Transition | None, policy: Policy) -> bool:
         """``retry_backoff_cap`` (§9.3.6): ≥ 2 attempts, the final one started more than τ_obs
-        after the first, and the serving inference wrote ≥ 0.5·E."""
+        after the first, and the serving inference wrote ≥ 0.5·E (E > 0)."""
         if "retry_backoff_cap" not in policy.repairs or t is None or len(req.attempts) < 2:
             return False
         source = req.serving_inference
         if source is None:
             return False
-        tau_obs = t.ttl_s if t.ttl_s is not None else TTL_5M_S
         span = req.attempts[-1].ts_start_ms - req.attempts[0].ts_start_ms
-        return span > tau_obs * 1000 and 2 * source.usage.cache_write >= t.expected_reuse \
+        return span > _tau_obs(t) * 1000 and 2 * source.usage.cache_write >= t.expected_reuse \
             and t.expected_reuse > 0
 
     def _kept_attempts(self, req: Request, t: Transition | None,
@@ -1003,7 +1088,61 @@ class ReferenceReplay:
             return (*req.attempts[:2], req.attempts[-1])
         return req.attempts
 
+    def _keepalive_pings(self, w: _Work, plan: _LanePlan, run: _Run, *, count: bool) -> None:
+        """§9.3.2 / D9: the non-clairvoyant daemon pings every ``κ`` during the idle gap before
+        this request, ``n = min(ceil(gap/κ) − 1, floor(M/κ))`` times; each ping re-reads the
+        previous request's prefix (and its uncached input) at its send time."""
+        if plan.keepalive is None or w.prev is None or w.gap is None:
+            return
+        interval, max_idle = plan.keepalive
+        prev = w.prev
+        n = ping_count(w.gap, interval, max_idle)
+        for k in range(1, n + 1):
+            sent = prev.ts_ms + k * interval * 1000
+            ping = UsageBuckets(cache_read=prev.prefix, uncached_input=prev.uncached)
+            w.extras.append((self._extra(w.req, InferenceKind.KEEPALIVE, k, ping, prev.ctx,
+                                         ts_ms=sent), sent))
+        if count:
+            run.pings += n
+            run.hindsight_pings += max(0, -(-(w.gap - KEEPALIVE_TTL_S * 1000)
+                                            // (interval * 1000)))
+
     # ---- step 4 ------------------------------------------------------------------------------
+
+    def _tail_and_price(self, w: _Work, attempts: Sequence[Attempt], plan: _LanePlan,
+                        run: _Run, scen: _Scenario) -> tuple[_ReqOut, bool]:
+        """(4) TTL re-rating, the minimum-prefix gate and batch; (5) pricing of the serving,
+        passthrough and inserted inferences. Returns the record and whether batch applied."""
+        req, source, serving = w.req, w.source, w.serving
+        final, w.reads, w.writes, w.uncached, batch_used = self._finish(
+            req, w.lane, source, serving, w.usage, w.reads, w.writes, w.uncached, w.created,
+            plan, run, scen)
+        ctx = replace(serving.ctx, service_tier="batch") if batch_used else serving.ctx
+        items = [] if source.billable is False else [
+            _Item(final, ctx, serving.billable, serving.usage_source, serving.output_upper,
+                  serving.ts_ms)]
+        items += [self._tail_item(item, plan, batch_used, rerate=False)   # passthrough
+                  for _inf, item in w.others]
+        items += [self._tail_item(_Item(e.usage, e.pricing, True, UsageSource.FINAL, None, sent),
+                                  plan, batch_used, rerate=True)          # inserted calls
+                  for e, sent in w.extras]
+        extras = tuple(replace(e, usage=_rerate(e.usage, _class_for_ttl(plan.ttl_s)))
+                       if plan.ttl_s else e for e, _sent in w.extras)
+        unchanged = (final == source.usage and serving.ctx == source.pricing and not w.extras
+                     and not batch_used and len(attempts) == len(req.attempts)
+                     and all(item.usage == inf.usage and item.ctx == inf.pricing
+                             for inf, item in w.others))
+        figure = run.observed[req.request_id] if unchanged else self._price(items, run)
+        nohit = None
+        if w.flipped and run.calibrated and w.nohit_split is not None:
+            nohit = figure
+            if source.billable is not False:
+                nohit_usage = self._finish(req, w.lane, source, serving, w.usage, *w.nohit_split,
+                                           w.created, plan, run, scen)[0]
+                nohit = self._price([replace(items[0], usage=nohit_usage), *items[1:]], run)
+        out = _ReqOut(request=req, usage=final, extras=extras, figure=figure,
+                      changed=not unchanged, flipped=w.flipped, gap_ms=w.gap, nohit=nohit)
+        return out, batch_used
 
     @staticmethod
     def _created_class(plan: _LanePlan, source: Inference, t: Transition | None) -> _WClass:
@@ -1211,10 +1350,6 @@ def _param_change(req: Request, prev: Request) -> str | None:
     if differs(req.attribution.cwd_key, prev.attribution.cwd_key):
         return "directory-change"
     return None
-
-
-def _never() -> bool:
-    return False
 
 
 def outcome_bounds(nano: int | None, low: int | None, high: int | None
