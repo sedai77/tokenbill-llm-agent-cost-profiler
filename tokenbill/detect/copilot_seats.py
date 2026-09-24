@@ -160,6 +160,10 @@ _DAY = _dt.timedelta(days=1)
 _EPOCH = _dt.date(1970, 1, 1)
 _WINDOW_DAYS = 30
 _OVERDRAW = Decimal("1.5")        # budget-no-cost-center-pool: draw > 150% of the allowance
+#: plan-mix looks at the last 3 closed months; with a shorter history (at least 2 closed months)
+#: it uses those, says so and lowers its confidence.
+_PLAN_MIX_MONTHS = 3
+_PLAN_MIX_MIN_MONTHS = 2
 _ASSIGNMENTS = ("removable", "team", "auto", "unknown")
 
 _REFS: Mapping[str, tuple[str, ...]] = {
@@ -375,16 +379,16 @@ class _Run:
         self.capped = cpool.capped_cost_centers(self.config)
         self.flags = cpool.run_flags(self.config)
         self.pools: dict[str, dict[str, list[PoolMonth]]] = defaultdict(lambda: defaultdict(list))
-        for pm in sorted(ctx.pools, key=lambda p: (p.entity_id, p.month, p.plan_scenario or "")):
+        for pm in sorted(ctx.pools, key=lambda p: (p.entity_id, p.month, p.plan_scenario or "",
+                                                   repr(p))):
             self.pools[pm.entity_id][pm.month].append(pm)
         self.plans = self._plans()
         self.licenses = sorted((x for x in ctx.licenses if x.product == _COPILOT),
                                key=_license_order)
         self.activity = sorted((a for a in ctx.activity if a.product == _COPILOT),
-                               key=lambda a: (a.date_utc, a.principal, a.fetched_ms,
-                                              a.source_kind, a.counts, a.flags))
+                               key=lambda a: (a.date_utc, a.principal, repr(a)))
         self.cost_lines = sorted((c for c in ctx.cost_lines if c.channel == _COPILOT),
-                                 key=lambda c: (c.date_utc, c.line_id, c.fetched_ms))
+                                 key=lambda c: (c.date_utc, c.line_id, repr(c)))
         self.inputs = self._inputs()
         self.min_usd = min_usd_nano(ctx)
         self.k = ctx.k_anonymity if isinstance(ctx.k_anonymity, int) else 5
@@ -401,7 +405,7 @@ class _Run:
         plans = list(self.ctx.plans)
         if not plans:
             plans = self._detected_plans()
-        for pe in sorted(plans, key=lambda p: (p.entity_id, p.month, p.source, p.plan)):
+        for pe in sorted(plans, key=lambda p: (p.entity_id, p.month, repr(p))):
             out[pe.entity_id][pe.month] = pe
         return out
 
@@ -744,13 +748,13 @@ class _Run:
 
 
 def _license_order(x: LicenseSnapshot) -> tuple:
-    return (x.snapshot_date, x.principal, x.org or "", x.fetched_ms, x.source_kind, x.plan,
-            x.team or "", x.cost_center or "")
+    return (x.snapshot_date, x.principal, x.org or "", repr(x))
 
 
 def _license_rank(x: LicenseSnapshot) -> tuple:
-    return (x.source_kind == _SEATS_API, x.fetched_ms, x.plan != "unknown", x.plan,
-            x.team or "", x.cost_center or "", x.last_activity_bucket)
+    """Which of two rows of one (principal, org, date) wins: the seats API, the later fetch, a
+    known plan, then a total order (so the input order never matters)."""
+    return (x.source_kind == _SEATS_API, x.fetched_ms, x.plan != "unknown", repr(x))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1371,8 +1375,6 @@ def _seat_auto_assign(run: _Run) -> list[Finding]:
 
 
 def _completions_only(run: _Run) -> list[Finding]:
-    if run.seats.source != "licenses":
-        return []
     days = [a for a in run.activity if _date(a.date_utc) is not None]
     if not days:
         return []
@@ -1438,8 +1440,6 @@ def _completions_only(run: _Run) -> list[Finding]:
 
 
 def _plan_mix(run: _Run) -> list[Finding]:
-    if run.seats.source != "licenses":
-        return []
     limit = Decimal(facts.copilot_plans()["business"].included_credits)
     report_months: set[str] = set()
     use: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
@@ -1469,12 +1469,14 @@ def _plan_mix(run: _Run) -> list[Finding]:
         rows = run.seats.all_rows.get(principal, [lic])
         if not any(x.plan == "enterprise" for x in rows):
             continue
+        if all(x.last_activity_bucket in IDLE_BUCKETS for x in rows):
+            continue                          # an idle seat is for idle-seat (removal)
         entity = run.entity(lic.cost_center, lic.org)
         if run.plan_unknown(entity):
             continue
         closed = sorted(m for m, pms in run.pools.get(entity, {}).items()
-                        if all(pm.finality == "closed" for pm in pms))[-3:]
-        if len(closed) < 3:
+                        if all(pm.finality == "closed" for pm in pms))[-_PLAN_MIX_MONTHS:]
+        if len(closed) < _PLAN_MIX_MIN_MONTHS:
             continue
         windows[entity] = tuple(closed)
         fits = True
@@ -1501,6 +1503,7 @@ def _plan_mix(run: _Run) -> list[Finding]:
         if rec is not None and rec.nano is not None:
             rec = _with_note(rec, "trade-off: Enterprise-only features are lost")
         months = windows[entity]
+        short = len(months) < _PLAN_MIX_MONTHS
         estimate_used = any(m not in report_months for m in months)
         where = f"team {team}" if team else "no team"
         evidence = [_ev("seats", n=n, plan="enterprise"),
@@ -1511,14 +1514,16 @@ def _plan_mix(run: _Run) -> list[Finding]:
             run, "plan-mix", scope={"entity": entity, "team": team, "plan": "enterprise"},
             title=f"Enterprise seats within the Business allowance in {where} ({entity}): {n}",
             summary=_summary(
-                f"{n} Enterprise seats drew at most {limit} credits in each of the last 3 closed "
-                f"months ({', '.join(months)}"
-                f"{'; metrics estimates, no report' if estimate_used else ''}).",
+                f"{n} Enterprise seats drew at most {limit} credits in each of the last "
+                f"{len(months)} closed months ({', '.join(months)}"
+                f"{'; metrics estimates, no report' if estimate_used else ''}"
+                f"{'; fewer than 3 closed months available' if short else ''}).",
                 f"Downgrade difference {_money(cost.nano)}/month (estimated list); projected "
                 f"invoice saving {_money(rec.nano) if rec is not None else 'none'}/month "
                 f"(estimated, needs evaluation, trade-off: Enterprise-only features)."),
             cost=cost, recoverable=rec, n_users=n, n_events=n, evidence=evidence,
-            lever_ids=["copilot.seat_downgrade"], needs_eval=True))
+            lever_ids=["copilot.seat_downgrade"], needs_eval=True,
+            confidence="low" if short or estimate_used else "medium"))
     return out
 
 
@@ -1613,11 +1618,6 @@ class _Budgets:
     def user_level(self, entity: str | None = None) -> list[_Budget]:
         return [b for b in self.items if b.copilot and b.scope in _USER_SCOPES
                 and (entity is None or self._covers(b, entity))]
-
-    def entities(self) -> list[str]:
-        ids = set(self.run.pools) | set(self.run.plans)
-        ids.update(b.entity for b in self.items if b.entity is not None)
-        return sorted(ids)
 
     # ----- kinds ------------------------------------------------------------------------------
 
@@ -1905,10 +1905,7 @@ class _Budgets:
             return []
         low = high = 0
         for entity in sorted(run.plans):
-            pe = run.latest_plan(entity)
-            if pe is None:
-                continue
-            fees, _ = _seat_fees(run, entity, pe)
+            fees, _ = _seat_fees(run, entity, run.latest_plan(entity))  # type: ignore[arg-type]
             low += fees.nano if fees.nano is not None else fees.low_nano or 0
             high += fees.nano if fees.nano is not None else fees.high_nano or 0
         out: list[Finding] = []

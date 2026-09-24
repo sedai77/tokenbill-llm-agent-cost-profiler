@@ -4,6 +4,8 @@ report")."""
 
 from __future__ import annotations
 
+import dataclasses
+
 from tokenbill.core import builders as b
 from tokenbill.core.labels import Basis, Evidence
 
@@ -176,8 +178,12 @@ def test_completions_only_seats_no_plan_advice_while_unknown() -> None:
 _MONTHS = ("2026-09", "2026-10", "2026-11")
 
 
-def _plan_mix(*, heavy: int = 2_500, months: tuple[str, ...] = _MONTHS,
-              plan: str = "mixed", estimates: bool = False) -> list:
+def _plan_mix(**kw: object) -> list:
+    return detect(_plan_mix_ctx(**kw))  # type: ignore[arg-type]
+
+
+def _plan_mix_ctx(*, heavy: int = 2_500, months: tuple[str, ...] = _MONTHS,
+                  plan: str = "mixed", estimates: bool = False):
     light, heavy_user = people(5, "light"), people(1, "heavy")
     lics = (seats(5, seed="light", plan="enterprise", bucket="0-7", date="2026-11-30")
             + seats(1, seed="heavy", plan="enterprise", bucket="0-7", date="2026-11-30"))
@@ -193,8 +199,8 @@ def _plan_mix(*, heavy: int = 2_500, months: tuple[str, ...] = _MONTHS,
              for m in months]
     plans = [p_plan(month=m, plan=plan, seats_map={"business": 40, "enterprise": 10})
              for m in months]
-    return detect(ctx(pools=pools, plans=plans, licenses=lics, cost_lines=cost, activity=act,
-                      today="2026-12-10"))
+    return ctx(pools=pools, plans=plans, licenses=lics, cost_lines=cost, activity=act,
+               today="2026-12-10")
 
 
 def test_plan_mix_enterprise_seats_within_the_business_allowance() -> None:
@@ -218,6 +224,17 @@ def test_plan_mix_heavy_user_and_estimates() -> None:
     assert evidence(g, "months")["source"] == "metrics estimates"
 
 
-def test_plan_mix_needs_three_closed_months_and_a_known_plan() -> None:
-    assert of_kind(_plan_mix(months=_MONTHS[1:]), "plan-mix") == []
+def test_plan_mix_months_and_known_plan() -> None:
+    [short] = of_kind(_plan_mix(months=_MONTHS[1:]), "plan-mix")
+    assert "fewer than 3 closed months available" in short.summary
+    assert short.confidence == "low" and evidence(short, "months")["closed"] == "2026-10,2026-11"
+    assert of_kind(_plan_mix(months=_MONTHS[2:]), "plan-mix") == []
     assert of_kind(_plan_mix(plan="unknown"), "plan-mix") == []
+
+
+def test_plan_mix_leaves_idle_enterprise_seats_to_idle_seat() -> None:
+    idle = seats(3, seed="idle-e", plan="enterprise", date="2026-11-30")
+    found = detect(dataclasses.replace(_plan_mix_ctx(), licenses=_plan_mix_ctx().licenses + tuple(
+        idle)))
+    [f] = of_kind(found, "plan-mix")
+    assert f.n_users == 5
