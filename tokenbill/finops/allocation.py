@@ -349,7 +349,7 @@ def parse_rules(doc: object) -> RuleSet:
     parsed = tuple(_rule(r, i, seen) for i, r in enumerate(rules))
     try:
         canonical = json.dumps(doc, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, RecursionError):
         raise _fail("document", "not JSON-serializable") from None
     return RuleSet(rules=parsed, sha256=hashlib.sha256(canonical.encode("utf-8")).hexdigest())
 
