@@ -60,7 +60,7 @@ from tokenbill.adapters.github_config import (
 from tokenbill.core.kanon import merge_small_groups
 from tokenbill.core.models import normalize_copilot_model
 from tokenbill.core.money import credits_str_to_nano
-from tokenbill.core.records import MAX_TOKENS, ActivityDay, OutcomeAggregate
+from tokenbill.core.records import MAX_TOKENS, ActivityDay, OutcomeAggregate, record_key
 from tokenbill.core.types import IngestOptions, IngestResult
 
 __all__ = [
@@ -444,7 +444,27 @@ class _Run:
             ctx.note("dq.copilot_dashboard_export", "info", "28-day NDJSON in the API shape "
                      "(usage-dashboard export or API 28-day report); a dashboard export excludes "
                      "Copilot CLI usage; export shape VERIFY", self.window)
-        return ctx.result(declared, activity=self.activity.values(), outcomes=outcomes)
+        return ctx.result(declared, activity=self._activity(), outcomes=outcomes)
+
+    def _activity(self) -> list[ActivityDay]:
+        """One activity row per natural key (date, product, principal): a daily row wins over a
+        28-day row dated on the same day (the record store would otherwise replace one by the
+        other)."""
+        out: dict[str, ActivityDay] = {}
+        superseded = 0
+        # sorted by source kind: the daily rows ("github.copilot_metrics") come first
+        for _, day in sorted(self.activity.items()):
+            key = record_key(day)
+            if key in out:
+                superseded += 1
+            else:
+                out[key] = day
+        if superseded:
+            self.ctx.stat("activity_28day_superseded", superseded)
+            self.ctx.note("dq.copilot_28day_window", "info", "28-day user rows dated like a "
+                          "daily row of the same person were not kept (the daily row wins)",
+                          superseded)
+        return list(out.values())
 
 
 def _opt_count(rec: Mapping[str, Any], key: str) -> int:

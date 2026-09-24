@@ -403,7 +403,11 @@ class OrgRead:
             try:
                 doc = load_json_exact(f)
             except SourceError:
-                self.quarantine(f"{prefix}file", "bad_json")
+                if not self._has_object_line(f):
+                    self.quarantine(f"{prefix}file", "bad_json")
+                    return
+                # NDJSON whose first line is broken: read it line by line after all
+                yield from self._line_items(iter_lines(f), None, prefix)
                 return
             if isinstance(doc, list):
                 for j, value in enumerate(doc):
@@ -411,23 +415,39 @@ class OrgRead:
             else:
                 yield from self._unwrap(doc, f"{prefix}doc")
             return
-        pending: tuple[int, int, bytes] | None = first
-        while pending is not None:
+        yield from self._line_items(lines, first, prefix)
+
+    def _has_object_line(self, f: Path) -> bool:
+        try:
+            return any(raw and parse_json_line(raw, exact_numbers=True) is not None
+                       for _, _, raw in iter_lines(f))
+        except SourceError:
+            return False
+
+    def _line_items(self, lines: Iterator[tuple[int, int, bytes]],
+                    first: tuple[int, int, bytes] | None, prefix: str) -> Iterator[Item]:
+        pending = first
+        last = 0
+        while True:
+            if pending is None:
+                try:
+                    pending = next(lines, None)
+                except SourceError:  # corrupt compressed stream mid-file
+                    self.quarantine(f"{prefix}line:{last + 1}", "unreadable")
+                    return
+                if pending is None:
+                    return
             line_no, _, raw = pending
+            pending, last = None, line_no
             loc = f"{prefix}line:{line_no}"
             if not raw:
                 self.quarantine(loc, "oversize_line")
-            else:
-                obj = parse_json_line(raw, exact_numbers=True)
-                if obj is None:
-                    self.quarantine(loc, "not_object" if raw.lstrip()[:1] == b"[" else "bad_json")
-                else:
-                    yield from self._unwrap(obj, loc)
-            try:
-                pending = next(lines, None)
-            except SourceError:
-                self.quarantine(f"{prefix}line:{line_no + 1}", "unreadable")
-                return
+                continue
+            obj = parse_json_line(raw, exact_numbers=True)
+            if obj is None:
+                self.quarantine(loc, "not_object" if raw.lstrip()[:1] == b"[" else "bad_json")
+                continue
+            yield from self._unwrap(obj, loc)
 
     def _unwrap(self, value: Any, locator: str) -> Iterator[Item]:
         if not isinstance(value, dict):
@@ -627,7 +647,6 @@ def _canon(rec: Any) -> str:
 # github-copilot-config
 # ---------------------------------------------------------------------------------------------
 
-_BUDGET_PATH_RE = re.compile(r"/settings/billing/budgets(?:/([^/]+))?\Z")
 _STATES_PATH_RE = re.compile(r"/settings/billing/budgets/([^/]+)/user-states\Z")
 _CC_PATH_RE = re.compile(r"/settings/billing/cost-centers(?:/[^/]+)?\Z")
 _ORG_BILLING_RE = re.compile(r"/orgs/([^/]+)/copilot/billing\Z")
@@ -682,7 +701,7 @@ class CopilotConfigAdapter:
         keys = head_keys(head)
         if "budgets" in keys and ("budget_scope" in keys or "budget_type" in keys):
             return True
-        if "user_states" in keys and "consumed_amount" in keys:
+        if "user_states" in keys and ("consumed_amount" in keys or "has_next_page" in keys):
             return True
         if "costCenters" in keys or ("ai_credit_pool_enabled" in keys and "resources" in keys):
             return True
@@ -781,7 +800,7 @@ def _budget(ctx: OrgRead, b: object, fetched: int, page_user: object) -> ConfigS
         attrs["target"] = f"org:{entity}"
     elif scope in ("cost_center", "multi_user_cost_center") and entity:
         attrs["target"] = f"cc:{entity}"
-    elif scope == "repository" and isinstance(b.get("budget_entity_name"), str):
+    elif scope == "repository" and entity:  # repository names are h_ under the name key
         attrs["target"] = "repo:" + ctx.name(b["budget_entity_name"].strip())
     elif scope in ("enterprise", "multi_user_customer"):
         attrs["target"] = "enterprise"

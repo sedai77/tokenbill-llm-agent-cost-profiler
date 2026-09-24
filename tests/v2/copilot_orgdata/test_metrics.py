@@ -177,6 +177,17 @@ def test_28day_dashboard_export_accepted_with_both_codes() -> None:
     assert {n.code for n in agg.notes} >= {"dq.copilot_dashboard_export", "dq.copilot_28day_window"}
 
 
+def test_daily_row_wins_over_a_28day_row_of_the_same_day(tmp_path: Path) -> None:
+    daily = _example()
+    window = {k: v for k, v in daily.items() if k not in ("day", "day_partition")}
+    window.update(report_start_day="2025-09-04", report_end_day="2025-10-01",
+                  loc_added_sum=999)
+    res = ADAPTER.read(write_lines(tmp_path / "mix.ndjson", [window, daily]), opts())
+    (day,) = res.activity
+    assert day.source_kind == SOURCE_KIND and dict(day.counts)["loc_added"] == 32
+    assert res.stats["activity_28day_superseded"] == 1
+
+
 def test_other_dashboard_shapes_are_quarantined() -> None:
     res = ADAPTER.read(METRICS / "dashboard_other_shape.ndjson", opts())
     assert [(q.locator, q.reason) for q in res.quarantined] == [

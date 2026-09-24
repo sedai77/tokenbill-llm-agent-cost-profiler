@@ -80,6 +80,14 @@ def test_ndjson_bad_lines_are_quarantined(tmp_path: Path) -> None:
         list(strict.items())
 
 
+def test_ndjson_with_a_broken_first_line(tmp_path: Path) -> None:
+    path = tmp_path / "x.ndjson"
+    path.write_bytes(b'{"a": 1\n{"b": 2}\n')
+    ctx = _ctx(path)
+    assert [i.body for i in ctx.items()] == [{"b": 2}]
+    assert [(q.locator, q.reason) for q in ctx.quarantined] == [("line:1", "bad_json")]
+
+
 def test_oversize_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(jsonl, "MAX_LINE_BYTES", 64)
     path = tmp_path / "x.ndjson"
