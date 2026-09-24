@@ -404,8 +404,10 @@ def mcp_server_of(tool_name: object) -> str | None:
 
 
 def safe_usage_json(usage: Mapping[str, Any]) -> str | None:
-    """Canonical JSON of a provider usage object with every string that is not a short token
-    replaced by null (numbers, bools and enums only; ≤ 8 KiB, else None)."""
+    """Canonical JSON of a provider usage object as the trace@2 ``raw_usage`` allows it (§4.2):
+    integers in ``[0, 2**53]``, bools and nulls; strings only for ``service_tier``, ``speed``,
+    ``inference_geo`` and ``iterations[].{type, model}`` (short tokens, else null); any other
+    string, float or out-of-range number becomes null. None when larger than 8 KiB."""
     if _usage_is_clean(usage):
         text = json.dumps(usage, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
         return text if len(text) <= 8 * 1024 else None
@@ -417,72 +419,69 @@ _USAGE_KEYS = frozenset({"input_tokens", "cache_creation_input_tokens", "cache_r
                          "cache_creation", "server_tool_use", "output_tokens_details"})
 _USAGE_INT_KEYS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
                    "output_tokens")
+_USAGE_STRING_KEYS = frozenset({"service_tier", "inference_geo", "speed"})
+_ITERATION_STRING_KEYS = frozenset({"type", "model"})
 _USAGE_NESTED_KEYS = frozenset({"ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens",
                                 "web_search_requests", "web_fetch_requests", "thinking_tokens"})
 
 
+def _raw_int(v: Any) -> bool:
+    return type(v) is int and 0 <= v <= MAX_TOKENS
+
+
 def _usage_is_clean(usage: Mapping[str, Any]) -> bool:
-    """True when *usage* holds only token keys, numbers, bools, nulls, token strings and one
-    level of such objects (the common shape: serialized as is)."""
-    if type(usage) is not dict or len(usage) > 64:
+    """True for the documented usage shape with valid values (serialized as is, the hot path);
+    anything else goes through :func:`_safe_usage_json_slow`."""
+    if type(usage) is not dict or not (usage.keys() <= _USAGE_KEYS):
         return False
-    if usage.keys() <= _USAGE_KEYS:  # the documented shape: check values only
-        for key in _USAGE_INT_KEYS:
-            v = usage.get(key)
-            if v is not None and type(v) is not int:
-                return False
-        for key in ("service_tier", "inference_geo", "speed"):
-            v = usage.get(key)
-            if v is not None and token(v) is None:
-                return False
-        for key in ("cache_creation", "server_tool_use", "output_tokens_details"):
-            v = usage.get(key)
-            if v is None:
-                continue
-            if type(v) is not dict or not (v.keys() <= _USAGE_NESTED_KEYS):
-                return False
-            for x in v.values():
-                if not (type(x) is int or x is None):
-                    return False
-        return True
-    for k, v in usage.items():
-        if token(k) is None:
+    for key in _USAGE_INT_KEYS:
+        v = usage.get(key)
+        if v is not None and not _raw_int(v):
             return False
-        tv = type(v)
-        if tv is int or tv is bool or v is None:
-            continue
-        if tv is str:
-            if token(v) is None:
-                return False
-            continue
-        if tv is not dict or len(v) > 64:
+    for key in _USAGE_STRING_KEYS:
+        v = usage.get(key)
+        if v is not None and token(v) is None:
             return False
-        for k2, x in v.items():
-            t2 = type(x)
-            if token(k2) is None or not (t2 is int or t2 is bool or x is None):
+    for key in ("cache_creation", "server_tool_use", "output_tokens_details"):
+        v = usage.get(key)
+        if v is None:
+            continue
+        if type(v) is not dict or not (v.keys() <= _USAGE_NESTED_KEYS):
+            return False
+        for x in v.values():
+            if x is not None and not _raw_int(x):
                 return False
     return True
 
 
 def _safe_usage_json_slow(usage: Mapping[str, Any]) -> str | None:
+    def scalar(v: Any) -> Any:
+        return v if v is None or type(v) is bool or _raw_int(v) else None
 
-    def clean(v: Any, depth: int) -> Any:
-        if depth > 6:
-            return None
-        if v is None or type(v) is bool or type(v) is int:
-            return v
-        if isinstance(v, str):
-            return token(v)
-        if isinstance(v, Mapping):
-            return {str(k)[:64]: clean(x, depth + 1) for k, x in v.items()
-                    if isinstance(k, str) and token(k) is not None}
-        if isinstance(v, list):
-            return [clean(x, depth + 1) for x in v[:64]]
+    def obj(o: Mapping[str, Any], depth: int, strings: frozenset[str]) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for k, v in list(o.items())[:64]:
+            if not isinstance(k, str) or token(k) is None:
+                continue
+            if isinstance(v, str):
+                out[k] = token(v) if k in strings else None
+            elif isinstance(v, Mapping):
+                out[k] = obj(v, depth + 1, frozenset()) if depth < 4 else None
+            elif isinstance(v, list):
+                if k == "iterations" and depth == 0:
+                    out[k] = [obj(x, depth + 1, _ITERATION_STRING_KEYS)
+                              if isinstance(x, Mapping) else None for x in v[:64]]
+                else:
+                    out[k] = [scalar(x) for x in v[:64]]
+            else:
+                out[k] = scalar(v)
+        return out
+
+    if not isinstance(usage, Mapping):
         return None
-
     try:
-        text = json.dumps(clean(usage, 0), sort_keys=True, separators=(",", ":"),
-                          ensure_ascii=True, allow_nan=False)
+        text = json.dumps(obj(usage, 0, _USAGE_STRING_KEYS), sort_keys=True,
+                          separators=(",", ":"), ensure_ascii=True, allow_nan=False)
     except (TypeError, ValueError, RecursionError):
         return None
     return text if len(text) <= 8 * 1024 else None
@@ -899,8 +898,10 @@ class _FileParser:
                  context: Mapping[str, Any] | None = None,
                  recent_uuids: Iterable[str] = (), last_trigger: int | None = None,
                  size_limit: int | None = None, stop_at: int | None = None,
-                 finalize_open: bool = True, process_unterminated: bool = True) -> None:
+                 finalize_open: bool = True, process_unterminated: bool = True,
+                 hash_lines: bool = False) -> None:
         self.run = run
+        self.hash_lines = hash_lines
         self.path = path
         self.layout = file_layout(path)
         self.start_offset = start_offset
@@ -911,11 +912,10 @@ class _FileParser:
         ctx = context or {}
         # duplicate-line detection over a sliding window of the last UUID_WINDOW uuids: the same
         # bound as the collector cursor, so one-shot and incremental reads drop the same lines
-        self.recent: deque[tuple[str, int | str]] = deque(
-            (u, _uuid_key(u)) for u in list(recent_uuids)[-UUID_WINDOW:])
-        self.seen: dict[int | str, int] = {}
-        for _u, k in self.recent:
-            self.seen[k] = self.seen.get(k, 0) + 1
+        self.recent: deque[str] = deque(list(recent_uuids)[-UUID_WINDOW:])
+        self.seen: dict[str, int] = {}
+        for u in self.recent:
+            self.seen[u] = self.seen.get(u, 0) + 1
         self.lanes: dict[str, _LaneState] = {}
         for lk, d in (ctx.get("lanes") or {}).items():
             if isinstance(lk, str) and isinstance(d, Mapping):
@@ -945,7 +945,7 @@ class _FileParser:
                                     out if type(out) is int and out >= -1 else -1,
                                     token(meta.get("stop"), 32),
                                     tuple(_appended_from(meta.get("appended"))))
-        self.meta_emitted = bool(ctx.get("meta_emitted"))
+        self.meta_emitted = bool(ctx.get("meta_emitted")) or self.layout.kind is LaneKind.MAIN
         self._lane_cache: dict[tuple[str, str, LaneKind], _LaneRef] = {}
         self._lane_fast: dict[tuple, _LaneRef] = {}
         self._source_refs: dict[Fidelity, SourceRef] = {}
@@ -955,6 +955,7 @@ class _FileParser:
         self.end_offset = start_offset
         self.hasher = hashlib.sha256()
         self.n_bytes = 0
+        self.assistant_lines = 0
 
     # ---------- lanes ----------
     def lane_for(self, obj: Mapping[str, Any]) -> _LaneRef:
@@ -1033,6 +1034,10 @@ class _FileParser:
         except ValueError as exc:
             raise SourceError(f"{path.name}: {exc}") from None
         stop_at = self.stop_at
+        hash_lines = self.hash_lines
+        hasher = self.hasher
+        line = self.line
+        n_lines = n_records = n_bytes = 0
         for _line_no, offset, raw in lines:
             if stop_at is not None and offset >= stop_at:
                 break
@@ -1044,10 +1049,11 @@ class _FileParser:
                 self.unterminated = offset
                 break
             self.end_offset = end if not terminated else end + 1
-            run.stats["lines"] += 1
-            self.hasher.update(raw)
-            self.hasher.update(b"\n")
-            self.n_bytes += len(raw) + 1
+            n_lines += 1
+            if hash_lines:
+                hasher.update(raw)
+                hasher.update(b"\n")
+                n_bytes += len(raw) + 1
             if not raw:
                 run.quarantine(offset, "oversize_line", path)
                 continue
@@ -1056,36 +1062,40 @@ class _FileParser:
                 reason = "bad_json" if raw.lstrip()[:1] == b"{" else "not_object"
                 run.quarantine(offset, reason, path)
                 continue
-            run.stats["records"] += 1
+            n_records += 1
             try:
-                self.line(obj, offset, raw)
+                line(obj, offset, raw)
             except (ContractViolation, BadUsageError, TypeError, ValueError, KeyError,
                     AttributeError, IndexError, OverflowError, RecursionError) as exc:
                 logger.debug("line at offset %d quarantined (%s)", offset, type(exc).__name__)
                 run.quarantine(offset, _reason_for(exc), path)
+        run.stats["lines"] += n_lines
+        run.stats["records"] += n_records
+        run.stats["assistant_lines"] += self.assistant_lines
+        self.n_bytes = n_bytes
         self.finish()
         return ParseOutcome(
             run=run, end_offset=self.end_offset, earliest_open=self.earliest_open,
             unterminated=self.unterminated, context=self.context(),
             last_trigger=self.file_trigger,
-            recent_uuids=[u for u, _k in self.recent],
+            recent_uuids=list(self.recent),
             sha256=self.hasher.hexdigest(), n_bytes=self.n_bytes)
 
     def line(self, obj: dict[str, Any], offset: int, raw: bytes = b"") -> None:
+        """Step 1: drop duplicate uuids (sliding window), then dispatch by entry type."""
         run = self.run
         uuid = obj.get("uuid")
         if type(uuid) is str:
-            key = _uuid_key(uuid)
             seen = self.seen
-            if key in seen:
+            if uuid in seen:
                 run.dq["dq.duplicate_uuid_lines"] += 1
                 run.stats["duplicate_lines"] += 1
                 return
-            seen[key] = 1
+            seen[uuid] = 1
             recent = self.recent
-            recent.append((uuid, key))
+            recent.append(uuid)
             if len(recent) > UUID_WINDOW:
-                old = recent.popleft()[1]
+                old = recent.popleft()
                 n = seen.get(old, 0) - 1
                 if n > 0:
                     seen[old] = n
@@ -1109,8 +1119,10 @@ class _FileParser:
 
     # ---------- assistant ----------
     def assistant(self, obj: dict[str, Any], offset: int) -> None:
+        """Step 3: add one assistant line to its message group (max output wins; ties → the
+        later line; stop reason, tool_use ids, quota state, naive sum)."""
         run = self.run
-        run.stats["assistant_lines"] += 1
+        self.assistant_lines += 1
         msg = obj.get("message")
         if not isinstance(msg, dict):
             run.quarantine(offset, "missing:message", self.path)
@@ -1142,7 +1154,8 @@ class _FileParser:
         ts = parse_ts_ms(obj.get("timestamp"))
         ref = self.lane_for(obj)
         st = self.lane_state(ref)
-        self.session_meta(ref, ts)
+        if not self.meta_emitted:
+            self.session_meta(ref, ts)
         quota = obj.get("quotaLimits")
         if isinstance(quota, dict):
             self.quota(ref, quota, ts)
@@ -1282,6 +1295,8 @@ class _FileParser:
 
     # ---------- conversation entries ----------
     def user(self, obj: dict[str, Any], offset: int) -> None:
+        """A user entry: closes open groups (MSO check against its tool_result ids), sets the
+        trigger, queues appended sizes, emits HUMAN_PROMPT per the detection rule (step 8)."""
         run = self.run
         ts = parse_ts_ms(obj.get("timestamp"))
         ref = self.lane_for(obj)
@@ -1360,6 +1375,7 @@ class _FileParser:
         return n, images
 
     def attachment(self, obj: dict[str, Any], offset: int) -> None:
+        """CONTEXT_INJECTION with the attachment type and the byte length of its JSON values."""
         run = self.run
         ts = parse_ts_ms(obj.get("timestamp"))
         ref = self.lane_for(obj)
@@ -1388,6 +1404,7 @@ class _FileParser:
         st.pending.append(AppendedItem(kind="attachment", name=att_type, n_bytes=n_bytes))
 
     def system(self, obj: dict[str, Any], offset: int) -> None:
+        """compact_boundary, model_refusal_fallback and api_error entries (step 8)."""
         ts = parse_ts_ms(obj.get("timestamp"))
         ref = self.lane_for(obj)
         self.session_meta(ref, ts)
@@ -1411,6 +1428,7 @@ class _FileParser:
             self.event(ref, ts, LaneEventKind.API_ERROR, attrs)
 
     def compaction(self, obj: Mapping[str, Any], ref: _LaneRef, ts: int, offset: int) -> None:
+        """COMPACTION event plus the ESTIMATED compaction inference on ``<lane>#compaction``."""
         run = self.run
         meta = obj.get("compactMetadata")
         meta = meta if isinstance(meta, dict) else {}
@@ -1535,6 +1553,8 @@ class _FileParser:
 
     # ---------- closing and finalizing groups ----------
     def close_groups(self, answered: set[str] | frozenset[str], *, is_user: bool) -> None:
+        """Finalize every open group (a non-assistant entry closes them); MESSAGE_START_ONLY
+        when a user entry answers the group's tool_use and the group qualifies (step 6)."""
         if not self.open:
             return
         groups = list(self.open.values())
@@ -1547,6 +1567,8 @@ class _FileParser:
             self.finalize(g, mso)
 
     def finish(self) -> None:
+        """End of input: finalize open groups, or (collector) keep groups without a stop reason
+        open and record the earliest one's offset."""
         if not self.open:
             return
         groups = sorted(self.open.values(), key=lambda g: g.offset)
@@ -1565,6 +1587,7 @@ class _FileParser:
                 self.finalize(g, False)
 
     def finalize(self, g: _Group, mso: bool) -> None:
+        """Build the request of a closed group; a failure quarantines the group."""
         try:
             self._finalize(g, mso)
         except (ContractViolation, BadUsageError, TypeError, ValueError, KeyError,
@@ -1792,16 +1815,6 @@ def _has_lone_surrogate(value: Any) -> bool:
     if isinstance(value, list):
         return any(_has_lone_surrogate(v) for v in value)
     return False
-
-
-def _uuid_key(u: str) -> int | str:
-    """A canonical UUID as a 128-bit int (half the memory of the string), else the string."""
-    if len(u) == 36 and u[8] == "-" and u[13] == "-" and u[18] == "-" and u[23] == "-":
-        try:
-            return int(u.replace("-", ""), 16)
-        except ValueError:
-            return u
-    return u
 
 
 def usage_counts(u: Mapping[str, Any]) -> tuple[int, int, int, int, int, int, int, int] | None:
@@ -2210,5 +2223,5 @@ def parse_file(opts: IngestOptions, path: Path, *, source_id: str, start_offset:
     parser = _FileParser(run, path, start_offset=start_offset, context=context,
                          recent_uuids=recent_uuids, last_trigger=last_trigger,
                          size_limit=size_limit, stop_at=stop_at, finalize_open=finalize_open,
-                         process_unterminated=process_unterminated)
+                         process_unterminated=process_unterminated, hash_lines=True)
     return parser.parse()

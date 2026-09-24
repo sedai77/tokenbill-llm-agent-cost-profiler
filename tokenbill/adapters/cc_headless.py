@@ -384,6 +384,7 @@ class _Reader:
             self.run.dq["dq.unknown_entry_type"] += 1
 
     def assistant(self, index: int, locator: str, sid: str, msg: dict[str, Any]) -> None:
+        """Group assistant messages by ``message.id`` (max output wins; rule 1)."""
         run = self.run
         run.stats["assistant_lines"] += 1
         inner = msg.get("message")
@@ -501,6 +502,8 @@ class _Reader:
                 self._quarantine(locator, "bad_type:result")
 
     def build_result(self, sid: str, index: int, locator: str, msg: dict[str, Any]) -> None:
+        """The session's last ``result``: COST_STATE, the per-model output residual, or the
+        headless-result aggregates when the file has no steps (rules 3-5)."""
         run = self.run
         ts = self.ts(index, msg)
         steps = [s for s in self.steps.values() if s.sid == sid and s.best is not None]

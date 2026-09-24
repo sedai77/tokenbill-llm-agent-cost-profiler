@@ -288,6 +288,12 @@ def test_parse_ts_ms_rejects_garbage() -> None:
     assert cc.parse_ts_ms("2026-09-22 09:00:00") == 1_790_067_600_000
 
 
+iteration_objects = st.dictionaries(
+    st.sampled_from(["type", "model", "input_tokens", "output_tokens", "cache_creation", "x"]),
+    st.one_of(st.integers(-3, 10**9), st.sampled_from(["message", "claude-opus-5-5", "a b"]),
+    st.none(), st.floats(allow_nan=False, allow_infinity=False),
+    st.dictionaries(st.sampled_from(["ephemeral_5m_input_tokens", "y"]),
+                    st.integers(-3, 10**6) | st.text(max_size=5), max_size=2)), max_size=5)
 clean_usage = st.dictionaries(
     st.sampled_from(sorted(cc._USAGE_KEYS)),
     st.one_of(st.integers(0, 10**9), st.none(), st.booleans(), st.sampled_from(["standard", "us"]),
@@ -297,11 +303,35 @@ clean_usage = st.dictionaries(
 
 
 @settings(max_examples=300, deadline=None)
-@given(u=st.one_of(clean_usage, st.dictionaries(st.text(max_size=8), json_values, max_size=5)))
+@given(u=st.one_of(
+    clean_usage, st.dictionaries(st.text(max_size=8), json_values, max_size=5),
+    st.builds(lambda base, its: {**base, "iterations": its}, clean_usage,
+              st.lists(iteration_objects | json_values, max_size=3))))
 def test_safe_usage_json_fast_path_equals_the_slow_path(u: dict) -> None:
     fast = cc.safe_usage_json(u)
     slow = cc._safe_usage_json_slow(u)
     assert fast == slow
     if fast is not None:
-        for s in [v for v in json.loads(fast).values() if isinstance(v, str)]:
-            assert len(s.encode()) <= 64
+        _check_raw_usage(json.loads(fast), top=True)
+
+
+def _check_raw_usage(value: Any, *, top: bool = False, iteration: bool = False) -> None:
+    """trace@2 raw_usage rules (§4.2): integers in [0, 2**53], no floats, strings only under the
+    allowlisted enum keys."""
+    for k, v in value.items():
+        if isinstance(v, str):
+            allowed = (top and k in ("service_tier", "speed", "inference_geo")) or (
+                iteration and k in ("type", "model"))
+            assert allowed and len(v) <= 64, k
+        elif isinstance(v, dict):
+            _check_raw_usage(v)
+        elif isinstance(v, list):
+            for x in v:
+                if isinstance(x, dict):
+                    _check_raw_usage(x, iteration=top and k == "iterations")
+                else:
+                    assert x is None or isinstance(x, bool) or (
+                        isinstance(x, int) and 0 <= x <= 2**53)
+        else:
+            assert not isinstance(v, float)
+            assert v is None or isinstance(v, bool) or 0 <= v <= 2**53
