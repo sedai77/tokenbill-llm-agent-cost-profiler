@@ -96,6 +96,7 @@ def test_p13_plan_status_unknown_and_suppressions() -> None:
     assert evidence(ps, "seats:unknown") == {"n": 100}
     assert "seats API plan_type" in ps.summary and "answers.json" in ps.summary
     assert ps.fix is not None and "--plan" in ps.fix.text
+    assert evidence(ps, "action") == {"id": "admin:plan_confirm", "where": "enterprise settings"}
     assert (ps.category, ps.confidence, ps.recoverable) == ("aggregate", "low", None)
     assert of_kind(found, "plan-mix") == []
     # no finding without a plan_scenario dim carries a pool figure

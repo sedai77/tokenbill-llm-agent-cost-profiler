@@ -951,6 +951,9 @@ def _plan_status(run: _Run) -> list[Finding]:
                     f"Seat fees {_money(fees.nano)} per month ({fees.evidence.value} "
                     f"{fees.basis.value}).")
         tail = _HOW_TO if unknown or pe.conflict else "No plan recommendation is made."
+        if unknown or pe.conflict:
+            action = catalog.ADMIN_ACTIONS["admin:plan_confirm"]
+            evidence.append(_ev("action", id=action.action_id, where=action.where))
         confidence = ("high" if pe.source in ("seat_lines", "seats_api") and not pe.conflict
                       else "low" if unknown else "medium")
         out.append(_finding(
