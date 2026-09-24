@@ -86,7 +86,10 @@ def test_half_then_rest_equals_one_shot_including_a_reappearing_id(tmp_path: Pat
     _write(path, data, NOW + 1_000)
     second = _collect(tmp_path, state, NOW + 1_000)
     assert by_message(second[0])["msg_r1"].attempts[0].inferences[0].usage.output == 470
-    assert store_dump(_store(first + second)) == store_dump(_one_shot(path))
+    assert "msg_r4" not in by_message(second[0])      # trailing: withheld until closed/quiescent
+    third = _collect(tmp_path, state, NOW + 1_000 + QUIESCENT_MS)
+    assert set(by_message(third[0])) == {"msg_r4"}
+    assert store_dump(_store(first + second + third)) == store_dump(_one_shot(path))
 
 
 @settings(max_examples=40, deadline=None,
@@ -130,6 +133,7 @@ def test_in_flight_last_group_is_reread_next_time(tmp_path: Path) -> None:
     t.assistant_line("msg_b", OPUS, bf.usage(5, 1_000, 200, 0, 500), {"type": "text",
                                                                        "text": "y"},
                      stop="end_turn")
+    t.human("thanks")                                                  # closes msg_b
     _write(path, t.text().encode(), NOW + 1_000)
     [r2] = _collect(tmp_path, state, NOW + 1_000)
     assert by_message(r2)["msg_b"].attempts[0].inferences[0].usage.output == 500
@@ -162,10 +166,10 @@ def test_unterminated_last_line_waits_for_its_newline(tmp_path: Path) -> None:
     state = CollectorState()
     _write(path, data[:-10], NOW)                                  # last line cut mid-write
     [r1] = _collect(tmp_path, state, NOW)
-    assert r1.quarantined == []
+    assert r1.quarantined == [] and r1.requests == []              # msg_u not closed yet
     _write(path, data, NOW + 1_000)
     [r2] = _collect(tmp_path, state, NOW + 1_000)
-    assert r2.quarantined == [] and r2.requests == []
+    assert r2.quarantined == [] and set(by_message(r2)) == {"msg_u"}
     assert len([e for e in r1.events + r2.events if e.kind.value == "human_prompt"]) == 2
 
 
@@ -174,12 +178,12 @@ def test_head_hash_change_triggers_a_full_reread(tmp_path: Path) -> None:
     path = _file(tmp_path)
     state = CollectorState()
     _write(path, data, NOW)
-    [r1] = _collect(tmp_path, state, NOW)
+    [r1] = _collect(tmp_path, state, NOW + QUIESCENT_MS)
     assert len(r1.requests) == 8
     other = bf.beta_subscription().text().encode()
     _write(path, other + b"\n" * (len(data) - len(other)) if len(other) < len(data) else other,
            NOW + 1_000)
-    [r2] = _collect(tmp_path, state, NOW + 1_000)
+    [r2] = _collect(tmp_path, state, NOW + 1_000 + QUIESCENT_MS)
     assert set(by_message(r2)) == {"msg_31BetaAllowance31", "msg_32BetaOverage032",
                                    "msg_33BetaOverage033"}
 
@@ -205,12 +209,13 @@ def test_small_files_growing_are_not_mistaken_for_rotation(tmp_path: Path) -> No
     state = CollectorState()
     _write(path, t.text().encode(), NOW)
     [r1] = _collect(tmp_path, state, NOW)
-    assert len(t.text().encode()) < 4096
+    assert len(t.text().encode()) < 4096 and r1.requests == []     # msg_s1 withheld (trailing)
     t.human("again")
     t.call("msg_s2", OPUS, inp=5, outputs=(9,), stop="end_turn")
     _write(path, t.text().encode(), NOW + 1_000)
     [r2] = _collect(tmp_path, state, NOW + 1_000)
-    assert set(by_message(r2)) == {"msg_s2"}                       # resumed, not re-read
+    assert set(by_message(r2)) == {"msg_s1"}                       # resumed, not re-read
+    assert len([e for e in r2.events if e.kind.value == "human_prompt"]) == 1
 
 
 def test_duplicate_uuids_across_runs_use_the_recent_set(tmp_path: Path) -> None:
@@ -219,9 +224,11 @@ def test_duplicate_uuids_across_runs_use_the_recent_set(tmp_path: Path) -> None:
     t.call("msg_d1", OPUS, inp=5, outputs=(9,), stop="end_turn")
     path = _file(tmp_path)
     state = CollectorState()
+    t.human("next")
     _write(path, t.text().encode(), NOW)
     _collect(tmp_path, state, NOW)
     t.duplicate_last()
+    t.human("again")
     _write(path, t.text().encode(), NOW + 1_000)
     [r2] = _collect(tmp_path, state, NOW + 1_000)
     assert note(r2, "dq.duplicate_uuid_lines").count == 1
@@ -245,7 +252,7 @@ def test_state_round_trips_through_a_private_file(tmp_path: Path) -> None:
     loaded = CollectorState.load(state_file)
     assert loaded == state
     _write(path, data, NOW + 1_000)
-    second = _collect(tmp_path, loaded, NOW + 1_000)
+    second = _collect(tmp_path, loaded, NOW + 1_000 + QUIESCENT_MS)
     assert store_dump(_store(first + second)) == store_dump(_one_shot(path))
 
 
@@ -306,3 +313,89 @@ def test_collector_results_match_the_adapter_records(tmp_path: Path) -> None:
         one = CC.read(path, opts())
         assert [to_json(q) for q in r.requests] == [to_json(q) for q in one.requests]
         assert [to_json(e) for e in r.events] == [to_json(e) for e in one.events]
+
+
+_STEPS = st.lists(st.sampled_from(
+    ["human", "call", "call_nostop", "tool_result", "attachment", "api_error", "compact",
+     "quota_over", "quota_ok", "version", "reappear", "fallback", "meta", "dup", "sidechain",
+     "cost", "snapshot", "big_call"]), min_size=3, max_size=30)
+
+
+def _random_session(steps: list[str]) -> bytes:
+    """A random but schema-true session built from *steps*."""
+    t = bf.Tx("55555555-0000-4000-8000-000000000005")
+    n = 0
+    last_call: str | None = None
+    version = 270
+    quota: dict | None = None
+    for step in steps:
+        n += 1
+        extra = {"quotaLimits": quota} if quota else {}
+        if step == "human":
+            t.human(f"prompt {n}", origin=n % 2 == 0)
+        elif step in ("call", "call_nostop"):
+            last_call = f"msg_rnd{n:03d}"
+            outs = (3, 40 + n) if step == "call" else (3,)
+            t.call(last_call, OPUS, inp=n, read=100 * n, w5=10 * n, outputs=outs,
+                   stop="tool_use" if step == "call" else None, line_extra=extra)
+        elif step == "tool_result" and last_call:
+            t.tool_result("toolu_" + last_call[4:], f"result {n}")
+        elif step == "attachment":
+            t.attachment("todo", [n])
+        elif step == "api_error":
+            t.system("api_error", error={"status": 529})
+        elif step == "compact":
+            t.system("compact_boundary", compactMetadata={"trigger": "auto", "preTokens": n * 7,
+                                                          "postTokens": n})
+        elif step == "quota_over":
+            quota = {"status": "allowed_warning", "isUsingOverage": True}
+        elif step == "quota_ok":
+            quota = {"status": "allowed", "isUsingOverage": False}
+        elif step == "version":
+            version += 1
+            t.version = f"2.1.{version}"
+        elif step == "reappear" and last_call:
+            t.assistant_line(last_call, OPUS, bf.usage(1, 0, 0, 0, 900 + n), None,
+                             stop="end_turn")
+        elif step == "fallback":
+            t.system("model_refusal_fallback", originalModel="claude-fable-5",
+                     fallbackModel=OPUS)
+        elif step == "meta":
+            t.meta_user(f"meta {n}")
+        elif step == "dup" and t.lines:
+            t.duplicate_last()
+        elif step == "sidechain":
+            t.agent_id = None if t.agent_id else f"side{n}"
+        elif step == "cost":
+            t.add(t.base("cost-state", 10, totalCostUSD=n))
+        elif step == "snapshot":
+            t.add({"type": "file-history-snapshot", "messageId": "x", "snapshot": {}})
+        elif step == "big_call":
+            last_call = f"msg_rnd{n:03d}"
+            t.call(last_call, OPUS, inp=n, w1=5 * n, outputs=(3, 90 + n, 400 + n),
+                   stop="tool_use", line_extra=extra)
+    return t.text().encode()
+
+
+@settings(max_examples=60, deadline=None,
+          suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
+@given(steps=_STEPS, cuts=st.lists(st.floats(0.0, 1.0), min_size=1, max_size=4))
+def test_random_sessions_collected_in_pieces_equal_one_shot(
+        tmp_path_factory: pytest.TempPathFactory, steps: list[str], cuts: list[float]) -> None:
+    tmp = tmp_path_factory.mktemp("rnd")
+    data = _random_session(steps)
+    points = sorted({int(c * len(data)) for c in cuts} - {0}) + [len(data)]
+    path = _file(tmp)
+    sub = opts(billing_path="subscription")
+    state = CollectorState()
+    results: list = []
+    clock = NOW
+    for p in points:
+        clock += 1_000
+        _write(path, data[:p], clock)
+        results += list(collect_incremental(tmp, state, sub, now_ms=clock))
+    results += list(collect_incremental(tmp, state, sub, now_ms=clock + QUIESCENT_MS))
+    one = CC.read(path, sub)
+    assert store_dump(_store(results)) == store_dump(_store([one]))
+    assert len(one.requests) == len({r for res in results for r in
+                                     (q.request_id for q in res.requests)})

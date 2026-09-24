@@ -81,6 +81,8 @@ from tokenbill.core.records import (
     SourceRef,
     UsageBuckets,
     UsageSource,
+    from_json,
+    to_json,
 )
 from tokenbill.core.secrets import find_secrets
 from tokenbill.core.types import (
@@ -822,6 +824,16 @@ class _LaneState:
         return st
 
 
+def _record_from(cls: type, d: object) -> Any:
+    """A record from its ``to_json`` form (collector context), None when absent or invalid."""
+    if not isinstance(d, dict):
+        return None
+    try:
+        return from_json(cls, d)
+    except (ContractViolation, TypeError, ValueError):
+        return None
+
+
 def _appended_from(items: object) -> list[AppendedItem]:
     out: list[AppendedItem] = []
     if not isinstance(items, list):
@@ -841,7 +853,8 @@ class _Group:
 
     __slots__ = ("appended", "best", "content_bytes", "error_status", "first_ts", "is_error",
                  "lane", "last_ts", "mid", "mismatch", "n_lines", "offset", "out", "overage",
-                 "reopened", "rq", "sig", "stop", "tool_ids", "ts_start", "best_counts")
+                 "reopened", "rq", "sig", "stop", "tool_ids", "ts_start", "best_counts",
+                 "attr", "params")
 
     def __init__(self, mid: str, lane: _LaneRef, offset: int, ts: int | None,
                  appended: tuple[AppendedItem, ...], ts_start: int | None) -> None:
@@ -866,6 +879,8 @@ class _Group:
         self.reopened = False
         self.rq: str | None = None
         self.best_counts: tuple[int, ...] | None = None
+        self.attr: Attribution | None = None      # kept from the first finalization (re-open)
+        self.params: RequestParams | None = None
 
 
 @dataclass(frozen=True)
@@ -945,7 +960,9 @@ class _FileParser:
                                     _int(meta.get("last_ts")), _int(meta.get("ts_start")),
                                     out if type(out) is int and out >= -1 else -1,
                                     token(meta.get("stop"), 32),
-                                    tuple(_appended_from(meta.get("appended"))))
+                                    tuple(_appended_from(meta.get("appended"))),
+                                    _record_from(Attribution, meta.get("attr")),
+                                    _record_from(RequestParams, meta.get("params")))
         self.meta_emitted = bool(ctx.get("meta_emitted")) or self.layout.kind is LaneKind.MAIN
         self._lane_cache: dict[tuple[str, str, LaneKind], _LaneRef] = {}
         self._lane_fast: dict[tuple, _LaneRef] = {}
@@ -1233,8 +1250,10 @@ class _FileParser:
                 group.rq = rq
 
     def _reopen(self, mid: str, ref: _LaneRef, meta: tuple) -> _Group:
-        offset, first_ts, last_ts, ts_start, out, stop, appended = meta
+        offset, first_ts, last_ts, ts_start, out, stop, appended, attr, params = meta
         g = _Group(mid, ref, offset, first_ts, appended, ts_start)
+        g.attr = attr
+        g.params = params
         g.last_ts = last_ts
         g.out = out
         g.stop = stop
@@ -1568,24 +1587,20 @@ class _FileParser:
             self.finalize(g, mso)
 
     def finish(self) -> None:
-        """End of input: finalize open groups, or (collector) keep groups without a stop reason
-        open and record the earliest one's offset."""
+        """End of input: finalize the open groups (one-shot / quiescent file), or (collector)
+        leave them unemitted and record the earliest one's offset. A trailing group whose last
+        line carries a stop reason is withheld too: a one-shot import finalizes it only at the
+        next non-assistant entry, and emitting it early could split its side effects (upgrade,
+        lane state) across runs. The offset still never passes an unclosed group (§5.3)."""
         if not self.open:
             return
         groups = sorted(self.open.values(), key=lambda g: g.offset)
+        self.open = {}
         if self.finalize_open:
-            self.open = {}
             for g in groups:
                 self.finalize(g, False)
             return
-        keep = [g for g in groups if g.stop is None]
-        if keep:
-            self.earliest_open = keep[0].offset
-        self.open = {}
-        for g in groups:
-            if g.stop is not None and (self.earliest_open is None
-                                       or g.offset < self.earliest_open):
-                self.finalize(g, False)
+        self.earliest_open = groups[0].offset
 
     def finalize(self, g: _Group, mso: bool) -> None:
         """Build the request of a closed group; a failure quarantines the group."""
@@ -1599,8 +1614,8 @@ class _FileParser:
     def _finalize(self, g: _Group, mso: bool) -> None:
         run = self.run
         obj = g.best
-        self.remember_closed(g)
         if obj is None:  # a re-opened group whose new lines did not raise the output
+            self.remember_closed(g)
             return
         if g.ts_start is None:
             run.quarantine(g.offset, "missing:timestamp", self.path)
@@ -1672,7 +1687,9 @@ class _FileParser:
         entry = obj.get("entrypoint")
         cacheable = all(x is None or type(x) is str for x in (skill, mcp, plugin, entry, cwd))
         key = (agent_type, ref.kind, skill, mcp, plugin, entry, version, billing, cwd)
-        attr = run.attr_by_key.get(key) if cacheable else None
+        attr = g.attr
+        if attr is None and cacheable:
+            attr = run.attr_by_key.get(key)
         if attr is None:
             attr = run.attribution(
                 agent_type=agent_type, query_source=_QUERY_SOURCE.get(ref.kind),
@@ -1682,7 +1699,10 @@ class _FileParser:
                 cwd_key=names.hashed(cwd) if isinstance(cwd, str) and cwd else None)
             if cacheable and len(run.attr_by_key) < 4096:
                 run.attr_by_key[key] = attr
-        params = run.params(model_raw, per_turn or effort, effort, advisor)
+        # a re-opened message keeps the attribution and parameters of its first emission, so
+        # re-emitting it (possibly in a later collector run) never changes merged attributes
+        params = g.params or run.params(model_raw, per_turn or effort, effort, advisor)
+        self.remember_closed(g, attr, params)
         req = Request(request_id=request_id, session_key=ref.session_key, lane_key=ref.lane_key,
                       seq=g.offset, attribution=attr, params=params, attempts=(attempt,),
                       appended=g.appended, source=self.source_ref(g.offset))
@@ -1740,9 +1760,14 @@ class _FileParser:
         run.dq_tokens["dq.message_start_only"] += upper - logged
         return infs
 
-    def remember_closed(self, g: _Group) -> None:
+    def remember_closed(self, g: _Group, attr: Attribution | None = None,
+                        params: RequestParams | None = None) -> None:
+        """Remember a finalized group (bounded) so a later line of its id re-opens it with the
+        same start, appended items, attribution and parameters."""
         closed = self.closed
-        closed[g.mid] = (g.offset, g.first_ts, g.last_ts, g.ts_start, g.out, g.stop, g.appended)
+        closed[g.mid] = (g.offset, g.first_ts, g.last_ts, g.ts_start, g.out, g.stop, g.appended,
+                         attr if attr is not None else g.attr,
+                         params if params is not None else g.params)
         closed.move_to_end(g.mid)
         if len(closed) > CLOSED_WINDOW:
             closed.popitem(last=False)
@@ -1760,7 +1785,9 @@ class _FileParser:
             "closed": [[k, {"offset": m[0], "first_ts": m[1], "last_ts": m[2], "ts_start": m[3],
                             "out": m[4], "stop": m[5],
                             "appended": [[a.kind, a.name, a.n_bytes, a.is_error, a.images]
-                                         for a in m[6]]}]
+                                         for a in m[6]],
+                            "attr": to_json(m[7]) if m[7] is not None else None,
+                            "params": to_json(m[8]) if m[8] is not None else None}]
                        for k, m in self.closed.items()],
             "meta_emitted": self.meta_emitted,
         }

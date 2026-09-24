@@ -83,12 +83,18 @@ the directory; the headless files are rejected by the transcript sniffer).
 * **Duplicate lines** are detected over a sliding window of the last 2,000 uuids — the collector
   cursor's bound — so one-shot and incremental reads drop the same lines.
 * **Re-appearing message ids.** A line for an already-closed message id re-opens it: the request is
-  re-emitted (same id, timing and appended items) only when the output strictly grows.
-* **Collector in-flight groups are withheld**, not emitted early: the store's tie rule would keep an
-  in-flight row whose output equals the final one. A file untouched for `QUIESCENT_MS` (10 min) is
-  final and emitted as is. `CollectorState` also stores each file's content-free parser context at
-  the cursor (triggers, pending appended sizes, recent tool names, quota state, last version) so a
-  resumed read derives every record exactly like a one-shot import (property-tested).
+  re-emitted (same id, start, appended items, attribution and parameters as its first emission)
+  only when the output strictly grows, so the store's per-field attribution merge never mixes two
+  versions.
+* **Collector: trailing groups are withheld**, not emitted early — the ones still streaming and
+  also a last group that already carries a stop reason (a one-shot import finalizes it only at the
+  next non-assistant entry). Emitting either early could make the merged ledger differ from a
+  one-shot import (the store's tie rule; side effects such as UPGRADE split across runs). The
+  offset therefore never passes an unclosed group, as §5.3 requires; a file untouched for
+  `QUIESCENT_MS` (10 min) is final and emitted as is. `CollectorState` also stores each file's
+  content-free parser context at the cursor (triggers, pending appended sizes, recent tool names,
+  quota state, last version, recently closed messages) so a resumed read derives every record
+  exactly like a one-shot import — property-tested over random sessions cut at random points.
 * **requestId** is kept as `provider_request_id` on every request; a collision within a read adds
   `dq.request_id_collision`, and the store (§7.3) never joins on a colliding id. Nulling it in the
   adapter would make incremental and one-shot records differ.
