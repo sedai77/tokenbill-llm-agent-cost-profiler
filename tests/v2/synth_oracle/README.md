@@ -4,7 +4,7 @@ Reference replay oracle, synthetic lanes, closed forms, rollout panels and A/B c
 SPEC §9.2–§9.4, §9.8, Appendix A, §13). Owned modules: `tokenbill/synth/oracle.py`,
 `tokenbill/synth/lanes_gen.py`. The oracle was written from the SPEC alone (REPLAY's code was not
 read); its readings of open SPEC points are listed in `CONTRACT-CHANGE-SYNTH-ORACLE-1.md` (O-1 …
-O-17) for the arbiter of the differential gate.
+O-21) for the arbiter of the differential gate.
 
 Run: `uv run --python 3.12 --extra dev pytest -q tests/v2/synth_oracle` (also on 3.10).
 Coverage: `uv run --python 3.12 --extra dev coverage run -m pytest tests/v2/synth_oracle && uv run
@@ -21,10 +21,17 @@ Coverage: `uv run --python 3.12 --extra dev coverage run -m pytest tests/v2/synt
 | `test_lanes_gen.py` | `random_lanes` deterministic per seed for every family, fully priced, one billing class per family, well-formed for `classify_transitions`; together the families hold every inference kind (except counterfactual KEEPALIVE), every usage source (except PROVIDER_ROLLUP), billable True / False / None, events, multi-attempt and > 3-attempt requests, effort, subscription, unknown-TTL writes with and without hint, web search, reasoning, placeholder upper bounds, fast, US geo, Bedrock, OpenAI, 1h writes; ambiguous gaps; the repairs family's no-cache lanes, fan-out groups and CI runs each move their repair; `family_policies`; every closed form valid and deterministic |
 | `test_rollout_ab.py` | stepped-wedge panel: deterministic per seed, 4 holdback clusters, 4 waves of 4 starting at weeks 2/4/6/8, monotone treatment, true ATT ≈ −25% of the untreated level and a holdback DiD near 0.75; `org_wide`: one `org` series with a level shift at the middle day; `price_change` only moves `cost_actual_nano`; named clusters, count holdback, no holdback, errors. A/B campaign: RTK-like shape (tokens −38%, turns +14%, cost +7%) campaign-wide **and in every task**, outcomes with randomized arm order, tags, determinism, errors |
 | `test_differential_replay.py` | **gate** (`@pytest.mark.gate`, `slow`, `importorskip("tokenbill.sim.usage_replay")`): `UsageReplayer` == `ReferenceReplay` on 500 lanes per family under each family policy; harness self-tests (the oracle agrees with itself; every kind of planted difference is reported; inserted calls compare by billed tokens, not object count) |
-| `test_properties.py` | hypothesis: identity on random lanes of every family, `low ≤ point ≤ high`, crosswise saving, Σ outcomes = Σ per-lane = cost, determinism, shard additivity through `core.shards.merge_replay`, `round_half_even` against Decimal, the ping formula, panel shapes; **fuzz** of the generators' free-form inputs (effects, holdback, base level, noise, family and closed-form names: only `TokenbillError` subclasses escape; huge or tiny decimals are refused before any arithmetic) |
+| `test_properties.py` | hypothesis: identity on random lanes of every family, `low ≤ point ≤ high`, the saving per request then summed (unchanged requests save exactly 0, changed ones crosswise), Σ outcomes = Σ per-lane = cost, determinism, shard additivity through `core.shards.merge_replay`, `round_half_even` against Decimal, the ping formula, panel shapes; **fuzz** of the generators' free-form inputs (effects, holdback, base level, noise, family and closed-form names: only `TokenbillError` subclasses escape; huge or tiny decimals are refused before any arithmetic) |
 | `test_no_float_canary.py` | AST lint: no float in the oracle, none in the generators' money functions, no `float(` anywhere; the canary planted in every free-text attribution field never reaches a replay result; generated data is content-free; no network |
 
 Runtime: the area runs in ≈ 5 s; the gate adds ≈ 20 s of oracle work plus the fast engine's.
+
+Review cross-checks (2026-09-23, scratch overlays per SPEC §21 #4, never committed; REPLAY's source
+not read): the gate passes against `pkg/REPLAY` at `4a4da46` for every family (and on stress seeds
+1–16); SYNTH-FLEET's independent plant closed forms (`pkg/SYNTH-FLEET`
+`test_gate_truth_vs_oracle.py`) agree with the oracle on all 12 replay-based plants. Remaining
+REPLAY differences on joint policies over unpriced inputs are O-20 / O-21 in the contract-change
+note.
 
 ## Lane families (`lanes_gen.FAMILIES`) and their policies (`family_policies`)
 
@@ -53,6 +60,6 @@ the 10 s fan-out window and the 0.8 / 0.5 repair thresholds (§9.3.6).
 
 ### Unverified
 
-Nothing new. The oracle inherits the SPEC's own open items (listed as O-1 … O-17 in
+Nothing new. The oracle inherits the SPEC's own open items (listed as O-1 … O-21 in
 `CONTRACT-CHANGE-SYNTH-ORACLE-1.md`); the "Managed Agents entrypoint" value is not named anywhere,
 so the batch predicate treats any `entrypoint` containing `managed` as Managed Agents.

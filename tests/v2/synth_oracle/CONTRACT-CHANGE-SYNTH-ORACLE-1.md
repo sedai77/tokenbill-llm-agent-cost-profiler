@@ -51,6 +51,9 @@ recorded in `tests/v2/kit/RULINGS.md`). A ruling that differs is a small, local 
   attached to request `i`'s outcome (`extra` and cost). Only TTL-expiry misses flip (to 5m writes);
   other requests keep their split and buckets (a 1h keepalive lane is not re-rated). A TTL clause
   that matches a keepalive lane is ignored (skip reason) because keepalive keeps the 5m TTL.
+  Keepalive is Anthropic's mechanism (5m TTL from the request start, `max_tokens: 0` pings): lanes
+  on other providers are skipped with a reason, like TTL policies (§9.3.1). (Fixed in review: the
+  oracle used to ping OpenAI lanes, which only added cost.)
 
 ## Context transforms
 
@@ -105,3 +108,38 @@ recorded in `tests/v2/kit/RULINGS.md`). A ruling that differs is a small, local 
   (`int` field); the observed policy returns an exact zero saving; with several matching TTL
   clauses the first in `Policy.ttl` order wins. `assumptions` and `lanes_skipped` reasons are free
   text (the gate compares neither).
+- **O-18 Saving per request, then summed** (§3.5 `saving`, §9.1 #1 "model error on unaffected
+  traffic cannot leak into them"). An unchanged request contributes exactly 0 to the saving
+  (point and bounds); a changed request contributes `observed − policy` with its ranges crosswise
+  (`low = observed low − policy high`). The saving range is therefore never wider than the
+  aggregate crosswise range `baseline − cost`, and ranges of unaffected traffic (placeholder
+  output, unknown-TTL writes, unknown endpoint scope) do not enter it. `cost` stays the sum of the
+  per-request bounds. (Fixed in review; before, the oracle subtracted the aggregate ranges.)
+- **O-19 `changed`.** `False` iff the serving usage and pricing context are unchanged, no call is
+  inserted, batch does not apply, every kept passthrough inference is unchanged, no dropped
+  attempt (`retry_backoff_cap`) carried a billable inference, and the priced `(point, low, high)`
+  equals the ledger's. A context-only transform (e.g. `regional=global` turning `endpoint_scope`
+  `unknown` into `global` on a first-party request) counts as a change even when the price is
+  identical, which matters for O-18 only when that request carries a range.
+
+- **O-20 Unpriced savings.** An unchanged request saves exactly 0 even when it is unpriced (same
+  usage and context ⇒ same price), so the observed policy always returns an EXACT zero saving and a
+  policy that leaves the unpriced traffic alone returns a priced saving. When the policy *changes*
+  an unpriced request (e.g. `ttl=1h` re-rates a lane on an unknown model, or `model=` remaps a
+  Bedrock lane to a model with no Bedrock row), the oracle's saving is unpriced (R2: unknown is not
+  zero; `labels.sub`). **REPLAY at `4a4da46` differs:** it reports the saving of the requests
+  priced on both sides and names the exclusion in the note. Needs a ruling; it only shows on
+  unpriced inputs (the gate families are fully priced).
+- **O-21 Batch on Bedrock with an unpriced target.** The oracle applies §9.3.5's Bedrock rule by
+  channel (`bedrock` ⇒ all input uncached) whatever the model. REPLAY at `4a4da46` applies the
+  hit band when the remapped target has no Bedrock row (the cost is unpriced either way; only the
+  serving usage differs).
+
+## Black-box status (review, 2026-09-23)
+
+The gate was run locally (SPEC §21 #4: a scratch overlay, never committed; REPLAY's source was not
+read) against `pkg/REPLAY` at `4a4da46`: with O-18 and O-19 all 12 families pass at the gate seed
+(500 lanes each), and the stress seeds 1–16 (300 lanes per family) report no differing request.
+Before the fix every family failed on the saving range only (every request outcome, baseline and
+cost already agreed). A joint-policy fuzz (1,350 random combinations of 2–4 clauses over every
+family, 40 lanes each) agrees except for O-20 and O-21.

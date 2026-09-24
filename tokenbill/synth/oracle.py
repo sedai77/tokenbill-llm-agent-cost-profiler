@@ -21,7 +21,7 @@ alive, low tokenizer band, effort scale ``s − 0.25``, batch hit band 0.98) and
 point scenario's point; its bounds span every scenario's priced bounds, so ``low ≤ point ≤ high``
 always holds. The saving is computed per request, then summed: an unchanged request saves
 exactly 0, a changed one ``observed − policy`` with its ranges crosswise (§3.5, §9.1 #1). The
-readings of SPEC text that the SPEC leaves open are listed (O-1 … O-19) in
+readings of SPEC text that the SPEC leaves open are listed (O-1 … O-21) in
 ``tests/v2/synth_oracle/CONTRACT-CHANGE-SYNTH-ORACLE-1.md``.
 """
 
