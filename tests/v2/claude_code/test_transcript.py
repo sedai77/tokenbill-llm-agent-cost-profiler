@@ -238,8 +238,9 @@ def test_message_start_only_placeholder(tmp_path: Path) -> None:
     [inf] = req.attempts[0].inferences
     assert inf.usage_source is UsageSource.MESSAGE_START_ONLY
     assert inf.usage.output == 3
-    # upper = max(logged, median of complete tool_use calls (400), ceil(bytes / 2.5))
-    assert inf.output_upper >= 400 and inf.output_upper >= 3
+    # upper = max(logged 3, median of complete tool_use calls 400, ceil(bytes / 2.5)): the tool
+    # input {"command": "x" * 1000} is 1,014 JSON bytes -> ceil(405.6) = 406 tokens
+    assert inf.output_upper == 406
     n = note(r, "dq.message_start_only")
     assert n.count == 1 and n.tokens == inf.output_upper - 3
     assert n.figure is None
@@ -258,7 +259,22 @@ def test_message_start_only_upper_uses_content_bytes_when_larger(tmp_path: Path)
     r = read(tmp_path, t)
     inf = r.requests[0].attempts[0].inferences[0]
     assert inf.usage_source is UsageSource.MESSAGE_START_ONLY
-    assert inf.output_upper >= 5_000 * 2 // 5     # ceil(bytes / 2.5) for a 4.7+ tokenizer
+    # ceil(bytes / 2.5) for a 4.7+ tokenizer: {"content": "y" * 5000} is 5,014 bytes -> 2,006
+    assert inf.output_upper == 2_006
+
+
+def test_message_start_only_upper_is_the_median_when_it_is_largest(tmp_path: Path) -> None:
+    t = tx()
+    t.human("go")
+    for i, out in enumerate((100, 400, 700)):
+        t.call(f"msg_cm{i}", OPUS, inp=5, outputs=(3, out), stop="tool_use")
+        t.tool_result(f"toolu_cm{i}", "ok")
+    t.call("msg_mso3", OPUS, inp=5, outputs=(3,), stop=None,
+           blocks=[{"type": "tool_use", "id": "toolu_small", "name": "Read", "input": {}}])
+    t.tool_result("toolu_small", "ok")
+    inf = by_message(read(tmp_path, t))["msg_mso3"].attempts[0].inferences[0]
+    assert inf.usage_source is UsageSource.MESSAGE_START_ONLY
+    assert inf.output_upper == 400          # median of the complete tool_use calls 100/400/700
 
 
 def test_no_stop_call_with_a_large_output_is_final(tmp_path: Path) -> None:
@@ -852,3 +868,111 @@ def test_lane_kind_ignores_distant_ancestors_named_like_containers() -> None:
     wf = Path("/Users/me/.claude/projects/-home-x/abc/workflows/run-2/agent-w.jsonl")
     lay = file_layout(wf)
     assert (lay.kind, lay.agent_id, lay.session_hint) == (LaneKind.WORKFLOW_AGENT, "w", "abc")
+
+
+# --- review fixes --------------------------------------------------------------------------------
+
+def test_far_reappearing_message_stays_one_request(tmp_path: Path) -> None:
+    """A late split line of a message emitted long before (beyond the closed-group window) re-opens
+    that request instead of emitting a second one: one request per message id, the first
+    appearance's start and appended items, nothing taken from the next request, counted once."""
+    from tokenbill.adapters.claude_code import CLOSED_WINDOW
+
+    t = tx()
+    t.human("go")
+    trigger = t.t
+    t.call("msg_far", OPUS, inp=10, w5=100, outputs=(3, 250), stop="tool_use")
+    t.tool_result("toolu_far", "ok")
+    for i in range(CLOSED_WINDOW + 4):
+        t.call(f"msg_f{i:03d}", OPUS, inp=10, outputs=(3, 25), stop="tool_use")
+        t.tool_result(f"toolu_f{i:03d}", "ok")
+    t.assistant_line("msg_far", OPUS, bf.usage(10, 0, 100, 0, 470), {"type": "text", "text": "x"},
+                     stop="end_turn")
+    t.call("msg_after", OPUS, inp=10, outputs=(3, 9), stop="end_turn")
+    t.human("done")
+    r = read(tmp_path, t)
+    ids = [q.request_id for q in r.requests]
+    assert len(ids) == len(set(ids)) == CLOSED_WINDOW + 6
+    far = by_message(r)["msg_far"]
+    assert far.attempts[0].inferences[0].usage.output == 470
+    assert far.ts_start_ms == trigger
+    assert [a.kind for a in far.appended] == ["user_text"]
+    assert [a.kind for a in by_message(r)["msg_after"].appended] == ["tool_result"]
+    assert note(r, "dq.version_histogram").detail.endswith(f"2.1.270={CLOSED_WINDOW + 6}")
+    assert r.naive_usage[OPUS].output == 3 + 250 + 470 + (CLOSED_WINDOW + 4) * 28 + 12
+
+
+def test_reopened_message_keeps_its_first_billing_path(tmp_path: Path) -> None:
+    t = tx()
+    t.human("go")
+    t.call("msg_bp", OPUS, inp=10, outputs=(3, 250), stop="tool_use")
+    t.tool_result("toolu_bp", "ok")
+    t.call("msg_q", OPUS, inp=10, outputs=(3, 9), stop="end_turn",
+           line_extra={"quotaLimits": {"status": "allowed_warning", "isUsingOverage": True}})
+    t.assistant_line("msg_bp", OPUS, bf.usage(10, out=470), {"type": "text", "text": "x"},
+                     stop="end_turn")
+    t.human("next")
+    r = read(tmp_path, t, billing_path="subscription")
+    reqs = by_message(r)
+    late = reqs["msg_bp"]
+    assert late.attempts[0].inferences[0].usage.output == 470
+    assert late.attempts[0].inferences[0].pricing.billing_path == "subscription"
+    assert late.attribution.billing_path == "subscription"
+    assert reqs["msg_q"].attempts[0].inferences[0].pricing.billing_path == "usage_credits"
+    assert note(r, "dq.subscription_allowance").count == 1
+
+
+def test_naive_usage_covers_the_since_until_window(tmp_path: Path) -> None:
+    t = tx()
+    t.human("a")
+    t.call("msg_n1", OPUS, inp=100, outputs=(3, 50), stop="end_turn")
+    t.human("b", dt_ms=3_600_000)
+    cut = t.t
+    t.call("msg_n2", OPUS, inp=7, outputs=(3, 60), stop="end_turn")
+    r = read(tmp_path, t, since_ms=cut)
+    assert set(by_message(r)) == {"msg_n2"}
+    assert r.naive_usage[OPUS].uncached_input == 2 * 7
+    assert read(tmp_path, t, until_ms=cut).naive_usage[OPUS].uncached_input == 2 * 100
+
+
+def test_nested_subagent_links_to_the_main_lane(tmp_path: Path) -> None:
+    import json as _json
+
+    from tokenbill.core.ids import stable_id
+
+    sid = "11111111-0000-4000-8000-000000000001"
+    sub = bf.Tx(sid, agent_id="child1")
+    sub.human("sub", origin=False)
+    sub.call("msg_nest", OPUS, inp=5, outputs=(3, 9), stop="end_turn")
+    folder = tmp_path / "projects" / "-x" / sid / "subagents"
+    path = sub.write(folder / "agent-child1.jsonl")
+    (folder / "agent-child1.meta.json").write_text(_json.dumps(
+        {"agentType": "Explore", "parentAgentId": "parent9", "spawnDepth": 2}))
+    r = CC.read(path, opts())
+    [req] = r.requests
+    lanes = {lane.lane_key: lane for s in r.sessions for lane in s.lanes}
+    assert lanes[req.lane_key].kind is LaneKind.SUBAGENT
+    assert lanes[req.lane_key].parent_lane_key == stable_id("ln", sid, "main")
+
+
+def test_directory_read_locators_distinguish_same_named_files(tmp_path: Path) -> None:
+    root = tmp_path / "projects"
+    sid = "11111111-0000-4000-8000-000000000001"
+    for run in ("run-1", "run-2"):
+        t = bf.Tx(sid, agent_id="w")
+        t.human("go", origin=False)
+        t.raw("{broken")
+        t.call("msg_" + run.replace("-", ""), OPUS, inp=5, outputs=(3, 9), stop="end_turn")
+        t.write(root / "-x" / sid / "workflows" / run / "agent-w.jsonl")
+    r = CC.read(root, opts())
+    assert len({q.locator for q in r.quarantined}) == 2
+    assert len({q.source.locator for q in r.requests}) == 2
+
+
+def test_session_attribution_carries_the_configured_billing_path(tmp_path: Path) -> None:
+    t = tx()
+    t.human("go")
+    t.call("msg_sb", OPUS, inp=5, outputs=(9,), stop="end_turn")
+    r = read(tmp_path, t, billing_path="subscription")
+    assert r.sessions[0].attribution.billing_path == "subscription"
+    assert read(tmp_path, t).sessions[0].attribution.billing_path is None

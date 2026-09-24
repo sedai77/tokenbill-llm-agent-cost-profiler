@@ -216,7 +216,7 @@ def _load_array(data: bytes, out: _Loaded) -> None:
 
 class _Step:
     __slots__ = ("best", "first", "first_ts", "lane", "last_ts", "locator", "mid", "out", "sid",
-                 "stop", "ts_start", "mcp")
+                 "stop", "ts_start", "mcp", "served")
 
     def __init__(self, mid: str, sid: str, lane: tuple[str, LaneKind, str | None], first: int,
                  locator: str, ts: int, ts_start: int, mcp: str | None) -> None:
@@ -232,6 +232,8 @@ class _Step:
         self.out = -1
         self.stop: str | None = None
         self.mcp = mcp
+        #: (normalized model, service tier, speed, inference geo) of the built step
+        self.served: tuple[str, str, str, str | None] | None = None
 
 
 def _uint(value: object) -> int:
@@ -456,6 +458,7 @@ class _Reader:
         if geo in ("not_available", ""):
             geo = None
         ctx = run.pricing(model_raw, tier, speed, geo, billing)
+        step.served = (ctx.model, tier, speed, geo)
         request_id = request_id_for("anthropic", step.mid, run.source_id, step.locator)
         infs, codes = anthropic_inferences(usage, message_model=model_raw, ctx=ctx,
                                            id_prefix=request_id)
@@ -554,6 +557,10 @@ class _Reader:
         if res_in_total * RESUMED_DEN > steps_in_total * RESUMED_NUM:
             run.dq["dq.headless_resumed_totals"] += 1
             return
+        served: dict[str, tuple[str, str, str | None]] = {}
+        for s in sorted(steps, key=lambda s: s.first):
+            if s.served is not None:
+                served[s.served[0]] = s.served[1:]
         residual_infs: list[Inference] = []
         request_id = stable_id("rq", "claude-code-headless", main_key + "#output-residual")
         for i, model in enumerate(sorted(res_out)):
@@ -565,7 +572,10 @@ class _Reader:
             if residual == 0:
                 continue
             raw = per_model_raw(msg.get("modelUsage"), model, run) or model
-            ctx = run.pricing(raw, "standard", "standard", None, billing)
+            # the residual is output of that model's steps: priced at the served tier, speed and
+            # geo of its last step (standard when the stream has no step on the model)
+            tier, speed, geo = served.get(model, ("standard", "standard", None))
+            ctx = run.pricing(raw, tier, speed, geo, billing)
             residual_infs.append(Inference(
                 inference_id=stable_id("inf", request_id, i), kind=InferenceKind.OUTPUT_RESIDUAL,
                 usage=UsageBuckets(output=residual), pricing=ctx, usage_source=UsageSource.FINAL,

@@ -423,3 +423,65 @@ def test_final_flag_and_injected_clock_behind_the_file(tmp_path: Path) -> None:
     assert set(by_message(r)) == {"msg_f"}
     [r] = _collect(tmp_path, CollectorState(), NOW - 3_600_000)     # clock behind the file
     assert set(by_message(r)) == {"msg_f"}
+
+
+# --- review fixes --------------------------------------------------------------------------------
+
+def test_rotation_with_nothing_emitted_forgets_the_old_context(tmp_path: Path) -> None:
+    """A rotated file whose new content is only a trailing group emits nothing; the previous
+    file's parser state (here: overage quota state) must not leak into the new file."""
+    sid = "33333333-0000-4000-8000-000000000003"
+    t = bf.Tx(sid)
+    t.human("go")
+    t.call("msg_o1", OPUS, inp=10, outputs=(3, 250), stop="tool_use",
+           line_extra={"quotaLimits": {"status": "allowed_warning", "isUsingOverage": True}})
+    t.tool_result("toolu_o1", "ok")
+    t.human("more")
+    path = _file(tmp_path)
+    sub = opts(billing_path="subscription")
+    state = CollectorState()
+    _write(path, t.text().encode(), NOW)
+    [r1] = list(collect_incremental(tmp_path, state, sub, now_ms=NOW))
+    assert by_message(r1)["msg_o1"].attempts[0].inferences[0].pricing.billing_path == \
+        "usage_credits"
+    fresh = bf.Tx(sid, t0_ms=bf.T0_MS + 10_000_000)
+    fresh.call("msg_n1", OPUS, inp=10, outputs=(3, 9), stop="end_turn")
+    _write(path, fresh.text().encode(), NOW + 1_000)
+    assert list(collect_incremental(tmp_path, state, sub, now_ms=NOW + 1_000)) == []
+    fresh.human("next")
+    _write(path, fresh.text().encode(), NOW + 2_000)
+    [r3] = list(collect_incremental(tmp_path, state, sub, now_ms=NOW + 2_000))
+    got = by_message(r3)["msg_n1"].attempts[0].inferences[0].pricing.billing_path
+    one = by_message(CC.read(path, sub))["msg_n1"].attempts[0].inferences[0].pricing.billing_path
+    assert got == one == "subscription"
+
+
+@pytest.mark.parametrize("damage", [
+    {"tools": [1]}, {"quota_attrs": {"s": [1]}}, {"overage": [1]}, {"closed": [[1]]},
+    {"lanes": [1]}, {"stats": 5}])
+def test_damaged_saved_context_rereads_the_file(tmp_path: Path, damage: dict) -> None:
+    data = bf.alpha_main().text().encode()
+    path = _file(tmp_path)
+    state = CollectorState()
+    _write(path, data[: len(data) // 2], NOW)
+    first = _collect(tmp_path, state, NOW)
+    state_file = tmp_path / "state.json"
+    state.save(state_file)
+    doc = json.loads(state_file.read_text())
+    for ctx in doc["contexts"].values():
+        ctx.update(damage)
+    state_file.write_text(json.dumps(doc))
+    loaded = CollectorState.load(state_file)
+    _write(path, data, NOW + 1_000)
+    second = _collect(tmp_path, loaded, NOW + 1_000 + QUIESCENT_MS)   # no raw exception
+    assert second and second[0].requests
+    assert store_dump(_store(first + second)) == store_dump(_one_shot(path))
+
+
+def test_cursor_rejects_a_non_list_uuid_set() -> None:
+    base = {"path_hmac": "s_a", "offset": 1, "head_sha": "x", "size": 1, "mtime_ns": 1,
+            "last_trigger_ts_ms": None}
+    assert FileCursor.from_json(dict(base, recent_uuids="abc")) is None
+    assert FileCursor.from_json(dict(base, recent_uuids={"u": 1})) is None
+    assert FileCursor.from_json(dict(base, recent_uuids=["u"])).recent_uuids == ["u"]
+    assert FileCursor.from_json(base).recent_uuids == []

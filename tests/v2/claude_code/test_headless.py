@@ -269,3 +269,16 @@ def test_unpriced_step_models_and_ttl_residual_notes(tmp_path: Path) -> None:
     r = read_headless(tmp_path, hx.jsonl())
     assert note(r, "dq.unpriced_model").count == 1
     assert note(r, "dq.ttl_split_residual").count == 1
+
+
+def test_residual_is_priced_at_the_served_speed_of_its_model(tmp_path: Path) -> None:
+    hx = bf.Hx("9e0d2c3b-0000-4000-8000-00000000fa57")
+    hx.assistant("msg_fs1", OPUS, bf.usage(10, 0, 1_000, 0, 2, speed="fast"), stop="end_turn")
+    usage = {}
+    usage.update(bf.model_usage(OPUS, 10, 300, write=1_000))
+    usage.update(bf.model_usage(SONNET, 5, 40))
+    hx.result(usage)
+    r = read_headless(tmp_path, hx.jsonl())
+    by_model = {i.pricing.model: i for i in _residual(r).attempts[0].inferences}
+    assert by_model[OPUS].pricing.speed == "fast" and by_model[OPUS].usage.output == 298
+    assert by_model[SONNET].pricing.speed == "standard"     # no step on the model

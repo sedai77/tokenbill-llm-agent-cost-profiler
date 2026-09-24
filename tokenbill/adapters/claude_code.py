@@ -98,6 +98,7 @@ __all__ = [
     "BUILTIN_TOOLS",
     "CAPABILITIES",
     "ClaudeCodeAdapter",
+    "ContextError",
     "Identity",
     "NameHasher",
     "iter_claude_files",
@@ -252,6 +253,17 @@ _DAYS: dict[str, int] = {}
 _TS_FAST = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z\Z")
 
 
+_DAYS_IN_MONTH = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+
+
+def _valid_date(y: int, m: int, d: int) -> bool:
+    """A real calendar date (``2026-02-31`` is not)."""
+    if not (1 <= m <= 12 and d >= 1):
+        return False
+    leap = m == 2 and y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)
+    return d <= _DAYS_IN_MONTH[m - 1] + leap
+
+
 def _days_from_civil(y: int, m: int, d: int) -> int:
     y -= m <= 2
     era = y // 400
@@ -273,7 +285,7 @@ def parse_ts_ms(value: object) -> int | None:
         days = _DAYS.get(value[:10])
         if days is None:
             y, mo, d = int(value[0:4]), int(value[5:7]), int(value[8:10])
-            if not (1 <= mo <= 12 and 1 <= d <= 31):
+            if not _valid_date(y, mo, d):
                 return None
             days = _days_from_civil(y, mo, d)
             if len(_DAYS) < 100_000:
@@ -288,7 +300,7 @@ def parse_ts_ms(value: object) -> int | None:
     if m is None:
         return None
     y, mo, d, hh, mm, ss = (int(m.group(i)) for i in range(1, 7))
-    if not (1 <= mo <= 12 and 1 <= d <= 31 and hh < 24 and mm < 60 and ss < 61):
+    if not (_valid_date(y, mo, d) and hh < 24 and mm < 60 and ss < 61):
         return None
     frac = m.group(7)
     ms = int((frac + "00")[:3]) if frac else 0
@@ -654,6 +666,9 @@ class _Run:
         scope = extra.get("endpoint_scope")
         self.endpoint_scope = scope if scope in _ENDPOINT_SCOPES else None
         self.cache_scope_key = "ws:" + (base.workspace_id or "unknown")
+        #: the since/until window, or None (the naive self-check sums only lines inside it)
+        self.window = None if opts.since_ms is None and opts.until_ms is None else \
+            (opts.since_ms, opts.until_ms)
         self.requests: list[Request] = []
         self.events: list[LaneEvent] = []
         self.quarantined: list[QuarantineItem] = []
@@ -729,6 +744,7 @@ class _Run:
                 "extra": base.extra, "skill": base.skill, "mcp_server": base.mcp_server,
                 "plugin": base.plugin, "agent_type": base.agent_type,
                 "client_version": base.client_version, "cwd_key": base.cwd_key,
+                "billing_path": base.billing_path,
             }
             fields.update({k: v for k, v in kw.items() if v is not None or k == "billing_path"})
             attr = self._attr_cache[key] = Attribution(**fields)
@@ -760,8 +776,14 @@ class _Run:
             if ts > span[1]:
                 span[1] = ts
 
-    def add_naive(self, model: str, c: tuple[int, ...]) -> None:
-        """Add ``usage_counts`` to the naive (every-line) sum of *model*."""
+    def add_naive(self, model: str, c: tuple[int, ...], ts: int | None) -> None:
+        """Add ``usage_counts`` to the naive (every-line) sum of *model*: lines outside the
+        since/until window are left out, like the requests (a line without a timestamp counts)."""
+        window = self.window
+        if window is not None and ts is not None and (
+                (window[0] is not None and ts < window[0])
+                or (window[1] is not None and ts >= window[1])):
+            return
         acc = self.naive.get(model)
         if acc is None:
             self.naive[model] = list(c)
@@ -899,6 +921,11 @@ class _LaneRef:
     parent: str | None
 
 
+class ContextError(SourceError):
+    """A collector context (the parser state saved in the collector state file) of the wrong
+    shape; the collector discards it and re-reads the file from the start."""
+
+
 @dataclass
 class ParseOutcome:
     """What one parser pass over a file produced (internal; used by the collector)."""
@@ -939,6 +966,32 @@ class _FileParser:
         self.seen: dict[str, int] = {}
         for u in self.recent:
             self.seen[u] = self.seen.get(u, 0) + 1
+        try:
+            self._restore(ctx, last_trigger)
+        except (TypeError, ValueError, AttributeError, KeyError, IndexError,
+                RecursionError) as exc:
+            raise ContextError(f"{path.name}: collector context unusable "
+                               f"({type(exc).__name__})") from None
+        #: message ids this parser emitted a request for in this read
+        self.emitted: set[str] = set()
+        self._lane_cache: dict[tuple[str, str, LaneKind], _LaneRef] = {}
+        self._lane_fast: dict[tuple, _LaneRef] = {}
+        self._source_refs: dict[Fidelity, SourceRef] = {}
+        self.open: dict[str, _Group] = {}
+        self.earliest_open: int | None = None
+        self.unterminated: int | None = None
+        self.end_offset = start_offset
+        # collector chunks: the hash covers the source, the start offset and the consumed lines,
+        # so two chunks with identical bytes at different offsets are distinct sources
+        self.hasher = hashlib.sha256(f"{run.source_id}:{start_offset}:".encode())
+        self.n_bytes = 0
+        self.assistant_lines = 0
+
+    def _restore(self, ctx: Mapping[str, Any], last_trigger: int | None) -> None:
+        """Parser state from a collector context (``{}`` for a fresh read). A context of the
+        wrong shape raises (the caller turns it into :class:`ContextError`)."""
+        if not isinstance(ctx, Mapping):
+            raise TypeError("context")
         self.lanes: dict[str, _LaneState] = {}
         for lk, d in (ctx.get("lanes") or {}).items():
             if isinstance(lk, str) and isinstance(d, Mapping):
@@ -971,18 +1024,6 @@ class _FileParser:
                                     _record_from(Attribution, meta.get("attr")),
                                     _record_from(RequestParams, meta.get("params")))
         self.meta_emitted = bool(ctx.get("meta_emitted")) or self.layout.kind is LaneKind.MAIN
-        self._lane_cache: dict[tuple[str, str, LaneKind], _LaneRef] = {}
-        self._lane_fast: dict[tuple, _LaneRef] = {}
-        self._source_refs: dict[Fidelity, SourceRef] = {}
-        self.open: dict[str, _Group] = {}
-        self.earliest_open: int | None = None
-        self.unterminated: int | None = None
-        self.end_offset = start_offset
-        # collector chunks: the hash covers the source, the start offset and the consumed lines,
-        # so two chunks with identical bytes at different offsets are distinct sources
-        self.hasher = hashlib.sha256(f"{run.source_id}:{start_offset}:".encode())
-        self.n_bytes = 0
-        self.assistant_lines = 0
 
     # ---------- lanes ----------
     def lane_for(self, obj: Mapping[str, Any]) -> _LaneRef:
@@ -1017,10 +1058,9 @@ class _FileParser:
             return ref
         session_key = stable_id("ses", "claude-code", sid)
         lane_key = stable_id("ln", sid, name)
-        parent = None
-        if kind is not LaneKind.MAIN:
-            parent_agent = self.layout.meta.get("parentAgentId")
-            parent = stable_id("ln", sid, parent_agent or "main")
+        # subagent and workflow lanes link to the main lane of the same session (SPEC §5.3 step
+        # 11), nested agents (meta ``parentAgentId``) included
+        parent = stable_id("ln", sid, "main") if kind is not LaneKind.MAIN else None
         ref = cache[key] = _LaneRef(lane_key, session_key, sid, kind, parent)
         self.run.shell(lane_key, session_key, kind, parent)
         return ref
@@ -1176,9 +1216,9 @@ class _FileParser:
             run.saw_split = True
         model_raw = token(model_field) or ""
         norm = run.model_id(model_raw).model
-        if norm:
-            run.add_naive(norm, counts)
         ts = parse_ts_ms(obj.get("timestamp"))
+        if norm:
+            run.add_naive(norm, counts, ts)
         ref = self.lane_for(obj)
         st = self.lane_state(ref)
         if not self.meta_emitted:
@@ -1189,6 +1229,10 @@ class _FileParser:
         group = self.open.get(mid)
         if group is None:
             meta = self.closed.pop(mid, None)
+            if meta is None and mid in self.emitted:
+                # a late line of a message emitted earlier in this read but no longer in the
+                # closed window: re-open it from its emitted request (one request per id)
+                meta = self._closed_meta_from_request(mid)
             if meta is not None:
                 group = self._reopen(mid, ref, meta)
             else:
@@ -1269,6 +1313,28 @@ class _FileParser:
         g.reopened = True
         g.best = None
         return g
+
+    def _closed_meta_from_request(self, mid: str) -> tuple | None:
+        """The closed-group meta of message *mid* rebuilt from the request this parser emitted
+        for it (a rare path: the id fell out of :data:`CLOSED_WINDOW`)."""
+        rid = request_id_for("anthropic", mid, self.run.source_id, "")
+        requests = self.run.requests
+        for i in range(len(requests) - 1, -1, -1):
+            req = requests[i]
+            if req.request_id != rid:
+                continue
+            att = req.attempts[0]
+            out = -1
+            if att.raw_usage_json is not None:
+                raw = parse_line(att.raw_usage_json.encode())
+                if raw is not None and _int(raw.get("output_tokens")) is not None:
+                    out = raw["output_tokens"]
+            if out < 0:
+                out = max(inf.usage.output for inf in att.inferences)
+            last = att.ts_start_ms + (att.duration_ms or 0)
+            return (req.seq, att.ts_start_ms, last, att.ts_start_ms, out, att.stop_reason,
+                    req.appended, req.attribution, req.params)
+        return None
 
     def remember_tool(self, tid: str, name: object) -> None:
         names = self.tool_names
@@ -1639,26 +1705,36 @@ class _FileParser:
         geo = token(usage.get("inference_geo"), 32)
         if geo in ("not_available", ""):
             geo = None
-        billing = self.billing_path(ref, g.overage)
+        if g.attr is not None:
+            # a re-opened message keeps the billing path of its first emission (the quota state
+            # at the time of the call), so its pricing and attribution stay consistent
+            billing = g.attr.billing_path or "unknown"
+        else:
+            billing = self.billing_path(ref, g.overage)
         ctx = run.pricing(model_raw, tier, speed, geo, billing)
         request_id = request_id_for("anthropic", g.mid, run.source_id, "")
         advisor = token(obj.get("advisorModel"))
         source = UsageSource.MESSAGE_START_ONLY if mso else UsageSource.FINAL
         infs, codes = message_inferences(usage, model_raw, ctx, request_id, source, advisor,
                                          g.best_counts)
-        for code in codes:
-            run.dq[code] += 1
-        if not ctx.model:
-            run.dq["dq.unpriced_model"] += 1
+        # a re-emission (re-opened message) replaces its first emission: per-request counters,
+        # the MSO statistics and the lane state were already updated by that first emission
+        # (possibly in an earlier collector run), so they are not applied twice
+        first = not g.reopened
+        if first:
+            for code in codes:
+                run.dq[code] += 1
+            if not ctx.model:
+                run.dq["dq.unpriced_model"] += 1
         if mso:
             infs = self._mso_upper(infs, g, ctx, ref)
-        elif g.stop is not None and g.tool_ids and ctx.model:
+        elif first and g.stop is not None and g.tool_ids and ctx.model:
             key = (ctx.model, ref.kind.value)
             dq_ = self.stats.get(key)
             if dq_ is None:
                 dq_ = self.stats[key] = deque(maxlen=STATS_WINDOW)
             dq_.append(max(g.out, 0))
-        if g.mismatch:
+        if g.mismatch and first:
             run.dq["dq.split_usage_mismatch"] += 1
         duration = g.last_ts - g.ts_start if g.last_ts is not None else None
         if duration is not None and duration < 0:
@@ -1717,6 +1793,7 @@ class _FileParser:
                       seq=g.offset, attribution=attr, params=params, attempts=(attempt,),
                       appended=g.appended, source=self.source_ref(g.offset))
         run.emit_request(req, replace=g.reopened)
+        self.emitted.add(g.mid)
         span = run.session_ts.get(ref.session_key)
         hi = g.last_ts if g.last_ts is not None and g.last_ts > g.ts_start else g.ts_start
         if span is None:
@@ -1726,6 +1803,8 @@ class _FileParser:
                 span[0] = g.ts_start
             if hi > span[1]:
                 span[1] = hi
+        if not first:
+            return
         if billing == "subscription":
             run.dq["dq.subscription_allowance"] += 1
         if version is not None:
@@ -2236,7 +2315,9 @@ class ClaudeCodeAdapter:
             h = hashlib.sha256()
             total = 0
             for f in files:
-                run.locator_prefix = pseudonym(opts.name_key or b"\0", "f", f.name)[:14] + ":"
+                # the file's path below the root (unique, unlike its name), never in clear
+                rel = f.relative_to(path).as_posix()
+                run.locator_prefix = pseudonym(opts.name_key or b"\0", "f", rel)[:14] + ":"
                 digest, n = sha256_file(f)
                 h.update(digest.encode())
                 total += n

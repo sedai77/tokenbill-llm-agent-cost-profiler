@@ -288,6 +288,14 @@ def test_parse_ts_ms_rejects_garbage() -> None:
     assert cc.parse_ts_ms("2026-09-22 09:00:00") == 1_790_067_600_000
 
 
+def test_parse_ts_ms_rejects_impossible_calendar_dates() -> None:
+    for bad in ("2026-02-31T10:00:00.000Z", "2026-02-29T10:00:00.000Z", "2026-04-31T10:00:00Z",
+                "2100-02-29T00:00:00.000Z", "2026-06-31T10:00:00+02:00"):
+        assert cc.parse_ts_ms(bad) is None
+    for good in ("2028-02-29T10:00:00.000Z", "2000-02-29T00:00:00Z", "2026-12-31T23:59:59.999Z"):
+        assert cc.parse_ts_ms(good) is not None
+
+
 iteration_objects = st.dictionaries(
     st.sampled_from(["type", "model", "input_tokens", "output_tokens", "cache_creation", "x"]),
     st.one_of(st.integers(-3, 10**9), st.sampled_from(["message", "claude-opus-5-5", "a b"]),

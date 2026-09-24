@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from tokenbill.adapters.claude_code import (
+    ContextError,
     build_result,
     check_options,
     iter_claude_files,
@@ -93,11 +94,14 @@ class FileCursor:
         """Parse a cursor; None when any field has the wrong type."""
         if not isinstance(d, Mapping):
             return None
+        uuids = d.get("recent_uuids")
+        if uuids is not None and not isinstance(uuids, list):
+            return None
         try:
             cur = cls(path_hmac=d["path_hmac"], offset=d["offset"], head_sha=d["head_sha"],
                       size=d["size"], mtime_ns=d["mtime_ns"],
                       last_trigger_ts_ms=d.get("last_trigger_ts_ms"),
-                      recent_uuids=list(d.get("recent_uuids") or []))
+                      recent_uuids=list(uuids or []))
         except (KeyError, TypeError):
             return None
         ints_ok = all(type(v) is int and v >= 0 for v in (cur.offset, cur.size, cur.mtime_ns))
@@ -237,8 +241,18 @@ def _collect_file(path: Path, state: CollectorState, opts: IngestOptions,
     trigger = cur.last_trigger_ts_ms if cur is not None else None
     common = {"source_id": key, "start_offset": start, "context": context,
               "recent_uuids": recent, "last_trigger": trigger, "size_limit": size}
-    outcome = parse_file(opts, path, stop_at=None, finalize_open=quiescent,
-                         process_unterminated=quiescent, **common)
+    try:
+        outcome = parse_file(opts, path, stop_at=None, finalize_open=quiescent,
+                             process_unterminated=quiescent, **common)
+    except ContextError:
+        # a damaged saved context: forget the cursor and re-read the file from the start (the
+        # store's merge makes the re-emission idempotent)
+        logger.warning("collector context unusable; re-reading the transcript from the start")
+        cur, context, start, recent, trigger = None, None, 0, [], None
+        common = {"source_id": key, "start_offset": 0, "context": None, "recent_uuids": [],
+                  "last_trigger": None, "size_limit": size}
+        outcome = parse_file(opts, path, stop_at=None, finalize_open=quiescent,
+                             process_unterminated=quiescent, **common)
     resume = None
     if not quiescent:
         marks = [m for m in (outcome.earliest_open, outcome.unterminated) if m is not None]
@@ -259,8 +273,12 @@ def _collect_file(path: Path, state: CollectorState, opts: IngestOptions,
         recent_uuids=(outcome.recent_uuids if outcome is not None else list(recent))[
             -RECENT_UUIDS:])
     if outcome is None:
+        # nothing consumed: the context stays the one at the (unchanged) offset — none at all
+        # after a rotation or a discarded context, never the previous file's
         if context is not None:
             state.contexts[key] = context
+        else:
+            state.contexts.pop(key, None)
         return None
     state.contexts[key] = outcome.context
     info = source_info(outcome.run, key, path, outcome.sha256, outcome.n_bytes)
