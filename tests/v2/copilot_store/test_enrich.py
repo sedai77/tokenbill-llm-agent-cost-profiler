@@ -487,8 +487,9 @@ def test_argument_checks() -> None:
             enrich(ledger, records, today=bad)
     with pytest.raises(UsageError):
         enrich(ledger, records, entity_mode="team")
-    with pytest.raises(UsageError):
-        enrich(ledger, records, reconciled_channels=frozenset({1}))
+    for bad in (frozenset({1}), "github_copilot", 5):
+        with pytest.raises(UsageError):
+            enrich(ledger, records, reconciled_channels=bad)
     for bad in ("convention:x", [("a",)], [("a", 1)], 5):
         with pytest.raises(UsageError):
             enrich(ledger, records, recon_decisions=bad)
@@ -509,3 +510,17 @@ def test_extreme_windows() -> None:
     assert [pm.month for pm in enrich(ledger, records, neg).pools] == ["2026-09"]
     dec = enrich(ledger, records, base_ctx((ms("2026-12-05"), ms("2026-12-06"))))
     assert dec.pools == ()
+
+
+def test_timestamps_and_dates_outside_the_calendar_are_usage_errors() -> None:
+    far = b.make_aggregate(None, source_kind="github.ai_usage_report",
+                           bucket_start_ms=2**53 - 10, bucket_end_ms=2**53,
+                           dims={"channel": "github_copilot"})
+    with pytest.raises(UsageError):
+        day_conventions([far])
+    with pytest.raises(UsageError):
+        decided_cells([far], [])
+    ledger, records = world(*rows(10, date="2026-09-10"))
+    for bad in ("2026-W39-3", "20260923xx", "2026-09-23T00"):
+        with pytest.raises(UsageError):
+            enrich(ledger, records, today=bad)

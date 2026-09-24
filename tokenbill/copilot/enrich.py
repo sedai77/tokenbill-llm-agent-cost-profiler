@@ -52,6 +52,7 @@ from __future__ import annotations
 import dataclasses
 import datetime as _dt
 import json
+import re
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from decimal import Decimal
@@ -109,6 +110,7 @@ _DAY_MS = 86_400_000
 _EPOCH = _dt.date(1970, 1, 1)
 _MAX_MS = 253_402_300_800_000            # 10000-01-01T00:00:00Z (exclusive)
 _COPILOT_CHANNEL = "github_copilot"
+_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
 _EXTRA_AGG_SOURCE_KINDS = frozenset({*COPILOT_AGG_SOURCE_KINDS, "github.ai_usage_report.quota"})
 _SEAT_OR_POOLED = frozenset({"seat", *pool.POOLED_COST_TYPES})
 
@@ -119,6 +121,8 @@ _SEAT_OR_POOLED = frozenset({"seat", *pool.POOLED_COST_TYPES})
 
 
 def _date_of_ms(ms: int) -> str:
+    if not 0 <= ms < _MAX_MS:
+        raise UsageError("timestamp outside 1970-01-01 … 9999-12-31")
     return (_EPOCH + _dt.timedelta(days=ms // _DAY_MS)).isoformat()
 
 
@@ -127,7 +131,7 @@ def _ms_of_date(date: _dt.date) -> int:
 
 
 def _parse_today(today: object) -> _dt.date:
-    if not isinstance(today, str) or len(today) != 10:
+    if not isinstance(today, str) or not _DATE_RE.match(today):
         raise UsageError("enrich_context: today must be a YYYY-MM-DD string")
     try:
         return _dt.date.fromisoformat(today)
@@ -480,6 +484,9 @@ def enrich_context(store: LedgerStore, record_stores: Sequence[ExtRecordStore],
     today_d = _parse_today(today)
     if entity_mode not in pool.ENTITY_MODES:
         raise UsageError("enrich_context: entity_mode must be 'enterprise' or 'org'")
+    if isinstance(reconciled_channels, (str, bytes)) or not isinstance(reconciled_channels,
+                                                                        Iterable):
+        raise UsageError("enrich_context: reconciled_channels must be a set of channel names")
     channels = frozenset(reconciled_channels)
     if not all(isinstance(c, str) for c in channels):
         raise UsageError("enrich_context: reconciled_channels must be strings")
