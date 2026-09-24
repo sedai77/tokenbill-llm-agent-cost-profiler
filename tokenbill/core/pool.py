@@ -50,7 +50,7 @@ from decimal import Decimal, InvalidOperation
 from tokenbill.core import facts as _facts
 from tokenbill.core.errors import ContractViolation, UsageError
 from tokenbill.core.labels import Basis, Calibration, Evidence, Figure, Finality, unpriced
-from tokenbill.core.money import EXACT_CTX, decimal_to_nano, nano_to_credits_str, usd
+from tokenbill.core.money import EXACT_CTX, decimal_to_nano, fmt_usd, nano_to_credits_str, usd
 from tokenbill.core.records import (
     GITHUB_COST_TYPES,
     LICENSE_PLANS,
@@ -64,35 +64,12 @@ from tokenbill.core.records import (
 from tokenbill.core.types import PlanEvidence, PoolMonth
 
 __all__ = [
-    "CELL_COST_TYPES",
-    "CONVENTIONS",
-    "DIRECT_COST_TYPES",
-    "ENTITY_MODES",
-    "GRAINS",
-    "PLAN_CONFLICT_DQ",
-    "POOLED_COST_TYPES",
-    "SCENARIOS",
-    "SEATS_LOWER_BOUND_NOTE",
-    "SEAT_SOURCES",
-    "Cell",
-    "billing_modes",
-    "build_cells",
-    "capped_cost_centers",
-    "capped_policies",
-    "classify_discounts",
-    "detect_plans",
-    "direct_draws_pool",
-    "entity_of",
-    "forecast",
-    "invoice_delta",
-    "overage_total",
-    "pool_credits",
-    "pool_months",
-    "realize_credit_saving",
-    "realize_seat_change",
-    "regime",
-    "run_flags",
-    "seat_months",
+    "CELL_COST_TYPES", "CONVENTIONS", "DIRECT_COST_TYPES", "ENTITY_MODES", "GRAINS",
+    "PLAN_CONFLICT_DQ", "POOLED_COST_TYPES", "SCENARIOS", "SEATS_LOWER_BOUND_NOTE", "SEAT_SOURCES",
+    "Cell", "billing_modes", "build_cells", "capped_cost_centers", "capped_policies",
+    "classify_discounts", "detect_plans", "direct_draws_pool", "entity_of", "forecast",
+    "invoice_delta", "overage_total", "pool_credits", "pool_months", "realize_credit_saving",
+    "realize_seat_change", "regime", "run_flags", "seat_months",
 ]
 
 #: Cost types whose credits draw on the pool (AI usage report rows with a username).
@@ -245,12 +222,17 @@ def _config_order(c: ConfigSnapshot) -> tuple:
             repr(c.attrs))
 
 
+def _config_records(config: Iterable[ConfigSnapshot]) -> list[ConfigSnapshot]:
+    items = list(config)
+    if not all(isinstance(c, ConfigSnapshot) for c in items):
+        raise UsageError("config: expected ConfigSnapshot records")
+    return items
+
+
 def _dedupe_config(config: Iterable[ConfigSnapshot], kind: str) -> list[ConfigSnapshot]:
     """Snapshots of *kind*, one per natural key (the latest fetch wins), in natural-key order."""
     best: dict[str, ConfigSnapshot] = {}
     for c in config:
-        if not isinstance(c, ConfigSnapshot):
-            raise UsageError("config: expected ConfigSnapshot records")
         if c.kind != kind:
             continue
         key = record_key(c)
@@ -269,7 +251,7 @@ def run_flags(config: Iterable[ConfigSnapshot]) -> dict[str, str | int | bool]:
     """The merged run flags: every ``ConfigSnapshot(kind="run_flags")``, the admin answers (entity
     ``admin_answers``) first and the CLI snapshot (entity ``run``) last, so the CLI wins per key;
     within one entity the later snapshot wins. ``None`` values carry no flag."""
-    snaps = [c for c in config if isinstance(c, ConfigSnapshot) and c.kind == "run_flags"]
+    snaps = [c for c in _config_records(config) if c.kind == "run_flags"]
     snaps.sort(key=lambda c: (_FLAG_RANK.get(c.entity_id, 1), *_config_order(c)))
     merged: dict[str, str | int | bool] = {}
     for snap in snaps:
@@ -284,8 +266,8 @@ def capped_cost_centers(config: Iterable[ConfigSnapshot]) -> dict[str, Decimal]:
     ``ConfigSnapshot(kind="cost_center")`` has ``pool_enabled`` true and a ``pool_target_credits``
     value (pulled data beats an admin statement of the same cost center)."""
     latest: dict[str, ConfigSnapshot] = {}
-    for c in config:
-        if not isinstance(c, ConfigSnapshot) or c.kind != "cost_center":
+    for c in _config_records(config):
+        if c.kind != "cost_center":
             continue
         if not c.entity_id.startswith("cc:"):
             continue
@@ -743,8 +725,9 @@ def _report_user_splits(cost_lines: Sequence[CostLine], month: str,
 
 @dataclass
 class _Inputs:
-    """Per-month inputs shared by seat counting and plan detection."""
+    """Per-month inputs of seat counting and plan detection, each computed in one pass."""
 
+    month: str
     capped: Mapping[str, Decimal]
     mode: str
     flags: Mapping[str, str | int | bool]
@@ -752,9 +735,11 @@ class _Inputs:
     seat_line_skus: dict[str, dict[str, Decimal]]
     flag_seats: dict[str, _Split]
     licenses: dict[str, _Split]
-    seat_count_rows: dict[str, dict[str, list[tuple[str, str | None, Decimal]]]]
     seat_counts: dict[str, _Split]
     report_users: dict[str, _Split]
+    seats_api: dict[str, dict[str, Decimal]]
+    quota: dict[str, tuple[dict[str, Decimal], list[str], list[str]]]
+    org_plans: dict[str, str]
 
     def census(self) -> dict[str, _Census]:
         layers = (("seat_lines", self.seat_lines), ("run_flags", self.flag_seats),
@@ -771,17 +756,107 @@ class _Inputs:
         return out
 
 
+def _config_entity(entity_id: str, capped: Mapping[str, Decimal], mode: str) -> str:
+    """The pool entity of an org- or cost-center-scoped configuration row."""
+    if entity_id.startswith("cc:"):
+        return entity_of(entity_id[3:], None, capped=capped, entity_mode=mode)
+    org = entity_id[4:] if entity_id.startswith("org:") else None
+    return entity_of(None, org, capped=capped, entity_mode=mode)
+
+
+def _seats_api_counts(licenses: Sequence[LicenseSnapshot], month: str,
+                      capped: Mapping[str, Decimal], mode: str) -> dict[str, dict[str, Decimal]]:
+    """Per entity with seats-API snapshots in *month*: known plan → seats, from the latest snapshot
+    per principal and org (a principal counted once, its latest known plan)."""
+    latest: dict[tuple[str, str, str], LicenseSnapshot] = {}
+    for lic in licenses:
+        if (lic.source_kind != _SEATS_API_SOURCE or lic.product != _COPILOT_CHANNEL
+                or not _in_month(lic.snapshot_date, month)):
+            continue
+        entity = entity_of(lic.cost_center, lic.org, capped=capped, entity_mode=mode)
+        key = (entity, lic.principal, lic.org or "")
+        cur = latest.get(key)
+        if cur is None or (lic.snapshot_date, lic.fetched_ms, lic.plan) > (
+                cur.snapshot_date, cur.fetched_ms, cur.plan):
+            latest[key] = lic
+    plan_of: dict[tuple[str, str], tuple] = {}
+    out: dict[str, dict[str, Decimal]] = {}
+    for (entity, principal, org), lic in latest.items():
+        out.setdefault(entity, {})
+        if lic.plan in _KNOWN_PLANS:
+            rank = (lic.snapshot_date, lic.fetched_ms, org, lic.plan)
+            if (entity, principal) not in plan_of or rank > plan_of[(entity, principal)]:
+                plan_of[(entity, principal)] = rank
+    for (entity, _), rank in plan_of.items():
+        out[entity][rank[3]] = EXACT_CTX.add(out[entity].get(rank[3], _ZERO), Decimal(1))
+    return out
+
+
+def _quota_counts(config: Sequence[ConfigSnapshot], month: str, capped: Mapping[str, Decimal],
+                  mode: str) -> dict[str, tuple[dict[str, Decimal], list[str], list[str]]]:
+    """Per entity: plan → users from ``plan_quota`` rows of *month*, the evidence lines and the
+    lines of unmapped quota values."""
+    quota_map = _facts.copilot_plan_quota_map()
+    out: dict[str, tuple[dict[str, Decimal], list[str], list[str]]] = {}
+    for c in _dedupe_config(config, "plan_quota"):
+        attrs = dict(c.attrs)
+        if attrs.get("month") != month:
+            continue
+        counts, lines, info = out.setdefault(_config_entity(c.entity_id, capped, mode),
+                                             ({}, [], []))
+        quota = _as_decimal(attrs.get("quota"))
+        n = _as_decimal(attrs.get("n_users"))
+        if quota is None or n is None or n <= 0:
+            continue
+        fact = quota_map.get(int(quota)) if quota == int(quota) else None
+        plan = (fact.plan if fact is not None and (not fact.months or month in fact.months)
+                else None)
+        text = f"report_quota: {c.entity_id} quota {_dec_str(quota)} x {_dec_str(n)}"
+        if plan is None:
+            info.append(text + " (unmapped)")
+        else:
+            lines.append(f"{text} ({plan})")
+            counts[plan] = EXACT_CTX.add(counts.get(plan, _ZERO), n)
+    return out
+
+
+def _org_plans(config: Sequence[ConfigSnapshot], month: str) -> dict[str, str]:
+    """Org login → ``plan_type`` of its org-billing snapshot nearest to *month* (the latest one on
+    or before the month's end, else the earliest after it); pulled data only."""
+    _, last = _month_bounds(month)
+    end_ms = ((last - _EPOCH).days + 1) * _DAY_MS
+    snaps: dict[str, list[ConfigSnapshot]] = {}
+    for c in config:
+        if (c.kind != "org_settings" or c.source_kind in _STATEMENT_SOURCES
+                or not c.entity_id.startswith("org:")):
+            continue
+        if dict(c.attrs).get("plan_type") is None:
+            continue
+        snaps.setdefault(c.entity_id[4:], []).append(c)
+    out: dict[str, str] = {}
+    for org, items in snaps.items():
+        before = [c for c in items if c.snapshot_ms < end_ms]
+        chosen = (max(before, key=_config_order) if before
+                  else min(items, key=lambda c: (c.snapshot_ms, _config_order(c))))
+        plan = dict(chosen.attrs).get("plan_type")
+        if plan in _KNOWN_PLANS:
+            out[org] = str(plan)
+    return out
+
+
 def _inputs(cost_lines: Sequence[CostLine], licenses: Sequence[LicenseSnapshot],
             config: Sequence[ConfigSnapshot], month: str, mode: str) -> _Inputs:
     capped = capped_cost_centers(config)
     flags = run_flags(config)
     seat_lines, skus = _seat_line_splits(cost_lines, month, capped, mode)
-    rows = _seat_count_rows(config, month, capped, mode)
-    return _Inputs(capped=capped, mode=mode, flags=flags, seat_lines=seat_lines,
+    return _Inputs(month=month, capped=capped, mode=mode, flags=flags, seat_lines=seat_lines,
                    seat_line_skus=skus, flag_seats=_flag_seat_splits(flags),
-                   licenses=_license_splits(licenses, month, capped, mode), seat_count_rows=rows,
-                   seat_counts=_seat_count_splits(rows),
-                   report_users=_report_user_splits(cost_lines, month, capped, mode))
+                   licenses=_license_splits(licenses, month, capped, mode),
+                   seat_counts=_seat_count_splits(_seat_count_rows(config, month, capped, mode)),
+                   report_users=_report_user_splits(cost_lines, month, capped, mode),
+                   seats_api=_seats_api_counts(licenses, month, capped, mode),
+                   quota=_quota_counts(config, month, capped, mode),
+                   org_plans=_org_plans(config, month))
 
 
 def _as_lists(cost_lines: Iterable[CostLine], licenses: Iterable[LicenseSnapshot],
@@ -792,9 +867,7 @@ def _as_lists(cost_lines: Iterable[CostLine], licenses: Iterable[LicenseSnapshot
         raise UsageError("cost_lines: expected CostLine records")
     if not all(isinstance(x, LicenseSnapshot) for x in lics):
         raise UsageError("licenses: expected LicenseSnapshot records")
-    if not all(isinstance(x, ConfigSnapshot) for x in conf):
-        raise UsageError("config: expected ConfigSnapshot records")
-    return lines, lics, conf
+    return lines, lics, _config_records(conf)
 
 
 def seat_months(cost_lines: Iterable[CostLine], licenses: Iterable[LicenseSnapshot],
@@ -868,31 +941,9 @@ def _seat_line_claim(inp: _Inputs, entity: str) -> _Claim | None:
     return claim
 
 
-def _seats_api_claim(licenses: Sequence[LicenseSnapshot], inp: _Inputs, month: str,
-                     entity: str, total: Decimal) -> _Claim | None:
-    latest: dict[tuple[str, str], LicenseSnapshot] = {}
-    for lic in licenses:
-        if (lic.source_kind != _SEATS_API_SOURCE or lic.product != _COPILOT_CHANNEL
-                or not _in_month(lic.snapshot_date, month)):
-            continue
-        if entity_of(lic.cost_center, lic.org, capped=inp.capped, entity_mode=inp.mode) != entity:
-            continue
-        key = (lic.principal, lic.org or "")
-        cur = latest.get(key)
-        if cur is None or (lic.snapshot_date, lic.fetched_ms, lic.plan) > (
-                cur.snapshot_date, cur.fetched_ms, cur.plan):
-            latest[key] = lic
-    if latest:
-        plan_of: dict[str, tuple] = {}
-        for (principal, org), lic in latest.items():
-            if lic.plan not in _KNOWN_PLANS:
-                continue
-            rank = (lic.snapshot_date, lic.fetched_ms, org, lic.plan)
-            if principal not in plan_of or rank > plan_of[principal]:
-                plan_of[principal] = rank
-        counts: dict[str, Decimal] = {}
-        for rank in plan_of.values():
-            counts[rank[3]] = EXACT_CTX.add(counts.get(rank[3], _ZERO), Decimal(1))
+def _seats_api_claim(inp: _Inputs, entity: str, total: Decimal) -> _Claim | None:
+    counts = inp.seats_api.get(entity)
+    if counts is not None:
         return _count_claim("seats_api", counts, total, [_counts_line("seats_api: ", counts)])
     split = inp.seat_counts.get(entity)          # aggregate-only bundles carry the seats API plan
     if split is None:
@@ -900,30 +951,6 @@ def _seats_api_claim(licenses: Sequence[LicenseSnapshot], inp: _Inputs, month: s
     known = {p: n for p, n in split.plans.items() if p in _KNOWN_PLANS}
     return _count_claim("seats_api", known, total,
                         [_counts_line("seats_api (seat_counts): ", known)])
-
-
-def _org_plans(config: Sequence[ConfigSnapshot], month: str) -> dict[str, str]:
-    """Org login → ``plan_type`` of its org-billing snapshot nearest to *month* (the latest one on
-    or before the month's end, else the earliest after it); pulled data only."""
-    first, last = _month_bounds(month)
-    end_ms = ((last - _EPOCH).days + 1) * _DAY_MS
-    snaps: dict[str, list[ConfigSnapshot]] = {}
-    for c in config:
-        if (c.kind != "org_settings" or c.source_kind in _STATEMENT_SOURCES
-                or not c.entity_id.startswith("org:")):
-            continue
-        if dict(c.attrs).get("plan_type") is None:
-            continue
-        snaps.setdefault(c.entity_id[4:], []).append(c)
-    out: dict[str, str] = {}
-    for org, items in snaps.items():
-        before = [c for c in items if c.snapshot_ms < end_ms]
-        chosen = (max(before, key=_config_order) if before
-                  else min(items, key=lambda c: (c.snapshot_ms, _config_order(c))))
-        plan = dict(chosen.attrs).get("plan_type")
-        if plan in _KNOWN_PLANS:
-            out[org] = str(plan)
-    return out
 
 
 def _org_settings_claim(org_plans: Mapping[str, str], census: _Census | None, entity: str,
@@ -955,39 +982,6 @@ def _org_settings_claim(org_plans: Mapping[str, str], census: _Census | None, en
                   lines)
 
 
-def _report_quota_claim(config: Sequence[ConfigSnapshot], inp: _Inputs, month: str,
-                        entity: str, total: Decimal) -> tuple[_Claim | None, list[str]]:
-    quota_map = _facts.copilot_plan_quota_map()
-    counts: dict[str, Decimal] = {}
-    lines: list[str] = []
-    info: list[str] = []
-    for c in _dedupe_config(config, "plan_quota"):
-        attrs = dict(c.attrs)
-        if attrs.get("month") != month:
-            continue
-        if c.entity_id.startswith("cc:"):
-            row_entity = entity_of(c.entity_id[3:], None, capped=inp.capped, entity_mode=inp.mode)
-        else:
-            org = c.entity_id[4:] if c.entity_id.startswith("org:") else None
-            row_entity = entity_of(None, org, capped=inp.capped, entity_mode=inp.mode)
-        if row_entity != entity:
-            continue
-        quota = _as_decimal(attrs.get("quota"))
-        n = _as_decimal(attrs.get("n_users"))
-        if quota is None or n is None or n <= 0:
-            continue
-        fact = quota_map.get(int(quota)) if quota == int(quota) else None
-        plan = (fact.plan if fact is not None and (not fact.months or month in fact.months)
-                else None)
-        text = f"report_quota: {c.entity_id} quota {_dec_str(quota)} x {_dec_str(n)}"
-        if plan is None:
-            info.append(text + " (unmapped)")
-            continue
-        lines.append(f"{text} ({plan})")
-        counts[plan] = EXACT_CTX.add(counts.get(plan, _ZERO), n)
-    return _count_claim("report_quota", counts, total, lines), info
-
-
 def _statement_claim(inp: _Inputs, entity: str, total: Decimal) -> _Claim | None:
     split = inp.flag_seats.get(entity)
     if split is not None:
@@ -1013,29 +1007,17 @@ def _disagrees(decider: _Claim, other: _Claim) -> bool:
                 or (other.exclusive and decider.plans - other.plans))
 
 
-def _detect(cost_lines: Sequence[CostLine], licenses: Sequence[LicenseSnapshot],
-            config: Sequence[ConfigSnapshot], month: str, mode: str) -> list[PlanEvidence]:
-    inp = _inputs(cost_lines, licenses, config, month, mode)
-    census = inp.census()
-    org_plans = _org_plans(config, month)
-    entities = set(census) | set(inp.seat_lines)
-    for c in config:
-        if c.kind == "plan_quota" and dict(c.attrs).get("month") == month:
-            if c.entity_id.startswith("cc:"):
-                entities.add(entity_of(c.entity_id[3:], None, capped=inp.capped, entity_mode=mode))
-            else:
-                org = c.entity_id[4:] if c.entity_id.startswith("org:") else None
-                entities.add(entity_of(None, org, capped=inp.capped, entity_mode=mode))
+def _detect(inp: _Inputs, census: Mapping[str, _Census]) -> list[PlanEvidence]:
     out: list[PlanEvidence] = []
-    for entity in sorted(entities):
+    for entity in sorted(set(census) | set(inp.seat_lines) | set(inp.quota)):
         cen = census.get(entity)
         total = cen.split.total() if cen is not None else _ZERO
-        quota_claim, info = _report_quota_claim(config, inp, month, entity, total)
+        q_counts, q_lines, info = inp.quota.get(entity, ({}, [], []))
         claims = [c for c in (
             _seat_line_claim(inp, entity),
-            _seats_api_claim(licenses, inp, month, entity, total),
-            _org_settings_claim(org_plans, cen, entity, total),
-            quota_claim,
+            _seats_api_claim(inp, entity, total),
+            _org_settings_claim(inp.org_plans, cen, entity, total),
+            _count_claim("report_quota", q_counts, total, q_lines),
             _statement_claim(inp, entity, total),
         ) if c is not None and c.plans]
         decider = claims[0] if claims else None
@@ -1050,10 +1032,10 @@ def _detect(cost_lines: Sequence[CostLine], licenses: Sequence[LicenseSnapshot],
             seats["unknown"] = _ceil_int(unknown)
         conflicts = [c.source for c in claims[1:] if decider is not None and _disagrees(decider, c)]
         evidence = [line for c in claims for line in c.lines] + info
-        if placed > total and cen is not None:
+        if decider is not None and placed > total and cen is not None:
             evidence.append(f"seat count raised from {_dec_str(total)} to {_dec_str(placed)} "
-                            f"by {decider.source if decider else 'none'}")
-        if conflicts and decider is not None:
+                            f"by {decider.source}")
+        if decider is not None and conflicts:
             evidence.append(f"{PLAN_CONFLICT_DQ}: {decider.source} vs {', '.join(conflicts)}")
         if unknown > 0:
             plan = "unknown"
@@ -1062,7 +1044,7 @@ def _detect(cost_lines: Sequence[CostLine], licenses: Sequence[LicenseSnapshot],
         else:
             plan = next(p for p in _KNOWN_PLANS if seats.get(p, 0) > 0)
         out.append(PlanEvidence(
-            entity_id=entity, month=month, plan=plan,
+            entity_id=entity, month=inp.month, plan=plan,
             source=decider.source if decider is not None else "none",
             seats=tuple(sorted(seats.items())), conflict=bool(conflicts),
             evidence=tuple(evidence),
@@ -1094,7 +1076,8 @@ def detect_plans(cost_lines: Iterable[CostLine], licenses: Iterable[LicenseSnaps
     _month_bounds(month)
     _check_mode(entity_mode)
     lines, lics, conf = _as_lists(cost_lines, licenses, config)
-    return _detect(lines, lics, conf, month, entity_mode)
+    inp = _inputs(lines, lics, conf, month, entity_mode)
+    return _detect(inp, inp.census())
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1596,10 +1579,20 @@ def pool_months(cells: Iterable[Cell], cost_lines: Iterable[CostLine],
     for c in cell_list:
         by_em[(c.entity_id, c.month)].append(c)
     evidence: dict[tuple[str, str], PlanEvidence] = {}
+    census_by_month: dict[str, dict[str, _Census]] = {}
+
+    def census_of(month: str) -> dict[str, _Census]:
+        if month not in census_by_month:
+            inp = _inputs(lines, lics, conf, month, mode)
+            census_by_month[month] = inp.census()
+            if plan_list is None:
+                for pe in _detect(inp, census_by_month[month]):
+                    evidence[(pe.entity_id, month)] = pe
+        return census_by_month[month]
+
     if plan_list is None:
         for month in sorted({m for _, m in by_em} | _data_months(lines, lics, conf)):
-            for pe in _detect(lines, lics, conf, month, mode):
-                evidence[(pe.entity_id, month)] = pe
+            census_of(month)
     else:
         for pe in plan_list:
             key = (pe.entity_id, pe.month)
@@ -1607,11 +1600,9 @@ def pool_months(cells: Iterable[Cell], cost_lines: Iterable[CostLine],
                 raise UsageError("pool_months: two different plan evidences for one entity-month")
             evidence[key] = pe
     estimates = _estimates(recent_estimates, mode)
-    census_by_month: dict[str, dict[str, _Census]] = {}
     out: list[PoolMonth] = []
     for entity, month in sorted(set(by_em) | set(evidence)):
-        if month not in census_by_month:
-            census_by_month[month] = _inputs(lines, lics, conf, month, mode).census()
+        census_of(month)
         cm = _common(entity, month, by_em.get((entity, month), []), today_d, lag, estimates)
         out.extend(_entity_month(
             entity, month, cm, evidence.get((entity, month)),
@@ -1766,7 +1757,7 @@ def realize_seat_change(pm: PoolMonth, delta: Mapping[str, int], *,
     point = results[1][-1]
     flat = [v for row in results for v in row]
     low, high = min(flat), max(flat)
-    note = (f"seat change at list price (fees saved {_usd_text(-dfees)}); regime {pm.regime}"
+    note = (f"seat change at list price (fees saved {fmt_usd(-dfees)}); regime {pm.regime}"
             f"{_scenario_note(pm)}; proration, upfront charges and volume/EA pricing not modeled")
     if pm.billing_mode == "unknown":
         note += "; billing mode unknown (volume/azure entities save only at renewal)"
@@ -1779,11 +1770,3 @@ def realize_seat_change(pm: PoolMonth, delta: Mapping[str, int], *,
                   low_nano=low if ranged else None, high_nano=high if ranged else None,
                   calibration=Calibration.UNCALIBRATED, note=note)
 
-
-def _usd_text(nano: int) -> str:
-    sign = "-" if nano < 0 else ""
-    whole, frac = divmod(abs(nano), 10**9)
-    cents = (frac + 5_000_000) // 10_000_000
-    if cents == 100:
-        whole, cents = whole + 1, 0
-    return f"{sign}${whole:,}.{cents:02d}"
