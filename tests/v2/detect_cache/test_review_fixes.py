@@ -418,3 +418,19 @@ def test_titles_and_summaries_never_cut_a_team_name(team: str) -> None:
         for text in (f.title, f.summary):
             assert team in text or fragment not in text, text
         assert f.title.startswith("Allowance headroom: ")
+
+
+def test_ttl_advice_survives_one_lane_on_an_unpriced_model() -> None:
+    """One developer trying an announced-but-unpriced model must not erase the team's TTL
+    advice: the replays run on the priceable lanes and the summary discloses the rest."""
+    spec = ttl_spec("main", "1h")
+    lanes = [lane_a1(f"P{i}", principal=f"r_dev{i}") for i in range(3)]
+    lanes.append(lane_a1("UN", principal="r_dev9", model="claude-sonnet-5-5"))
+    replayer = table_replayer({(f"P{i}", spec): 1_150_800_000 for i in range(3)})
+    f = only(TtlAdvisor().detect(lanes, ctx(replayer=replayer)), "ttl-1h-recommended")
+    assert f.recoverable is not None and f.recoverable.nano == 3 * 1_150_800_000
+    assert f.cost_observed.nano == 3 * 2_100_000_000
+    assert f.n_lanes == 3 and f.n_users == 3
+    assert f.summary.endswith("1 lanes with an unpriced model were left out of the replays.")
+    alone = only(TtlAdvisor().detect(lanes[:3], ctx(replayer=replayer)), "ttl-1h-recommended")
+    assert "unpriced" not in alone.summary

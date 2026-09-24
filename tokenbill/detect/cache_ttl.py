@@ -53,6 +53,7 @@ from tokenbill.detect.cache_miss import (
     int_threshold,
     is_claude_code,
     patch,
+    priceable_lanes,
     replay,
     saving_figure,
     settings_doc,
@@ -246,6 +247,7 @@ class _Sub:
         self.billing_path = billing_path
         self.lanes = lanes
         self.split = split
+        self.unpriced = 0        # lanes left out of the replays (an unpriced inference)
 
     def scope_extra(self) -> dict[str, str | None]:
         return {"billing_path": self.billing_path} if self.split else {}
@@ -289,7 +291,11 @@ class TtlAdvisor:
         return sort_findings(out)
 
     def _advise(self, ctx: AnalysisContext, prices: Prices, sub: _Sub) -> Finding | None:
-        cohort, lanes = sub.cohort, sub.lanes
+        cohort = sub.cohort
+        sub.lanes, sub.unpriced = priceable_lanes(prices, sub.lanes)
+        lanes = sub.lanes
+        if not lanes:
+            return None
         basis = cohort.basis(ctx.pricer)
         observed = replay(ctx, lanes, "observed")
         if observed is None or observed.baseline.nano is None:
@@ -370,11 +376,13 @@ class TtlAdvisor:
         if hetero is not None:
             summary += (f" Only {hetero[1]} of {hetero[0]} principals gain: deliver per MDM "
                         f"group.")
+        note = (f" {sub.unpriced} lanes with an unpriced model were left out of the replays."
+                if sub.unpriced else "")
         spec = Emit(
             kind=kind, category="lever", lever_class="cache_transform", title=title,
             summary=summary, references=_TTL_REFS, lever_ids=levers, fix=fix,
             confidence="high" if agree else "medium",
-            scope_extra=sub.scope_extra())
+            scope_extra=sub.scope_extra(), note=note)
         cost: Figure = observed.baseline
         return emit(self, ctx, cohort, tally, spec, cost, recoverable, evidence)
 

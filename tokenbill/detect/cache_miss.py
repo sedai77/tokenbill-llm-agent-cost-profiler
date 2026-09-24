@@ -225,6 +225,21 @@ class Prices:
         return "cache_write_5m"
 
 
+def priceable_lanes(prices: Prices, lanes: Iterable[Lane]) -> tuple[list[Lane], int]:
+    """``(lanes whose every billable inference has a priced rate, number left out)``: a replay
+    over a lane with an unpriced inference has an unpriced baseline (R2), so cohort-wide replays
+    run on the priceable lanes and disclose the rest instead of losing the whole cohort."""
+    keep: list[Lane] = []
+    dropped = 0
+    for lane in lanes:
+        if all(prices.line(inf.pricing, req.ts_start_ms, "uncached_input", 1) is not None
+               for req in lane.requests for inf in req.billable_inferences):
+            keep.append(lane)
+        else:
+            dropped += 1
+    return keep, dropped
+
+
 def combine(*parts: tuple[int, Money | None]) -> Money | None:
     """``Σ sign·money`` (ranges crosswise for negative signs); None if any part is None."""
     total = Money()
@@ -653,6 +668,7 @@ class Emit:
     needs_eval: bool = False
     triage: bool = False
     scope_extra: Mapping[str, str | None] = dataclasses.field(default_factory=dict)
+    note: str = ""          # a disclosure kept whole at the end of the summary
 
 
 def emit(detector: Detector, ctx: AnalysisContext, cohort: Cohort, tally: Tally, spec: Emit,
@@ -668,10 +684,10 @@ def emit(detector: Detector, ctx: AnalysisContext, cohort: Cohort, tally: Tally,
         return None
     scope = make_scope(**cohort.scope_dims(**spec.scope_extra))
     items = list(tally.items) + list(extra_evidence)
-    note = ""
+    note = spec.note
     if tally.unpriced:
-        note = (f" {tally.unpriced} of the {tally.events} events had no priced rate and are "
-                f"left out of the dollars.")
+        note += (f" {tally.unpriced} of the {tally.events} events had no priced rate and are "
+                 f"left out of the dollars.")
     return build_finding(
         detector_id=detector.id,
         kind=spec.kind,

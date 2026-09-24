@@ -91,3 +91,13 @@ def test_fallback_credit_repair() -> None:
     assert f.cost_observed.nano == 625_000_000
     assert f.recoverable is not None and f.recoverable.nano is not None
     assert f.recoverable.nano > 0
+
+
+def test_unpriced_lane_does_not_erase_the_advice() -> None:
+    """A lane on an announced-but-unpriced model makes the real replayer's baseline unpriced
+    (R2); the advisor replays the priceable lanes and discloses the one left out."""
+    lanes = [lane_a1("A1"), lane_a1("UN", principal="r_dev9", model="claude-sonnet-5-5")]
+    f = only(TtlAdvisor().detect(lanes, _ctx()), "ttl-1h-recommended")
+    assert f.recoverable is not None and f.recoverable.nano == 1_150_800_000
+    assert f.cost_observed.nano == 2_100_000_000
+    assert "left out of the replays" in f.summary
