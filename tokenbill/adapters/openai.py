@@ -171,7 +171,7 @@ class _Reader:
             self.scan.count("records")
             guarded(self.scan, f"line:{line_no}", lambda o=obj, n=line_no: self._record(o, n))
         self._assign_lanes()
-        requests, sessions = assemble(self.drafts, self.shells, self.opts)
+        requests, sessions = assemble(self.drafts, self.shells, self.opts, self.scan)
         return self.scan.finish(requests=requests, sessions=sessions, events=[],
                                 capabilities=lane_capabilities(requests, self.shells))
 

@@ -354,7 +354,7 @@ class _Reader:
         self._assemble_spans(self.genai_spans, self._genai_draft)
         self._assemble_spans(self.oi_spans, self._oi_draft)
         aggregates = self._aggregates()
-        requests, sessions = assemble(self.drafts, self.shells, self.opts)
+        requests, sessions = assemble(self.drafts, self.shells, self.opts, self.scan)
         events = sorted(self.events, key=lambda e: (e.lane_key, e.ts_ms, e.kind.value, e.attrs))
         caps = lane_capabilities(requests, self.shells)
         if events:

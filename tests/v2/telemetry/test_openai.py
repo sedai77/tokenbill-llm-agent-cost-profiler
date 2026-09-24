@@ -280,3 +280,13 @@ def test_sniff_pairs_batch_lines_and_huge_heads() -> None:
                          + b"x" * 70_000)
     assert not ADAPTER.sniff(Path("x"), b'{"id": "x", "output": "' + b"x" * 70_000)
     assert not ADAPTER.sniff(Path("x"), b"garbage")
+
+
+def test_a_response_exported_twice_is_one_request(tmp_path: Path) -> None:
+    small = response("dup", usage={"input_tokens": 100, "output_tokens": 1})
+    large = response("dup", usage={"input_tokens": 100, "output_tokens": 9})
+    path = h.write_lines(tmp_path / "o.jsonl", [small, large, small])
+    result = read(path)
+    (req,) = result.requests
+    assert req.final_attempt.inferences[0].usage.output == 9
+    assert result.stats["duplicate_records"] == 2

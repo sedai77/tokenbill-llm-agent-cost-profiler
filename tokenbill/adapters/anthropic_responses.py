@@ -146,7 +146,7 @@ class _Reader:
             self.scan.count("records")
             guarded(self.scan, f"line:{line_no}", lambda o=obj, n=line_no: self._record(o, n))
         drafts = [d for _out, d in self.drafts.values()]
-        requests, sessions = assemble(drafts, self.shells, self.opts)
+        requests, sessions = assemble(drafts, self.shells, self.opts, self.scan)
         caps = lane_capabilities(requests, self.shells)
         if requests and not any(inf.usage.cache_write_unknown for r in requests
                                 for inf in r.billable_inferences):

@@ -574,3 +574,12 @@ def test_resource_labels_never_carry_emails_or_paths(tmp_path: Path) -> None:
     assert (a.team, a.cost_center, a.arm) == (None, None, "control")
     assert dict(a.extra) == {"department": "Data Platform"}
     assert "someone" not in h.blob(read(path, team_map=())) and "/srv" not in repr(a)
+
+
+def test_a_span_exported_twice_is_one_request(tmp_path: Path) -> None:
+    attrs = {"gen_ai.operation.name": "chat", "gen_ai.provider.name": "openai",
+             "gen_ai.request.model": "gpt-5.6-sol", "gen_ai.usage.input_tokens": 10,
+             "gen_ai.usage.output_tokens": 2}
+    line = h.spans([h.span("chat", "0000000000000001", h.T0, h.T0 + 5, attrs)])
+    result = read(h.write_lines(tmp_path / "s.jsonl", [line, line]))
+    assert len(result.requests) == 1 and result.stats["duplicate_records"] == 1

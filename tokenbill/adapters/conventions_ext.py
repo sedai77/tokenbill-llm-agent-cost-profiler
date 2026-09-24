@@ -851,12 +851,27 @@ class Draft:
     end_ms: int = 0
 
 
-def assemble(drafts: Iterable[Draft], shells: Mapping[str, LaneShell],
-             opts: IngestOptions) -> tuple[list[Request], list[Session]]:
+def _served_output(draft: Draft) -> int:
+    return sum(inf.usage.output for att in draft.attempts for inf in att.inferences)
+
+
+def assemble(drafts: Iterable[Draft], shells: Mapping[str, LaneShell], opts: IngestOptions,
+             scan: SourceScan | None = None) -> tuple[list[Request], list[Session]]:
     """Sort drafts per lane by ``(ts, order, request id)``, assign ``seq`` and build the frozen
-    requests plus one :class:`Session` (with request-less lane shells) per session key."""
-    by_lane: dict[str, list[Draft]] = {}
+    requests plus one :class:`Session` (with request-less lane shells) per session key.
+
+    Drafts sharing a request id (a record exported twice) collapse to the one with the larger
+    output (the split-entry rule; ties keep the first), counted as ``duplicate_records``.
+    """
+    unique: dict[str, Draft] = {}
     for d in drafts:
+        previous = unique.get(d.request_id)
+        if previous is not None and scan is not None:
+            scan.count("duplicate_records")
+        if previous is None or _served_output(d) > _served_output(previous):
+            unique[d.request_id] = d
+    by_lane: dict[str, list[Draft]] = {}
+    for d in unique.values():
         by_lane.setdefault(d.lane_key, []).append(d)
     requests: list[Request] = []
     first_attr: dict[str, tuple[tuple[Any, ...], Attribution]] = {}
