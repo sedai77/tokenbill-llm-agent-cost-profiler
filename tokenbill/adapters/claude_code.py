@@ -120,16 +120,17 @@ _BASE_CAPABILITIES = frozenset({"usage_sequence", "timing", "iterations", "appen
 #: MESSAGE_START_ONLY: the largest logged output that can be a message_start placeholder (§5.3.6).
 MSO_MAX_OUTPUT = 20
 #: Complete tool_use outputs remembered per (model, lane kind) for the MSO median.
-STATS_WINDOW = 1024
-#: tool_use id → tool name entries remembered per file (tool_result names).
-TOOL_NAME_WINDOW = 512
+STATS_WINDOW = 256
+#: tool_use id → tool name entries remembered per file (tool_result names). Results answer the
+#: tool uses of the last few calls; the bound keeps the collector state file small.
+TOOL_NAME_WINDOW = 128
 #: Sliding window of uuids for duplicate-line detection (the collector cursor's bound, §5.3).
 UUID_WINDOW = 2000
 #: requestIds remembered per read for the collision check (collisions are between nearby calls;
 #: the store detects the rest, §7.3).
 REQUEST_ID_WINDOW = 4096
 #: Closed message groups remembered per file (a later line of the same id re-opens it).
-CLOSED_WINDOW = 64
+CLOSED_WINDOW = 16
 #: ``cleanupPeriodDays`` default (CC-SETTINGS) and the warning margin (§5.3.12).
 RETENTION_DEFAULT_DAYS = 30
 RETENTION_MARGIN_DAYS = 3
@@ -2204,6 +2205,11 @@ class ClaudeCodeAdapter:
                 total += n
                 _FileParser(run, f).parse()
             run.locator_prefix = ""
+            # workflow roll-up files (totalTokens) are never read as spend: counted only
+            run.dq["dq.rollup_not_spend"] += sum(
+                1 for p in sorted(path.rglob("*.json"))
+                if "workflows" in p.relative_to(path).parts[:-1]
+                and not p.name.endswith(".meta.json") and p.is_file())
             note = retention_note(files, opts.now_ms)
             info = source_info(run, source_id, path, h.hexdigest(), total)
             return build_result(run, info, extra_notes=[note] if note else [])

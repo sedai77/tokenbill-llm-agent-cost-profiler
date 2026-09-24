@@ -15,9 +15,11 @@ D40.
 | `test_perf.py` | SPEC §17 in a fresh interpreter: PR variant 20,000 lines ≤ 3 s and ≤ 150 MB; marker `perf`: 200,000 lines ≥ 25,000 assistant lines/s, ≤ 30 s, ≤ 150 MB |
 | `test_gate.py` | marker `gate` (merge gate 1): collector chunks vs one-shot import through the real `SqliteStore`; the fixture tree priced by the real `RateCard` equals the fakes |
 
-Measured on the build machine (Apple silicon, Python 3.12, shared with other builders): 200,000
-lines (138k assistant lines, 59k requests, ~200 MB of JSONL) in ~5.4 s ≈ 25.6k assistant lines/s,
-peak RSS 146–149 MB. The margin is thin; the hot paths are listed in "Design notes".
+Measured on the build machine (Apple silicon, Python 3.12, load average ~4 from other builders):
+200,000 lines (138k assistant lines, 59k requests, ~200 MB of JSONL) in ~5.2 s ≈ 26k assistant
+lines/s, peak RSS 143–146 MB. The margins are thin (≈ 5% on throughput, ≈ 3% on memory); the hot
+paths are listed in "Design notes". Collector state: ~10 KB of parser context plus the 2,000
+recent uuids (~80 KB) per transcript.
 
 ## Fixtures (`tests/v2/fixtures/claude_code/`)
 
@@ -76,7 +78,7 @@ the directory; the headless files are rejected by the transcript sniffer).
   headless adapter adds `timing` only with timestamps and `workload` only when
   `opts.attribution.workload_class` is set.
 * **MESSAGE_START_ONLY upper bound.** "The median output of complete same-(model, lane kind)
-  tool_use calls in this file" is taken over the *preceding* complete calls (the last 1,024), so
+  tool_use calls in this file" is taken over the *preceding* complete calls (the last 256), so
   the estimate is streaming, memory-bounded and identical under incremental collection.
 * **Duplicate lines** are detected over a sliding window of the last 2,000 uuids — the collector
   cursor's bound — so one-shot and incremental reads drop the same lines.

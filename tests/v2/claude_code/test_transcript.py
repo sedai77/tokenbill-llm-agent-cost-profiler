@@ -829,3 +829,13 @@ def test_sniff_accepts_a_first_line_longer_than_the_head(tmp_path: Path) -> None
     path.write_text(line + "\n")
     assert CC.sniff(path, path.read_bytes()[:65536]) is True
     assert CC.sniff(path, b'{"session_id": "s", "type": "user", "sessionId": 1') is False
+
+
+def test_workflow_rollup_files_are_counted_never_read(tmp_path: Path) -> None:
+    root = tmp_path / "tree"
+    bf.build(root)
+    wf = root / "projects" / "-home-dev-alpha" / bf.SID_ALPHA / "workflows" / "run-1"
+    (wf / "run.json").write_text('{"totalTokens": 999999}')
+    r = CC.read(root / "projects", opts())
+    assert note(r, "dq.rollup_not_spend").count == 2      # 1 toolUseResult + 1 roll-up file
+    assert sum(i.usage.total_input for q in r.requests for i in q.attempts[0].inferences) < 999999
