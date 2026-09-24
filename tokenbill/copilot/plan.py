@@ -191,12 +191,6 @@ def _pct(share: Fraction) -> str:
     return f"{_round(share * 100)}%"
 
 
-def _usd(nano: int) -> str:
-    sign = "-" if nano < 0 else ""
-    cents = _round(Fraction(abs(nano), 10**7))
-    return f"{sign}${cents // 100:,}.{cents % 100:02d}"
-
-
 def _credits_nano(credits: str) -> int:
     """AI credits (decimal string) → nano-USD at $0.01 per credit, half-even once."""
     try:
@@ -978,13 +972,9 @@ def _runner_lines(ctx: _Context) -> tuple[list[tuple[int, int]], int]:
             continue
         net = max(0, line.amount_nano)
         low = 0
-        minutes = None
-        if line.quantity is not None:
-            try:
-                minutes = Decimal(line.quantity)
-            except InvalidOperation:
-                minutes = None
-        if minutes is not None and minutes.is_finite() and minutes >= 0 and std is not None:
+        # CostLine.quantity is a validated finite decimal string (minutes for Actions lines)
+        minutes = Decimal(line.quantity) if line.quantity is not None else None
+        if minutes is not None and minutes >= 0 and std is not None:
             std_cost = decimal_to_nano(EXACT_CTX.multiply(minutes, std.usd_per_minute))
             low = max(0, net - std_cost)
         else:
@@ -1020,7 +1010,8 @@ def _auto_discount() -> Fraction:
     for m in _facts.copilot_modifiers():
         if m.modifier_id == "github.auto" and m.factor is not None:
             return 1 - Fraction(m.factor)
-    raise UsageError("plan_copilot: the github.auto modifier is missing from core.facts")
+    raise UsageError(  # pragma: no cover - core.facts always carries github.auto
+        "plan_copilot: the github.auto modifier is missing from core.facts")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1048,8 +1039,8 @@ def _fig(t: _Triple, basis: Basis, note: str, *, upper: bool = False) -> Figure:
 
 def _project(t: _Triple, lever_class: str) -> _Triple:
     priors = _catalog.RR_PRIORS.get(lever_class)
-    if priors is None:   # behavioral levers never play; defensive
-        return _Triple(0, 0, 0)
+    if priors is None:   # pragma: no cover - behavioral levers never play (Build 1)
+        raise UsageError(f"plan_copilot: lever class {lever_class!r} is never projected")
     p10, p50, p90 = (Fraction(x) for x in priors)
     point = _round(t.point * p50)
     cands = [_round(x * r) for x in (t.low, t.high) for r in (p10, p90)] + [point]
@@ -1081,8 +1072,6 @@ def _states(game: _Game, players: Sequence[_Player], ents: Mapping[str, _Ent]) -
 
 def _shapley(pids: Sequence[str], fn: Callable[[frozenset[str]], int]
              ) -> tuple[dict[str, int], dict[str, int]]:
-    if not pids:
-        return {}, {}
     if len(pids) <= MAX_EXACT_PLAYERS:
         return shapley_exact(pids, fn), {}
     return shapley_mc(pids, fn, permutations=MC_PERMUTATIONS, seed=MC_SEED)
