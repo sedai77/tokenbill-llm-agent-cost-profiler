@@ -839,3 +839,16 @@ def test_workflow_rollup_files_are_counted_never_read(tmp_path: Path) -> None:
     r = CC.read(root / "projects", opts())
     assert note(r, "dq.rollup_not_spend").count == 2      # 1 toolUseResult + 1 roll-up file
     assert sum(i.usage.total_input for q in r.requests for i in q.attempts[0].inferences) < 999999
+
+
+def test_lane_kind_ignores_distant_ancestors_named_like_containers() -> None:
+    from tokenbill.adapters.claude_code import file_layout
+
+    main = Path("/Users/workflows/.claude/projects/-home-x/abc.jsonl")
+    assert file_layout(main).kind is LaneKind.MAIN
+    sub = Path("/Users/workflows/.claude/projects/-home-x/abc/subagents/agent-7.jsonl")
+    lay = file_layout(sub)
+    assert (lay.kind, lay.agent_id, lay.session_hint) == (LaneKind.SUBAGENT, "7", "abc")
+    wf = Path("/Users/me/.claude/projects/-home-x/abc/workflows/run-2/agent-w.jsonl")
+    lay = file_layout(wf)
+    assert (lay.kind, lay.agent_id, lay.session_hint) == (LaneKind.WORKFLOW_AGENT, "w", "abc")

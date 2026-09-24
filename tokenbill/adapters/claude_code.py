@@ -140,6 +140,8 @@ RETENTION_MARGIN_DAYS = 3
 FALLBACK_DEDUPE_MS = 60_000
 #: Largest ``*.meta.json`` read (bytes); meta files are a few hundred bytes.
 _META_MAX_BYTES = 64 * 1024
+#: Directory levels above a transcript that decide its lane kind (subagents / workflows).
+_LAYOUT_DEPTH = 3
 #: Longest source string kept as a cache key (hostile input never pins large strings).
 _CACHE_MAX_LEN = 1024
 _DAY_MS = 86_400_000
@@ -610,18 +612,22 @@ def file_layout(path: Path) -> FileLayout:
     parts = Path(path).parts
     name = Path(path).name
     stem = name[: -len(".jsonl")] if name.endswith(".jsonl") else Path(path).stem
-    if "workflows" in parts[:-1]:
-        kind = LaneKind.WORKFLOW_AGENT
-    elif "subagents" in parts[:-1]:
-        kind = LaneKind.SUBAGENT
+    # only the directories nearest the file count (``<session>/subagents/agent-*.jsonl``,
+    # ``<session>/workflows/<run>/…``), so an ancestor that happens to be named "workflows"
+    # (a home directory, a checkout) never changes the lane kind
+    near = len(parts) - 1 - _LAYOUT_DEPTH
+    dirs = [(i, p) for i, p in enumerate(parts[:-1]) if i >= near]
+    if any(p == "workflows" for _, p in dirs):
+        kind, container = LaneKind.WORKFLOW_AGENT, "workflows"
+    elif any(p == "subagents" for _, p in dirs):
+        kind, container = LaneKind.SUBAGENT, "subagents"
     else:
-        kind = LaneKind.MAIN
+        kind, container = LaneKind.MAIN, ""
     agent_id = None
     session_hint: str | None = stem
     if kind is not LaneKind.MAIN:
         agent_id = stem[len("agent-"):] if stem.startswith("agent-") else stem
-        container = "workflows" if kind is LaneKind.WORKFLOW_AGENT else "subagents"
-        idx = max(i for i, p in enumerate(parts[:-1]) if p == container)
+        idx = max(i for i, p in dirs if p == container)
         session_hint = parts[idx - 1] if idx >= 1 else None
     meta = _read_meta(Path(path)) if kind is not LaneKind.MAIN else {}
     return FileLayout(kind=kind, agent_id=agent_id, session_hint=session_hint, meta=meta)
