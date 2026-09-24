@@ -100,6 +100,7 @@ WINDOW_START = "2026-09-22"
 FLEET_ORG_KEY = hashlib.sha256(b"tokenbill synthetic fleet: org key (public, demo only)").digest()
 FLEET_NAME_KEY = hashlib.sha256(b"tokenbill synthetic fleet: name key (public, demo only)").digest()
 FLEET_FP_KEY = hashlib.sha256(b"tokenbill synthetic fleet: block key (public, demo only)").digest()
+_FP_KEY_ID = key_id(FLEET_FP_KEY)
 #: Every COMPACTION event in the fleet reports this summary size, so the compaction-window replay's
 #: ``S_c`` (org median ``post_tokens``, else the default) is 20,283 whichever lanes it sees.
 COMPACTION_POST_TOKENS = 20_283
@@ -315,12 +316,17 @@ def date_of(ts_ms: int) -> str:
 
 
 def _b62(*parts: object, n: int = 22) -> str:
-    digest = int.from_bytes(hashlib.sha256("\x1f".join(map(str, parts)).encode()).digest(), "big")
-    out = []
-    for _ in range(n):
-        digest, r = divmod(digest, 62)
-        out.append(_B62[r])
-    return "".join(out)
+    """*n* base-62 characters derived from a SHA-256 of the parts (ids that look like provider
+    ids)."""
+    digest = hashlib.sha256("\x1f".join(map(str, parts)).encode()).digest()
+    return "".join(_B62[byte % 62] for byte in digest[:n])
+
+
+def _msg_ids(seed: int, lane_key: str, seq: int) -> tuple[str, str]:
+    """Provider-looking ``msg_01…`` and ``req_01…`` ids of one request (one SHA-512)."""
+    digest = hashlib.sha512(f"{seed}\x1f{lane_key}\x1f{seq}".encode()).digest()
+    return ("msg_01" + "".join(_B62[b % 62] for b in digest[:22]),
+            "req_01" + "".join(_B62[b % 62] for b in digest[22:44]))
 
 
 def _uuid(*parts: object) -> str:
@@ -514,7 +520,7 @@ class _Builder:
             billing_path = row.billing_path or spec.billing_path
             version = row.client_version or spec.client_version
             attr = self.attribution(spec, billing_path, version, query_source)
-            msg = "msg_01" + _b62("msg", self.seed, lane_key, seq)
+            msg, req_hint = _msg_ids(self.seed, lane_key, seq)
             rid = request_id_for("anthropic", msg, "", "")
             raw = row.model_raw or row.model
             ctx = self.ctx(spec.channel, row.model, raw, row.speed, row.service_tier,
@@ -537,7 +543,7 @@ class _Builder:
                 attempt_id=stable_id("at", rid, 0), attempt_no=0, ts_start_ms=row.ts_ms,
                 ttft_ms=None, duration_ms=row.duration_ms, outcome=Outcome.OK, http_status=None,
                 error_type=None, retry_layer=None, retry_after_ms=None, should_retry=None,
-                provider_request_id="req_01" + _b62("req", self.seed, lane_key, seq),
+                provider_request_id=req_hint,
                 provider_message_id=msg, model_served=raw, stop_reason=row.stop_reason,
                 inferences=tuple(infs), applied_edits=row.applied_edits,
                 convention_id="anthropic.messages")
@@ -897,14 +903,14 @@ def _gen_infra(b: _Builder, devs: Sequence[int]) -> None:
                                  p_long=0.08, long_s=(320, 2_400), t0=(18_000, 28_000),
                                  app=(1_500, 5_000), out=(200, 1_500),
                                  speed="fast" if fast else "standard")
-            events = _human_events(lane_key, rows)
             extra_requests: list[Request] = []
+            extra_events: list[LaneEvent] = []
             if d == 3 and day == min(1, days - 1):
                 _plant_placeholder(r, rows)
             if d == 5 and day == min(2, days - 1):
-                extra_requests, events = _plant_hidden_compaction(b, r, sk, lane_key, rows,
-                                                                  events)
+                extra_requests, extra_events = _plant_hidden_compaction(b, r, sk, lane_key, rows)
             _attach_appended(r, rows)
+            events = [*_human_events(lane_key, rows), *extra_events]   # after any time shift
             b.add_lane(spec, lane_key, rows, events=events, extra_requests=extra_requests)
             if extra_requests:
                 comp_key = lane_key + "#compaction"
@@ -950,14 +956,11 @@ def _plant_placeholder(r: random.Random, rows: list[_Row]) -> None:
 
 
 def _plant_hidden_compaction(b: _Builder, r: random.Random, session_key: str, lane_key: str,
-                             rows: list[_Row], events: list[LaneEvent]
-                             ) -> tuple[list[Request], list[LaneEvent]]:
+                             rows: list[_Row]) -> tuple[list[Request], list[LaneEvent]]:
     """A ``compact_boundary`` between two requests: a COMPACTION event, the Claude Code importer's
     ESTIMATED compaction call on ``<lane>#compaction`` (input read warm, output = summary), and the
     next request rewrites the compacted context."""
     j = len(rows) // 2
-    if j < 2:
-        return [], events
     prev = rows[j - 1]
     pre = prev.usage.total_input
     ts_c = prev.ts_ms + 30_000
@@ -965,9 +968,9 @@ def _plant_hidden_compaction(b: _Builder, r: random.Random, session_key: str, la
         shift = ts_c + 20_000 - rows[j].ts_ms + 1_000
         for row in rows[j:]:
             row.ts_ms += shift
-    events = [*events, _event(lane_key, ts_c, LaneEventKind.COMPACTION, trigger="auto",
-                              pre_tokens=pre, post_tokens=COMPACTION_POST_TOKENS,
-                              duration_ms=28_000, dropped_tokens=None)]
+    events = [_event(lane_key, ts_c, LaneEventKind.COMPACTION, trigger="auto", pre_tokens=pre,
+                     post_tokens=COMPACTION_POST_TOKENS, duration_ms=28_000,
+                     dropped_tokens=None)]
     # the compacted context: summary + what follows, rewritten; later requests read it
     prefix = 0
     for k in range(j, len(rows)):
@@ -1269,110 +1272,113 @@ def _agent_run(b: _Builder, r: random.Random, dev: DevInfo, start: int, key: tup
                      context_management="set")
     n = r.randint(8, 18)
     edit_at = n - 1 - r.randint(1, 5) if r.random() < 0.4 and n >= 12 else None
-    blocks = _base_blocks(key)
+    blocks = _Blocks()
     rows: list[_Row] = []
     t = start
     prev_prefix = 0
     for i in range(n):
         edits: tuple[tuple[str, int], ...] = ()
         if i == 0:
-            first = BlockRef(**_blk(key, "task", "messages", "text", "user",
-                                    r.randint(4_000, 12_000)))
-            blocks = [*blocks, first]
-            reads, writes, gap = 0, sum(bl.est_tokens or 0 for bl in blocks), 0
+            blocks.append(_blk(key, "task", "messages", "text", "user", r.randint(4_000, 12_000)))
+            reads, writes, gap = 0, blocks.tokens, 0
         else:
             idle = r.random() < 0.25 and i != edit_at
             gap = r.randint(20, 60) if i == edit_at else (
                 r.randint(390, 450) if idle else r.randint(10, 200))
             t += gap * 1000
-            keep_until = len(blocks)
+            keep_until = len(blocks.items)
             if i == edit_at:
-                blocks, cleared, keep_until = _clear_tool_results(blocks, key, i)
+                cleared, keep_until = blocks.clear_tool_results(key, i)
                 if cleared:
                     edits = (("clear_tool_uses_20250919", cleared),)
-            use = BlockRef(**_blk(key, f"use{i}", "messages", "tool_use", "assistant",
-                                  r.randint(100, 300)))
+            blocks.append(_blk(key, f"use{i}", "messages", "tool_use", "assistant",
+                               r.randint(100, 300)))
             size = r.randint(8_000, 16_000) if r.random() < 0.3 else r.randint(1_500, 4_000)
-            res = BlockRef(**_blk(key, f"res{i}", "messages", "tool_result", "user", size))
-            blocks = [*blocks, use, res]
-            total = sum(bl.est_tokens or 0 for bl in blocks)
+            blocks.append(_blk(key, f"res{i}", "messages", "tool_result", "user", size))
             if edits:
-                reads = sum(bl.est_tokens or 0 for bl in blocks[:keep_until])
+                reads = sum(bl.est_tokens or 0 for bl in blocks.items[:keep_until])
             elif gap <= 300:
                 reads = prev_prefix
             else:
                 reads = 0
-            writes = total - reads
+            writes = blocks.tokens - reads
         prev_prefix = reads + writes
-        fp = _fingerprint(blocks)
-        marker = (Breakpoint(block_index=len(blocks) - 1, ttl="5m"),)
+        marker = (Breakpoint(block_index=len(blocks.items) - 1, ttl="5m"),)
         rows.append(_Row(ts_ms=t + r.randint(0, 999),
                          usage=UsageBuckets(cache_read=reads, cache_write_5m=writes,
                                             output=r.randint(200, 900)),
                          model=_OPUS55, stop_reason="end_turn" if i == n - 1 else "tool_use",
-                         applied_edits=edits, fingerprint=fp, breakpoints=marker,
-                         duration_ms=r.randint(3_000, 25_000)))
+                         applied_edits=edits, fingerprint=blocks.fingerprint(),
+                         breakpoints=marker, duration_ms=r.randint(3_000, 25_000)))
     b.add_lane(spec, lane_key, rows)
     b.close_session()
 
 
-def _blk(key: tuple, name: str, tier: str, kind: str, role: str | None, est: int
-         ) -> dict[str, Any]:
+def _blk(key: tuple, name: str, tier: str, kind: str, role: str | None, est: int,
+         pos: int = 0) -> BlockRef:
+    """A content-free block: HMACs (under :data:`FLEET_FP_KEY`) of synthetic content that is
+    never written anywhere."""
     content = f"{key}:{name}".encode()
     tag = tier.encode() + b"\0"
     cpt10 = {"tool_def": 27, "tool_result": 25}.get(kind, 36)
-    return dict(h=hmac_hex(FLEET_FP_KEY, tag + content, 32),
-                h_sorted=hmac_hex(FLEET_FP_KEY, b"sorted\0" + content, 32),
-                h_norm=hmac_hex(FLEET_FP_KEY, b"norm\0" + tag + content, 32),
-                tier=tier, kind=kind, role=role, n_bytes=est * cpt10 // 10, est_tokens=est)
+    return BlockRef(h=hmac_hex(FLEET_FP_KEY, tag + content, 32),
+                    h_sorted=hmac_hex(FLEET_FP_KEY, b"sorted\0" + content, 32),
+                    h_norm=hmac_hex(FLEET_FP_KEY, b"norm\0" + tag + content, 32),
+                    tier=tier, kind=kind, role=role, n_bytes=est * cpt10 // 10, est_tokens=est,
+                    lookback_pos=pos)
 
 
-def _base_blocks(key: tuple) -> list[BlockRef]:
-    """Twenty non-deferred tool definitions (14,000 tokens) and one system block. Tool definitions
-    are shared by every run (same hashes)."""
+def _base_blocks() -> tuple[BlockRef, ...]:
+    """Twenty non-deferred tool definitions (14,000 tokens) and one system block, shared by every
+    run (same hashes)."""
     per = _TOOL_DEF_TOKENS // _TOOL_DEFS
-    tools = [BlockRef(**_blk(("tools",), f"tool{i}", "tools", "tool_def", None, per))
+    tools = [_blk(("tools",), f"tool{i}", "tools", "tool_def", None, per, i)
              for i in range(_TOOL_DEFS)]
-    system = BlockRef(**_blk(("system",), "system", "system", "system_text", None,
-                             _SYSTEM_TOKENS))
-    return [*tools, system]
+    system = _blk(("system",), "system", "system", "system_text", None, _SYSTEM_TOKENS,
+                  _TOOL_DEFS)
+    return (*tools, system)
 
 
-def _clear_tool_results(blocks: list[BlockRef], key: tuple, step: int
-                        ) -> tuple[list[BlockRef], int, int]:
-    """Context editing (``clear_tool_uses``): the oldest tool results (keeping the last three) are
-    replaced by an 8-token placeholder until ≥ 15,000 tokens are cleared; block positions do not
-    move. Returns ``(blocks, cleared tokens, index of the first cleared block)``."""
-    results = [i for i, bl in enumerate(blocks) if bl.kind == "tool_result"]
-    out = list(blocks)
-    cleared = 0
-    first = len(blocks)
-    for i in results[:-3]:
-        if cleared >= 15_000:
-            break
-        old = blocks[i]
-        stub = BlockRef(**_blk(key, f"cleared{step}.{i}", "messages", "tool_result", "user", 8))
-        out[i] = stub
-        cleared += (old.est_tokens or 0) - 8
-        first = min(first, i)
-    return out, cleared, first
+_BASE_BLOCKS = _base_blocks()
 
 
-def _fingerprint(blocks: Sequence[BlockRef]) -> ContentFingerprint:
-    out = []
-    pos = -1
-    prev_kind = None
-    for bl in blocks:
-        if not (bl.kind == prev_kind and bl.kind in ("tool_use", "tool_result")):
-            pos += 1
-        prev_kind = bl.kind
-        out.append(dataclasses.replace(bl, lookback_pos=pos) if bl.lookback_pos != pos else bl)
-    ends = []
-    for tier in ("tools", "system", "messages"):
-        last = max((i + 1 for i, bl in enumerate(out) if bl.tier == tier), default=0)
-        ends.append(max(last, ends[-1] if ends else 0))
-    return ContentFingerprint(key_id=key_id(FLEET_FP_KEY), blocks=tuple(out),
-                              tier_end=(ends[0], ends[1], ends[2]))
+class _Blocks:
+    """The rendered blocks of an agent run in wire order, with collapsed lookback positions
+    (consecutive tool_use / tool_result blocks share a position) and a running token count."""
+
+    def __init__(self) -> None:
+        self.items: list[BlockRef] = list(_BASE_BLOCKS)
+        self.tokens = sum(bl.est_tokens or 0 for bl in self.items)
+
+    def append(self, block: BlockRef) -> None:
+        last = self.items[-1]
+        same = block.kind == last.kind and block.kind in ("tool_use", "tool_result")
+        pos = last.lookback_pos if same else last.lookback_pos + 1
+        self.items.append(dataclasses.replace(block, lookback_pos=pos))
+        self.tokens += block.est_tokens or 0
+
+    def clear_tool_results(self, key: tuple, step: int) -> tuple[int, int]:
+        """Context editing (``clear_tool_uses``): the oldest tool results (keeping the last three)
+        become an 8-token placeholder until ≥ 15,000 tokens are cleared; positions do not move.
+        Returns ``(cleared tokens, index of the first cleared block)``."""
+        results = [i for i, bl in enumerate(self.items) if bl.kind == "tool_result"]
+        cleared = 0
+        first = len(self.items)
+        for i in results[:-3]:
+            if cleared >= 15_000:
+                break
+            old = self.items[i]
+            self.items[i] = _blk(key, f"cleared{step}.{i}", "messages", "tool_result", "user", 8,
+                                 old.lookback_pos)
+            cleared += (old.est_tokens or 0) - 8
+            first = min(first, i)
+        self.tokens -= cleared
+        return cleared, first
+
+    def fingerprint(self) -> ContentFingerprint:
+        n = len(self.items)
+        return ContentFingerprint(key_id=_FP_KEY_ID, blocks=tuple(self.items),
+                                  tier_end=(_TOOL_DEFS, _TOOL_DEFS + 1, n))
 
 
 def _gen_healthy(team: str, p_active: float) -> Callable[[_Builder, Sequence[int]], None]:
