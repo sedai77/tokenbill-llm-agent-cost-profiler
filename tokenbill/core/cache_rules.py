@@ -22,6 +22,15 @@ Cloud only ("not Amazon Bedrock or Microsoft Foundry"), so ``foundry`` is **not*
 ``tests/v2/sem/CONTRACT-CHANGE-F-SEM-1.md``). The models on which thinking/effort also invalidate
 the tools and system tiers are "model-specific" in the docs without a list, so
 ``effort_invalidates_all_tiers_models`` stays empty (§19.8 #14, unverified).
+
+GitHub Copilot (CORE-AMENDMENTS S-4): requests on channel ``github_copilot`` (any provider) get a
+dedicated row whose TTL semantics are unknown (``ttl_semantics_known=False``): GitHub publishes no
+per-model TTL for its proxy, only the display statement "24 hours for OpenAI models and 1 hour
+for most others" (optimize-ai-usage tutorial), and the VS Code client gates the 1h TTL by model and
+places up to 20 + 2 breakpoints on the Responses path (copilot-cost-levers F8, fact-checked against
+``microsoft/vscode`` ``extensions/copilot``). The row therefore has no TTL option (τ comes only
+from write-TTL hints) and ``core.transitions`` applies the conservative unknown-TTL rule to it.
+The session's context tier (``PricingContext.context_tier``) is salted into the messages tier.
 """
 
 from __future__ import annotations
@@ -37,6 +46,7 @@ from tokenbill.core.models import normalize_model
 __all__ = [
     "ANTHROPIC_CHANNELS",
     "CLAUDE_CODE_EFFORT_MIN_VERSION",
+    "COPILOT_CACHE_CHANNEL",
     "EFFORT_KEEPS_CACHE_CLAUDE_CODE",
     "EFFORT_KEEPS_CACHE_EXCLUDED_CHANNELS",
     "PER_MESSAGE_EFFORT_BETA",
@@ -64,6 +74,8 @@ EFFORT_KEEPS_CACHE_EXCLUDED_CHANNELS = frozenset({"bedrock", "vertex"})
 PER_MESSAGE_EFFORT_CHANNELS = frozenset({"anthropic_api", "claude_platform_aws", "vertex"})
 
 ANTHROPIC_CHANNELS = ("anthropic_api", "claude_platform_aws", "foundry", "bedrock", "vertex")
+#: The channel of GitHub Copilot AI-credit usage; its row has unknown TTL semantics (S-4).
+COPILOT_CACHE_CHANNEL = "github_copilot"
 
 _SRC_CACHING = "https://platform.claude.com/docs/en/build-with-claude/prompt-caching"
 _SRC_MIDCONV = "https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages"
@@ -72,6 +84,12 @@ _SRC_BEDROCK = "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-cach
 _SRC_VERTEX = "https://cloud.google.com/vertex-ai/generative-ai/pricing"
 _SRC_OPENAI = "https://developers.openai.com/api/docs/guides/prompt-caching"
 _SRC_AZURE = "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/prompt-caching"
+# GitHub Copilot (addendum §19.3 #26, research-verified 2026-09-23): the tutorial's cache
+# statement, and the VS Code client source behind the cost-levers F8 fact-check (1h TTL gated by
+# model in ``modelSupportsExtendedCacheTtl``; up to 20 + 2 breakpoints on the Responses path).
+_SRC_GH_OPTIMIZE = "https://docs.github.com/en/copilot/tutorials/optimize-ai-usage"
+_SRC_VSCODE_CACHE = ("https://github.com/microsoft/vscode/blob/main/extensions/copilot/src/"
+                     "platform/networking/common/anthropic.ts")
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +111,10 @@ class CacheRules:
     # models on which thinking/effort also salt tools/system; empty until verified (§19.8 #14)
     effort_invalidates_all_tiers_models: tuple[str, ...]
     sources: tuple[str, ...]
+    # S-4 (appended): False when the provider does not document where the TTL clock starts or
+    # whether reads refresh it (GitHub Copilot); ``core.transitions`` then widens the TTL-expiry
+    # and ambiguity windows by the previous request's duration.
+    ttl_semantics_known: bool = True
 
 
 _ANTHROPIC_TIER_PARAMS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -162,6 +184,29 @@ def _openai_rules(channel: str, *, ttl_options_s: tuple[int, ...]) -> CacheRules
     )
 
 
+# Anthropic's tiers with the session's context tier salted into the messages tier (S-4).
+_COPILOT_TIER_PARAMS: tuple[tuple[str, tuple[str, ...]], ...] = tuple(
+    (tier, (*params, "context_tier") if tier == "messages" else params)
+    for tier, params in _ANTHROPIC_TIER_PARAMS
+)
+_COPILOT_RULES = CacheRules(
+    provider="github",
+    channel=COPILOT_CACHE_CHANNEL,
+    ttl_options_s=(),
+    ttl_measured_from="request_start",
+    refresh_on_read=True,
+    visible_from="response_end",
+    lookback_positions=None,
+    collapse_tool_runs=False,
+    max_breakpoints=4,
+    scope="organization",
+    tier_params=_COPILOT_TIER_PARAMS,
+    effort_invalidates_all_tiers_models=(),
+    sources=(_SRC_GH_OPTIMIZE, _SRC_VSCODE_CACHE),
+    ttl_semantics_known=False,
+)
+
+
 # Bounded digit runs: model ids come from provider payloads, and ``int()`` of a digit string longer
 # than ``sys.get_int_max_str_digits()`` raises ValueError (a garbage id must not crash rules_for).
 _GPT_VERSION_RE = re.compile(r"\Agpt-(\d{1,6})(?:\.(\d{1,6}))?(?!\d)")
@@ -182,10 +227,13 @@ class RulesTable:
     """The built-in cache-rule table (implements ``CacheRulesProvider``).
 
     ``rules_for`` is keyed by channel; the model matters only for OpenAI TTLs (GPT-5.6+ → 1800 s on
-    ``openai_api``; Azure's TTL for 5.6+ is unverified, so Azure rows carry no TTL option). An
-    unknown channel falls back by provider: Anthropic → the ``anthropic_api`` semantics
-    (workspace scope), OpenAI → the ``openai_api`` semantics; any other provider gets a
-    conservative row (no TTL option, organization scope, visibility at response end).
+    ``openai_api``; Azure's TTL for 5.6+ is unverified, so Azure rows carry no TTL option). Channel
+    ``github_copilot`` gets the GitHub Copilot row for any provider (provider ``github``, no TTL
+    option, organization scope, ``ttl_semantics_known=False``; S-4). An unknown channel falls
+    back by provider: Anthropic → the ``anthropic_api`` semantics (workspace scope), OpenAI → the
+    ``openai_api`` semantics; any other provider gets a conservative row (no TTL option,
+    organization scope, visibility at response end). Every row except Copilot's has
+    ``ttl_semantics_known=True``.
     """
 
     def __init__(self) -> None:
@@ -196,7 +244,8 @@ class RulesTable:
         self._cache: dict[tuple[str, str, str], CacheRules] = {}
 
     def channels(self) -> tuple[str, ...]:
-        """The channels with a dedicated row."""
+        """The channels with a dedicated row of the SPEC table (§3.14; the Copilot extension row
+        for ``github_copilot`` is not listed, so this stays the pinned wave-1 list)."""
         return (*ANTHROPIC_CHANNELS, "openai_api", "azure_openai")
 
     def rules_for(self, provider: str, channel: str, model: str) -> CacheRules:
@@ -212,6 +261,8 @@ class RulesTable:
         return rules
 
     def _build(self, provider: str, channel: str, model: str) -> CacheRules:
+        if channel == COPILOT_CACHE_CHANNEL:
+            return _COPILOT_RULES
         row = self._anthropic.get(channel)
         if row is not None:
             return row

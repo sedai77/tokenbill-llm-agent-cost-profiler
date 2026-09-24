@@ -15,11 +15,20 @@ of the most recent billed write before ``i`` (the semantics of ``core.lanes.ttl_
 else the ``write_ttl_hint`` of request ``i``'s serving inference, else unknown. ``ambiguous`` iff
 ``τ`` is known and ``|gap − τ| ≤ 10 s``.
 
+**Unknown TTL semantics** (CORE-AMENDMENTS S-4; GitHub Copilot): when the cache-rule row of
+request ``i``'s serving inference has ``ttl_semantics_known=False``, nobody documents where the
+TTL clock starts (request start or response end) or whether reads refresh it, so the windows widen
+by ``d`` = the duration of request ``i−1`` (from its first attempt's start to the latest attempt
+end ``ts_start + duration_ms``; an unknown ``duration_ms`` adds nothing): rule 3 applies only when
+``gap > τ + d + 10 s`` (true under every reading) and ``ambiguous`` iff ``|gap − τ| ≤ d + 10 s``.
+With ``τ`` unknown there is never a ``ttl-expiry``. Every other row is unchanged.
+
 Cause precedence (first match; slugs are contract): ``compaction`` (COMPACTION / CLEAR /
 CONTEXT_EDIT event in ``(ts_{i−1}, ts_i]``, applied context edits or dropped thinking blocks on
 request ``i``) → ``model-switch`` (sub-causes ``refusal-fallback``, ``availability-fallback``,
 ``plan-toggle``, ``ping-pong``, ``user``) → ``ttl-expiry`` → ``param-change`` (``fast-toggle``,
 ``effort-change`` unless :func:`~tokenbill.core.cache_rules.effort_change_keeps_cache`,
+``context-tier-change`` (the serving inferences' ``pricing.context_tier`` differ; S-4),
 ``client-upgrade``, ``directory-change``) → the canonical diagnostic reason → ``context-shrank``
 (``T_i < 0.9·T_{i−1}``) → ``unexplained``. A parameter "differs" only when both requests report it
 (``None`` means not observed, never a change); the served speed always counts.
@@ -37,7 +46,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from decimal import Decimal
 from fractions import Fraction
 
-from tokenbill.core.cache_rules import effort_change_keeps_cache
+from tokenbill.core.cache_rules import RulesTable, effort_change_keeps_cache
 from tokenbill.core.errors import ContractViolation
 from tokenbill.core.evidence import MISS_MIN_FRACTION as _MISS_MIN_FRACTION_FACT
 from tokenbill.core.evidence import MISS_MIN_TOKENS as _MISS_MIN_TOKENS_FACT
@@ -81,8 +90,8 @@ CAUSES = ("compaction", "model-switch", "ttl-expiry", "param-change", "tools-cha
           "system-changed", "messages-changed", "context-shrank", "unexplained")
 MODEL_SWITCH_SUB_CAUSES = ("refusal-fallback", "availability-fallback", "plan-toggle", "ping-pong",
                            "user", "diag")
-PARAM_CHANGE_SUB_CAUSES = ("fast-toggle", "effort-change", "client-upgrade", "directory-change",
-                           "diag")
+PARAM_CHANGE_SUB_CAUSES = ("fast-toggle", "effort-change", "context-tier-change", "client-upgrade",
+                           "directory-change", "diag")
 #: Canonical ``CacheDiagnostic.reason`` → (cause, sub_cause) for rule 5.
 #: ``previous_message_not_found`` and ``unavailable`` carry no comparison and fall through.
 DIAG_CAUSES: Mapping[str, tuple[str, str | None]] = {
@@ -102,6 +111,8 @@ _FALLBACK_KINDS = frozenset({InferenceKind.FALLBACK, InferenceKind.FALLBACK_DECL
 _HINT_TTL_S = {"5m": 300, "1h": 3600}
 _OVERLOADED = frozenset({"overloaded", "overloaded_error"})
 _DAY_MS = 86_400_000
+#: Rules used when a caller passes no rules provider (``rules=None``).
+_DEFAULT_RULES = RulesTable()
 
 
 def is_miss_event(missed: int, expected: int) -> bool:
@@ -159,6 +170,14 @@ def _attr(event: LaneEvent, key: str) -> object:
     return None
 
 
+def _duration_ms(req: Request) -> int:
+    """Wall time of *req*: from its first attempt's start to the latest known attempt end
+    (``ts_start_ms + duration_ms``; an attempt without a duration ends at its start)."""
+    start = req.ts_start_ms
+    end = max(att.ts_start_ms + (att.duration_ms or 0) for att in req.attempts)
+    return max(0, end - start)
+
+
 class _Step:
     """One request with a serving inference, and what the classification needs from it."""
 
@@ -169,6 +188,27 @@ class _Step:
         self.inf = inf
         self.model = req.model
         self.tau = tau
+
+
+class _Semantics:
+    """``ttl_semantics_known`` of the cache-rule row of each serving pricing context, memoized
+    per (provider, channel, model); a row without the attribute counts as known."""
+
+    __slots__ = ("_memo", "_rules")
+
+    def __init__(self, rules: CacheRulesProvider | None) -> None:
+        self._rules = rules if rules is not None else _DEFAULT_RULES
+        self._memo: dict[tuple[str, str, str], bool] = {}
+
+    def known(self, step: _Step) -> bool:
+        pricing = step.inf.pricing
+        key = (pricing.provider, pricing.channel, pricing.model or step.model)
+        value = self._memo.get(key)
+        if value is None:
+            row = self._rules.rules_for(*key)
+            value = getattr(row, "ttl_semantics_known", True) is not False
+            self._memo[key] = value
+        return value
 
 
 def _param_change(cur: _Step, prev: _Step) -> str | None:
@@ -184,6 +224,8 @@ def _param_change(cur: _Step, prev: _Step) -> str | None:
                 client_version=cur.req.attribution.client_version,
                 betas=p.betas):
         return "effort-change"
+    if _differs(cur.inf.pricing.context_tier, prev.inf.pricing.context_tier):
+        return "context-tier-change"
     a, pa = cur.req.attribution, prev.req.attribution
     if _differs(a.client_version, pa.client_version):
         return "client-upgrade"
@@ -197,10 +239,12 @@ def classify_transitions(lane: Lane, *, pricer: Pricer, rules: CacheRulesProvide
                          ) -> list[Transition]:
     """Every transition ``i ≥ 1`` of *lane* (see the module docstring for the rules).
 
-    *pricer* supplies ``min_cacheable_tokens`` for the documented prediction. *rules* and
-    *static_prefix_floor* are accepted for protocol symmetry with the replay engines (the cause
-    and prediction rules of §3.15 need neither: predicted reads on a predicted miss are the
-    caller's ``static_prefix_floor[(scope, model)]``). O(requests + events) per lane.
+    *pricer* supplies ``min_cacheable_tokens`` for the documented prediction. *rules* supplies
+    ``CacheRules.ttl_semantics_known`` of each serving context (the unknown-TTL rule, S-4;
+    ``None`` uses the built-in :class:`~tokenbill.core.cache_rules.RulesTable`).
+    *static_prefix_floor* is accepted for protocol symmetry with the replay engines (predicted
+    reads on a predicted miss are the caller's ``static_prefix_floor[(scope, model)]``).
+    O(requests + events) per lane.
     """
     steps: list[_Step] = []
     last_ttl: int | None = None
@@ -219,6 +263,7 @@ def classify_transitions(lane: Lane, *, pricer: Pricer, rules: CacheRulesProvide
     events = lane.events
     event_ts = [ev.ts_ms for ev in events]
     alternating = _opus_sonnet_switches([s.model for s in steps]) >= 2
+    semantics = _Semantics(rules)
     min_cache_memo: dict[tuple[object, int], int] = {}
 
     def min_cacheable(step: _Step) -> int:
@@ -245,7 +290,15 @@ def classify_transitions(lane: Lane, *, pricer: Pricer, rules: CacheRulesProvide
         miss = is_miss_event(missed, expected)
         tau = cur.tau
         tau_ms = tau * 1000 if tau is not None else None
-        ambiguous = tau_ms is not None and abs(gap - tau_ms) <= AMBIGUITY_MS
+        expired = ambiguous = False
+        if tau_ms is not None:
+            slack, limit = AMBIGUITY_MS, tau_ms
+            if not semantics.known(cur):
+                # S-4: unknown TTL semantics widen both windows by the previous request's duration
+                slack += _duration_ms(prev.req)
+                limit = tau_ms + slack
+            ambiguous = abs(gap - tau_ms) <= slack
+            expired = gap > limit
         diag = cur.req.final_attempt.diagnostics
         diag_reason = diag.reason if diag is not None else None
         window = events[bisect_right(event_ts, prev_ts):bisect_right(event_ts, ts)]
@@ -262,7 +315,7 @@ def classify_transitions(lane: Lane, *, pricer: Pricer, rules: CacheRulesProvide
             elif model_switch:
                 cause = "model-switch"
                 sub_cause = _switch_sub_cause(lane, steps, i, window, gap, tau_ms, alternating)
-            elif tau_ms is not None and gap > tau_ms:
+            elif expired:
                 cause = "ttl-expiry"
             elif param_sub is not None:
                 cause, sub_cause = "param-change", param_sub
