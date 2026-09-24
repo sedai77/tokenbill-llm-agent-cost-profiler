@@ -454,11 +454,11 @@ def restore_caching_saving(lanes: Iterable[Lane], coster: Coster, *, ttl_s: int 
             u = inf.usage
             ts = req.ts_start_ms
             total = _total(u)
+            if prev_total is not None and abs(ts - prev_ts - ttl_s * 1000) <= 10_000:
+                raise ContractViolation("restore_caching_saving: ambiguous gap")
             if prev_total is None:
                 reads, writes = 0, total
             elif ts - prev_ts <= ttl_s * 1000:
-                if abs(ts - prev_ts - ttl_s * 1000) <= 10_000:
-                    raise ContractViolation("restore_caching_saving: ambiguous gap")
                 reads = min(prev_total, total)
                 writes = total - reads
             else:
@@ -701,12 +701,15 @@ def edit_churn(lanes: Iterable[Lane], coster: Coster) -> tuple[int, int, list[Fr
     kstars: list[Fraction] = []
     for lane in lanes:
         reqs = _plain(lane)
+        tau = 300_000
         for i, req in enumerate(reqs):
             cleared = sum(n for a in req.attempts for _, n in a.applied_edits)
-            if i == 0 or not cleared:
-                continue
-            gap = req.ts_start_ms - reqs[i - 1].ts_start_ms
-            if gap > 300_000:
+            warm = i > 0 and req.ts_start_ms - reqs[i - 1].ts_start_ms <= tau
+            u_now = _serving(req).usage
+            if u_now.cache_write:     # τ for the next request: the TTL of this write
+                tau = 3_600_000 if _single_write_bucket(u_now, lane) == "cache_write_1h" \
+                    else 300_000
+            if not cleared or not warm:
                 continue
             inf = _serving(req)
             u = inf.usage

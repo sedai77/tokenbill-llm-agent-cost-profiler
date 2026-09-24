@@ -111,7 +111,7 @@ _CC_VERSION = "2.1.270"
 _CI_VERSIONS = ("2.1.268", "2.1.270", "2.1.271")
 _AWS_ACCOUNT = "111122223333"
 _OPUS55, _OPUS5, _OPUS48 = "claude-opus-5-5", "claude-opus-5", "claude-opus-4-8"
-_FABLE5, _SONNET5, _SONNET46 = "claude-fable-5", "claude-sonnet-5", "claude-sonnet-4-6"
+_FABLE5, _SONNET5 = "claude-fable-5", "claude-sonnet-5"
 _UNPRICED_MODEL = "claude-sonnet-5-5"   # announced 2026-09-22, not priced (SPEC §19.1)
 _TOOL_DEF_TOKENS = 14_000
 _TOOL_DEFS = 20
@@ -418,7 +418,6 @@ class _Builder:
         self._params: dict[tuple, RequestParams] = {}
         self._lanes: list[Lane] = []
         self._session: tuple[str, str, DevInfo, str, int, int] | None = None
-        self.n_requests = 0
 
     # ---------- shared pieces ----------
 
@@ -506,7 +505,7 @@ class _Builder:
 
     def add_lane(self, spec: _LaneSpec, lane_key: str, rows: Sequence[_Row], *,
                  parent: str | None = None, events: Iterable[LaneEvent] = (),
-                 msg_scope: str | None = None, extra_requests: Sequence[Request] = ()) -> None:
+                 extra_requests: Sequence[Request] = ()) -> None:
         """Materialise *rows* as requests of one lane (plus its shell and events)."""
         assert self._session is not None
         session_key, source_kind, dev, team, lo, hi = self._session
@@ -534,10 +533,9 @@ class _Builder:
                                       kind=InferenceKind.FALLBACK_DECLINED, usage=d_usage,
                                       pricing=d_ctx, billable=d_billable, billing_rule_id=d_rule))
             kind = InferenceKind.FALLBACK if row.declined is not None else row.kind
-            billable = True
             infs.append(Inference(
                 inference_id=stable_id("inf", rid, len(infs)), kind=kind, usage=row.usage,
-                pricing=ctx, usage_source=row.usage_source, billable=billable,
+                pricing=ctx, usage_source=row.usage_source, billable=True,
                 output_upper=row.output_upper))
             attempt = Attempt(
                 attempt_id=stable_id("at", rid, 0), attempt_no=0, ts_start_ms=row.ts_ms,
@@ -558,7 +556,6 @@ class _Builder:
         evs = list(events)
         self.requests.extend(requests)
         self.events.extend(evs)
-        self.n_requests += len(requests)
         shell = Lane(lane_key=lane_key, session_key=session_key, kind=spec.kind,
                      parent_lane_key=parent, cache_scope_key=spec.scope, requests=(),
                      events=(), ttl_observed=_ttl_observed(requests), lane_exact=True)
@@ -887,13 +884,15 @@ def _gen_infra(b: _Builder, devs: Sequence[int]) -> None:
     """Opus 5.5 main lanes; devs 0–1 sticky fast mode, dev 2 sticky xhigh; the cross-team extras
     on devs 3–5 (transcript days)."""
     days = b.days
+    placeholder_day, compaction_day = min(1, days - 1), min(2, days - 1)
     for d in devs:
         dev = b.dev("infra", d)
         fast = d in (0, 1)
         effort = "xhigh" if d == 2 else "medium"
         for day in range(days):
             r = b.rng("infra", d, day)
-            if r.random() >= 0.7:
+            planted = (d, day) in ((3, placeholder_day), (5, compaction_day))
+            if r.random() >= 0.7 and not planted:
                 continue
             start = _session_start(r, b, day, (8, 15))
             sk = b.open_session("infra", dev, _uuid("infra", b.seed, d, day), "claude-code")
@@ -905,9 +904,9 @@ def _gen_infra(b: _Builder, devs: Sequence[int]) -> None:
                                  speed="fast" if fast else "standard")
             extra_requests: list[Request] = []
             extra_events: list[LaneEvent] = []
-            if d == 3 and day == min(1, days - 1):
+            if (d, day) == (3, placeholder_day):
                 _plant_placeholder(r, rows)
-            if d == 5 and day == min(2, days - 1):
+            if (d, day) == (5, compaction_day):
                 extra_requests, extra_events = _plant_hidden_compaction(b, r, sk, lane_key, rows)
             _attach_appended(r, rows)
             events = [*_human_events(lane_key, rows), *extra_events]   # after any time shift
@@ -1582,8 +1581,6 @@ def _provider_records(lanes: Sequence[Lane], hints: FleetHints, *, days: int, to
     aggregates: list[UsageAggregate] = []
     cost_lines: list[CostLine] = []
     outcomes: list[OutcomeAggregate] = []
-    remainders = Decimal(0)
-
     for (date, ws, model, tier, speed, geo), vals in sorted(usage.items()):
         pages.usage_rows.append({"date": date, "workspace_id": ws, "model": model,
                                  "service_tier": tier, "speed": speed, "inference_geo": geo,
@@ -1607,8 +1604,7 @@ def _provider_records(lanes: Sequence[Lane], hints: FleetHints, *, days: int, to
         pages.cost_rows.append({"date": date, "workspace_id": ws, "model": model,
                                 "token_type": token_type, "description": desc, "amount": cents,
                                 "service_tier": "standard", "inference_geo": "global"})
-        nano, rem = cents_to_nano(cents)
-        remainders += rem
+        nano, _rem = cents_to_nano(cents)
         cost_lines.append(CostLine(
             line_id=stable_id("cl", "anthropic.cost_report", date, ws, model, token_type),
             source_kind="anthropic.cost_report", date_utc=date, channel="anthropic_api",
@@ -1654,9 +1650,8 @@ def _provider_records(lanes: Sequence[Lane], hints: FleetHints, *, days: int, to
             "product_servicecode": "AmazonBedrock",
             "product_product_name": f"{model_display(_OPUS5)} (Amazon Bedrock Edition)",
         })
-        amount_nano, rem = usd_str_to_nano(_dec_str(net))
-        remainders += rem
-        list_nano, _ = usd_str_to_nano(_dec_str(unblended))
+        amount_nano, _rem = usd_str_to_nano(_dec_str(net))
+        list_nano, _rem = usd_str_to_nano(_dec_str(unblended))
         principal = pseudonym(FLEET_ORG_KEY, "p", arn)
         final = "provisional" if _provisional(date, today) else "final"
         cost_lines.append(CostLine(
@@ -1712,11 +1707,10 @@ def _provider_records(lanes: Sequence[Lane], hints: FleetHints, *, days: int, to
         by_date.setdefault(date, []).append((dev.team, 1, payload))
     for date, rows in sorted(by_date.items()):
         per_team: dict[str, tuple[str, int, dict[str, Any]]] = {}
-        from tokenbill.core.kanon import _combine_payload  # same combination rule
         for team, n, payload in rows:
             prev = per_team.get(team)
             per_team[team] = (team, n, payload) if prev is None else (
-                team, prev[1] + n, _combine_payload(prev[2], payload))
+                team, prev[1] + n, _add_payload(prev[2], payload))
         merged, _dropped = merge_small_groups(list(per_team.values()), k=5)
         start = _date_ms(date)
         final = "provisional" if _provisional(date, today) else "final"
@@ -1749,9 +1743,19 @@ def _provider_records(lanes: Sequence[Lane], hints: FleetHints, *, days: int, to
         provisional_dates=tuple(d for d in window if _provisional(d, today)),
         unpriced_models=tuple(sorted(unpriced_models)), unpriced_tokens=unpriced_tokens,
         overage_dates=tuple(_date_add(WINDOW_START, d) for d in hints.overage_days))
-    del remainders
     return ProviderRecords(aggregates=tuple(aggregates), cost_lines=tuple(cost_lines),
                            outcomes=tuple(outcomes), pages=pages, recon=recon)
+
+
+def _add_payload(a: Mapping[str, Any], b: Mapping[str, Any]) -> dict[str, Any]:
+    """Sum two analytics payloads (per-model token/cost tuples and outcome counts)."""
+    models = dict(a["models"])
+    for model, vals in b["models"].items():
+        prev = models.get(model)
+        models[model] = vals if prev is None else tuple(x + y for x, y in zip(prev, vals,
+                                                                              strict=True))
+    outcome = tuple(x + y for x, y in zip(a["outcome"], b["outcome"], strict=True))
+    return {"models": models, "outcome": outcome}
 
 
 def _dev_of(hints: FleetHints, req: Request) -> DevInfo:
