@@ -78,20 +78,45 @@ def test_baseline_evidence_follows_the_lines() -> None:
     assert res.baseline.low_nano <= res.baseline.nano <= res.baseline.high_nano
 
 
-def test_unpriced_lane_makes_totals_unpriced_but_not_the_saving() -> None:
+def test_an_unpriced_changed_request_makes_the_saving_unpriced() -> None:
+    """R2 (unknown is not zero): the saving of a changed request whose observed or policy cost is
+    unpriced is unknown, so the per-request sum is unpriced too (``core.labels.add``)."""
     priced = a1_lane(lane_key="a")
     unknown = table([(0, 0, 50_000, 0, 0, 100), (30, 50_000, 1_000, 0, 0, 100)],
                     model="claude-not-a-model", lane_key="b")
     res = replay([priced, unknown], "ttl=1h")
     assert res.baseline.nano is None and res.baseline.note.startswith("unpriced:")
     assert res.cost.nano is None
-    assert res.saving.nano is not None
-    assert "excludes unpriced changed requests" in res.saving.note
-    assert any("unpriced changed requests" in a for a in res.assumptions)
+    assert res.saving.nano is None and res.saving.note.startswith("unpriced:")
+    assert res.saving.evidence is Evidence.ESTIMATED and res.saving.low_nano is None
+    assert any("the saving is unpriced" in a for a in res.assumptions)
+    o = outcomes(res)
+    assert all(o[r.request_id].changed and o[r.request_id].cost_nano is None
+               for r in unknown.requests)
     assert "b" not in dict(res.per_lane) and "a" in dict(res.per_lane)   # int field: omitted
     only_unknown = replay([unknown], "ttl=1h")
-    assert only_unknown.saving.nano == 0
-    assert only_unknown.saving.evidence is Evidence.ESTIMATED
+    assert only_unknown.saving.nano is None
+    # a policy cost that is unpriced (remap to a model without a rate row) is unknown as well
+    remapped = replay([priced], "model=claude-not-a-model")
+    assert remapped.baseline.nano is not None and remapped.cost.nano is None
+    assert remapped.saving.nano is None
+    # merging shard replays keeps it unpriced (core.labels.add: None if either is None)
+    from tokenbill.core.shards import merge_replay
+
+    merged = merge_replay([replay([priced], "ttl=1h"), replay([unknown], "ttl=1h")])
+    assert merged.saving == res.saving and merged.cost == res.cost
+
+
+def test_unchanged_unpriced_requests_save_exactly_zero() -> None:
+    """An unpriced request the policy does not touch keeps its (unpriced) ledger figure and saves
+    exactly 0: the baseline and cost are unpriced, the saving is not."""
+    priced = a1_lane(lane_key="a")
+    unknown = table([(0, 0, 50_000, 0, 0, 100), (30, 50_000, 1_000, 0, 0, 100)],
+                    model="claude-not-a-model", lane_key="b", kind=LaneKind.SUBAGENT)
+    res = replay([priced, unknown], "ttl=1h@lane_kind:main")
+    assert res.baseline.nano is None and res.cost.nano is None
+    assert not any(outcomes(res)[r.request_id].changed for r in unknown.requests)
+    assert res.saving.nano == 1_150_800_000
 
 
 def test_minimal_change_under_a_scoped_ttl() -> None:
@@ -180,6 +205,16 @@ def test_non_lane_input_and_malformed_policies_raise() -> None:
     for pol in bad:
         with pytest.raises(UsageError):
             replay(a1_lane(), pol)
+
+
+@pytest.mark.parametrize("lanes, calibration", [
+    (None, None), (5, None), ("lanes", None), ([], "not a report"), ([], {"status": "pass"}),
+])
+def test_malformed_arguments_raise_usage_error(lanes: object, calibration: object) -> None:
+    with pytest.raises(UsageError):
+        UsageReplayer().replay(lanes, Policy.observed(), mode="documented",  # type: ignore[arg-type]
+                               pricer=PRICER, rules=RULES,
+                               calibration=calibration)  # type: ignore[arg-type]
 
 
 def test_policy_must_be_a_policy() -> None:

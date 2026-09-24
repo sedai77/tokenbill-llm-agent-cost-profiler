@@ -15,7 +15,7 @@ Coverage: `uv run --python 3.12 --extra dev coverage run -m pytest tests/v2/sim 
 |---|---|
 | `helpers.py` | area-local builders: timestamps in seconds after 2026-09-23 12:00 UTC, `table` (`lane_from_table`), the Appendix A lanes, `replay` with `FakePricer` + `RulesTable`, `priced_request` (the ledger: Σ `price_inference` figures), and `random_lane(s)` — every inference shape the ledger holds (5m / 1h / mixed / unknown-TTL writes with and without hint, placeholder output, uncertain billing, partial streams, reconstructed usage, refusal fallbacks, compaction and advisor iterations, retries, output-residual-only requests, reset events, fast / US geo / Bedrock scopes / batch tier, efforts, diagnostics, an unpriced model) |
 | `test_appendix_a.py` | A.1 ($1.1508), A.2 (+$0.318), A.2b ($0.318), A.3 (+$1.1508, with and without a static floor), A.4 ($0.6924, 4 pings for 20 min, 15 capped pings and cold for 2 h, Claude Code lane skipped, streaming SDK lane not skipped, structured-output / forced tool_choice / thinking-enabled / batch lanes skipped, selector scoping), A.5 (cost_observed $4.00, premium $3.90, cold resume `compact` with exactly one event, `clear`), A.6 ($1.999, windows at and above the lane maximum change nothing, MAIN / 1m-context guards, default `S_c`), passthrough-only requests |
-| `test_identity.py` | `assert_replayer_conforms` with `FakePricer` and `FlatRates`; the observed policy is the identity (points and bounds, every outcome unchanged, equal to the ledger) on 200 random lanes; evidence follows the lines; unpriced lanes; minimal change under a scoped TTL; saving = Σ per-request savings; determinism and input-order independence; mixed billing classes → `UsageError`; allowance lanes on `list_equivalent`; empty input; unknown modes and malformed policies → `UsageError`; default rules; block-level policies skipped with a reason |
+| `test_identity.py` | `assert_replayer_conforms` with `FakePricer` and `FlatRates`; the observed policy is the identity (points and bounds, every outcome unchanged, equal to the ledger) on 200 random lanes; evidence follows the lines; an unpriced changed request makes the saving unpriced (R2) while unchanged unpriced requests save 0; malformed arguments → `UsageError`; minimal change under a scoped TTL; saving = Σ per-request savings; determinism and input-order independence; mixed billing classes → `UsageError`; allowance lanes on `list_equivalent`; empty input; unknown modes and malformed policies → `UsageError`; default rules; block-level policies skipped with a reason |
 | `test_rate_transforms.py` | model remap: legacy→4.7+ band [1.00, 1.35], 4.7+→legacy band, same-tier successor and same-family remaps without a band, target minimum gate, clause order; selector-scoped effort (0.505 prior, known reasoning, levels at/below the cap, unknown levels, `s ± 0.25` bounds); `fast=off` flips of fast-toggle misses and plain repricing; `geo=global`; `regional=global` incl. an unknown scope range; batch hit band point/low/high, every predicate exclusion, Bedrock without caching, unsupported model |
 | `test_repairs.py` | `restore_caching` (hand-computed lane, policy TTL, eligibility), `stagger_fanout` (group minimum, 10 s anchor, warm members, cohort confinement), `retry_backoff_cap` (warm final attempt, attempts beyond three dropped with their ranges, short backoffs), `fallback_credit` (credited and not), `shared_ci_prefix` (chains, `floor(0.8·min W)`, static floor, non-CI lanes) |
 | `test_ranges_and_modes.py` | ±10 s ambiguity (305 s under `ttl=5m` spans hit and miss, 295 s, 3,605 s under `ttl=1h`, unchanged TTL has no range), bounds contain points on random lanes for every family; calibrated mode (ρ-weighted flips, pooled small bands, empty report, UNCALIBRATED without a passing report, documented-mode labels), gap bands; sharding: team shards and arbitrary halves merged with `core.shards.merge_replay` equal one replay for every policy family |
@@ -45,9 +45,10 @@ gpt-5.6-sol and Bedrock rows from `core/facts.json` through `FakePricer`).
 
 The engine follows the readings SYNTH-ORACLE documented as O-1 … O-17
 (`tests/v2/synth_oracle/CONTRACT-CHANGE-SYNTH-ORACLE-1.md` on its branch) — a local run of the
-differential gate agrees to the nano on every outcome — except the two items raised in
-`CONTRACT-CHANGE-REPLAY-1.md` (saving bounds per request; cohort-confined cross-lane repairs). In
-short:
+merge-gate differential against `pkg/SYNTH-ORACLE` at `619a8b6` passes on every family (outcomes,
+usage, inserted calls, per-lane totals, counts, baseline, cost and saving to the nano) — except the
+items raised in `CONTRACT-CHANGE-REPLAY-1.md`: cohort-confined cross-lane repairs (item 5) and
+ρ-weighted lane-first repairs in calibrated mode (item 8, not gated). In short:
 
 - **Ranges** are three deterministic passes (point / low / high: ambiguous transitions alive or
   expired, tokenizer factor, effort `s ± 0.25`, batch hit band 0.98 / 0.30) combined with the
@@ -76,8 +77,9 @@ short:
   `S_ci` = floor else `floor(0.8·min W)` over the group, never lowering reads; `retry_backoff_cap`
   needs `E > 0` and keeps attempts 0, 1 and the final one.
 - **Result shape:** outcomes and `per_lane` in lane-key order; `per_lane` omits lanes with an
-  unpriced point; baseline / cost are unpriced when any request is; the saving excludes unpriced
-  changed requests (note and assumption); assumptions and notes carry no per-call counts, so shard
+  unpriced point; baseline / cost are unpriced when any request is; the saving is unpriced when a
+  *changed* request is unpriced (R2, item 7 of the contract-change note), while an unchanged
+  unpriced request saves exactly 0; assumptions and notes carry no per-call counts, so shard
   replays merge to the same text.
 - **Model gate:** only the serving inference is compared (passthrough inferences are identical on
   both sides); predicted reads are clamped to `[0, T − U]`; ρ counts use non-ambiguous predicted

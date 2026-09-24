@@ -300,6 +300,23 @@ def test_expected_rebuilds_and_key_changes_are_not_scored() -> None:
     assert any("key_changed" in n for n in report.notes)
 
 
+def test_rule_one_window_is_half_open() -> None:
+    """A reset event counts for request ``i`` iff ``ts_{i−1} < ts ≤ ts_i`` (§3.15 rule 1)."""
+    from tokenbill.sim.calibrate import _rule1_resets
+
+    r0 = make_request("w", 0, at(0), UsageBuckets(cache_write_5m=50_000), attribution=SDK)
+    r1 = make_request("w", 1, at(30), UsageBuckets(cache_write_5m=52_000), attribution=SDK)
+    r2 = make_request("w", 2, at(60), UsageBuckets(cache_write_5m=54_000), attribution=SDK)
+    steps = [r0, r1, r2]
+    at_prev = LaneEvent(lane_key="w", ts_ms=at(0), kind="clear")
+    at_cur = LaneEvent(lane_key="w", ts_ms=at(60), kind="context_edit")
+    other = LaneEvent(lane_key="w", ts_ms=at(45), kind="human_prompt")
+    lane = make_lane(steps, lane_key="w", events=[at_prev, other])
+    assert _rule1_resets(lane, steps) == [False, False, False]
+    lane = make_lane(steps, lane_key="w", events=[at_prev, other, at_cur])
+    assert _rule1_resets(lane, steps) == [False, False, True]
+
+
 def test_undiagnosed_cause_rule_five_is_undone() -> None:
     from tokenbill.core.types import Transition
 
@@ -337,6 +354,11 @@ def test_argument_validation() -> None:
         calibrate(lanes, pricer=PRICER, rules=RULES)  # type: ignore[arg-type]
     with pytest.raises(UsageError):
         calibrate_pass1(["not a lane"], pricer=PRICER, rules=RULES)  # type: ignore[list-item]
+    for bad in (lambda: None, lambda: 7, lambda: "lanes", lambda: [None], lambda: [5]):
+        with pytest.raises(UsageError):
+            calibrate(bad, pricer=PRICER, rules=RULES)  # type: ignore[arg-type]
+    with pytest.raises(UsageError):
+        calibrate_pass2(None, {}, pricer=PRICER, rules=RULES)  # type: ignore[arg-type]
     with pytest.raises(UsageError):
         merge_partials([])
     day = calibrate_pass1(lanes, pricer=PRICER, rules=RULES)

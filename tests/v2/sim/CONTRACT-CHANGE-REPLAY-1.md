@@ -5,14 +5,18 @@ field or signature was changed. Items 1 and 5 decide the merge-gate differential
 (`tests/v2/synth_oracle/test_differential_replay.py`); the others are documentation or additive
 proposals.
 
-REPLAY ran that differential locally against `pkg/SYNTH-ORACLE` at `fff302e` (a scratch export,
-nothing committed): on the oracle's 12 lane families × their policies, seeds 20260923 / 1 / 7 / 99,
-**every request outcome (points and bounds), serving usage, inserted call, per-lane total, count,
-baseline and cost agree to the nano**. The only remaining difference is item 1 (the saving's
-bounds). REPLAY adopted the oracle's documented readings O-1 … O-17 of
-`CONTRACT-CHANGE-SYNTH-ORACLE-1.md` everywhere except item 1 and item 5 below.
+REPLAY ran that differential locally against `pkg/SYNTH-ORACLE` (scratch exports, nothing
+committed). At `fff302e` everything but the saving's bounds (item 1) agreed. At **`619a8b6`** (the
+oracle adopted item 1 in `42e0f15`, and made an unpriced *changed* request's saving unpriced,
+item 7) the merge-gate test passes: on the oracle's 12 lane families × their policies, seeds
+20260923 / 1–7 / 99, **every request outcome (points and bounds), serving usage, inserted call,
+per-lane total, count, baseline, cost and saving agree to the nano**. REPLAY follows the oracle's
+documented readings O-1 … O-17 of `CONTRACT-CHANGE-SYNTH-ORACLE-1.md` everywhere except item 5
+below (and item 8, calibrated mode, which the gate does not compare).
 
-## 1. `ReplayResult.saving` bounds: per request, unaffected requests contribute 0 (disagreement)
+## 1. `ReplayResult.saving` bounds: per request, unaffected requests contribute 0 (resolved)
+
+**Resolved:** SYNTH-ORACLE adopted this reading in `42e0f15`; kept here for the record.
 
 SPEC §3.5: `saving: baseline − cost, per request then summed (ESTIMATED; ranges crosswise)`;
 §9.1 #1: "every other request keeps its billed usage exactly … Savings are always cost(observed) −
@@ -21,7 +25,7 @@ cost(policy), so model error on unaffected traffic cannot leak into them."
 - **REPLAY:** for a *changed* request the saving is `base − cost` with crosswise bounds
   (`low = base.low − cost.high`); an **unchanged** request's saving is exactly 0 (its policy cost is
   its ledger figure, the same number). The saving is the sum.
-- **Oracle (current):** `sub(baseline, cost)` of the totals, i.e. crosswise over *every* request, so
+- **Oracle (before `42e0f15`):** `sub(baseline, cost)` of the totals, i.e. crosswise over *every* request, so
   an unchanged request with a priced range (unknown-TTL writes, placeholder output, uncertain
   billing, unknown endpoint scope) adds `[low − high, high − low]` to the saving.
 
@@ -76,3 +80,26 @@ so the differential agrees; a fleet with a fan-out group spanning two teams woul
 (pooled below 30 trials, 1 when empty). Consumers other than REPLAY parse the label's first
 integer (the oracle does). **Proposed additive change:** move `GAP_BANDS` to `core` next to
 `CalibrationReport` in the next contract window.
+
+## 7. An unpriced *changed* request makes the saving unpriced (R2; aligned with the oracle)
+
+SPEC R2 ("unknown is not zero") and `core.labels.add` (None if either operand is None): the saving
+of a request the policy changes is unknown when its observed or its policy cost is unpriced (an
+unknown model, or a remap target without a rate row on the lane's channel), so the per-request sum
+is unpriced (`nano=None`, note `unpriced: …`, ESTIMATED, with the replay's calibration label).
+An *unchanged* request saves exactly 0 even when it is unpriced. REPLAY's hand-off version dropped
+unpriced changed requests from the sum and kept a number with an "excludes …" note; this review
+changed it to the R2 reading, which is also SYNTH-ORACLE's (`619a8b6`). Shard merges stay equal to
+one replay (`add` propagates None). Consumers (PLAN's Shapley values, the CLI) must treat an unpriced
+saving as unknown, and PLAN should scope remap levers with selectors that have rate rows.
+**Proposed:** document it in the `ReplayResult.saving` comment of §3.5.
+
+## 8. Calibrated mode: lane-first repairs are ρ-weighted (differs from the oracle; not gated)
+
+§9.4 lists repairs among the flips to a hit that calibrated mode weights by ρ. REPLAY weights
+`stagger_fanout` and `shared_ci_prefix` too, with the gap band of the offset from the fan-out
+group's first member and of the gap to the previous CI run respectively (`restore_caching`,
+`fallback_credit` and `retry_backoff_cap` use the transition's gap, as the oracle does). The oracle
+applies ρ only to transitions with a gap (`i ≥ 1`), so on lane-first repairs it keeps the
+documented hit. The merge-gate differential runs in documented mode only, so this does not decide
+the gate. **Proposed ruling:** REPLAY's reading (the SPEC names repairs without exception).

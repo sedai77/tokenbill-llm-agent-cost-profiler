@@ -23,7 +23,8 @@ Everything is integer / Fraction / Decimal arithmetic: no floats, deterministic 
 from __future__ import annotations
 
 import datetime as _dt
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from bisect import bisect_right
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from decimal import ROUND_HALF_EVEN, Context, Decimal
 from fractions import Fraction
 from typing import Any
@@ -76,6 +77,8 @@ PR_CLASSES: tuple[tuple[str, str], ...] = (
 _NO_COMPARISON = frozenset({"previous_message_not_found", "unavailable"})
 _NOT_COMPARED = _NO_COMPARISON | {"key_changed", "compacted"}
 _REBUILD_LABELS = frozenset({"messages_changed", "system_changed"})
+_RESET_EVENTS = frozenset({LaneEventKind.COMPACTION, LaneEventKind.CLEAR,
+                           LaneEventKind.CONTEXT_EDIT})
 _MIN_BAND_TRIALS = 30
 _DAY_MS = 86_400_000
 _CTX = Context(prec=40, rounding=ROUND_HALF_EVEN)
@@ -125,15 +128,15 @@ def _rule1_resets(lane: Lane, steps: Sequence[Request]) -> list[bool]:
     """§3.15 rule 1 per step: a COMPACTION / CLEAR / CONTEXT_EDIT event in ``(ts_{i−1}, ts_i]``,
     applied context edits or dropped thinking blocks on request ``i``."""
     out = []
-    events = lane.events
+    # timestamps of the reset events (lane events are sorted by ts): one bisect per step keeps
+    # this O((steps + events) · log events) instead of steps × events
+    reset_ts = [ev.ts_ms for ev in lane.events if ev.kind in _RESET_EVENTS]
     prev_ts: int | None = None
     for req in steps:
         ts = req.ts_start_ms
         reset = any(att.applied_edits or att.thinking_dropped > 0 for att in req.attempts)
         if not reset and prev_ts is not None:
-            reset = any(prev_ts < ev.ts_ms <= ts and ev.kind in (
-                LaneEventKind.COMPACTION, LaneEventKind.CLEAR, LaneEventKind.CONTEXT_EDIT)
-                for ev in events)
+            reset = bisect_right(reset_ts, ts) > bisect_right(reset_ts, prev_ts)
         out.append(reset)
         prev_ts = ts
     return out
@@ -169,6 +172,8 @@ class _Walker:
              ) -> Iterable[tuple[Transition, dict[str, Any]]]:
         """Yield every transition of *lanes* with its participation data (``None`` values when
         it does not participate in the cost comparison)."""
+        if isinstance(lanes, (str, bytes)) or not isinstance(lanes, Iterable):
+            raise UsageError("calibrate: lanes must be a collection of Lane records")
         for lane in lanes:
             if not isinstance(lane, Lane):
                 raise UsageError("calibrate: lanes must be Lane records")
@@ -552,10 +557,19 @@ def calibrate(lane_batches: LaneBatches, *, pricer: Pricer, rules: CacheRulesPro
     kw: dict[str, Any] = {"pricer": pricer, "rules": rules, "granularity": granularity,
                           "folds": folds, "seed": seed,
                           "static_prefix_floor": static_prefix_floor}
-    parts1 = [calibrate_pass1(batch, **kw) for batch in lane_batches()]
+    parts1 = [calibrate_pass1(batch, **kw) for batch in _batches(lane_batches)]
     rho = fit_rho_by_fold(parts1, folds=folds)
-    parts2 = [calibrate_pass2(batch, rho, **kw) for batch in lane_batches()]
+    parts2 = [calibrate_pass2(batch, rho, **kw) for batch in _batches(lane_batches)]
     return finish_calibration(parts1, parts2, granularity=granularity, folds=folds)
+
+
+def _batches(lane_batches: LaneBatches) -> Iterator[Sequence[Lane]]:
+    """One pass over ``lane_batches()``; a result that is not an iterable raises ``UsageError``
+    (never a bare ``TypeError``; each batch is checked by the walker)."""
+    got = lane_batches()
+    if isinstance(got, (str, bytes)) or not isinstance(got, Iterable):
+        raise UsageError("calibrate: lane_batches() must return an iterable of lane batches")
+    yield from got
 
 
 def calibrate_lanes(lanes: Sequence[Lane], **kw: Any) -> CalibrationReport:

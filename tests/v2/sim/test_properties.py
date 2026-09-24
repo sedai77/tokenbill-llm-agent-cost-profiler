@@ -66,7 +66,7 @@ def test_random_policies_keep_every_invariant(seed: int, clauses: list[str],
     by_id = {r.request_id: r for lane in lanes for r in lane.requests}
     o = outcomes(res)
     assert set(o) == set(by_id) and res.n_requests == len(by_id)
-    saving = 0
+    saving: int | None = 0
     total = 0
     priced = True
     for rid, x in o.items():
@@ -77,7 +77,9 @@ def test_random_policies_keep_every_invariant(seed: int, clauses: list[str],
             assert (x.cost_nano, x.low_nano, x.high_nano) == \
                 (ledger.nano, ledger.low_nano, ledger.high_nano)
             assert not x.extra
-        elif ledger.nano is not None and x.cost_nano is not None:
+        elif ledger.nano is None or x.cost_nano is None:
+            saving = None          # R2: an unpriced changed request makes the saving unpriced
+        elif saving is not None:
             saving += ledger.nano - x.cost_nano
         if x.cost_nano is None:
             priced = False

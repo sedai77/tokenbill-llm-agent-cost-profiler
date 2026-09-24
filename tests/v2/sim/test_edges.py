@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from tokenbill.core.builders import make_attempt, make_ctx, make_inference, make_lane, make_request
+from tokenbill.core.labels import Calibration
 from tokenbill.core.records import InferenceKind, Lane, LaneKind, UsageBuckets, UsageSource
 from tokenbill.core.testing import FakePricer
 from tokenbill.core.types import CalibrationPartial, CalibrationReport, UnitRates
@@ -73,7 +74,8 @@ def test_calibrated_blend_of_an_unpriced_flip_is_unpriced() -> None:
     res = replay(lane, "ttl=1h", mode="calibrated", calibration=report)
     second = outcomes(res)[lane.requests[1].request_id]
     assert second.changed and second.cost_nano is None
-    assert res.cost.nano is None and res.saving.nano == 0
+    assert res.cost.nano is None and res.saving.nano is None      # R2: unknown is not zero
+    assert res.saving.calibration is Calibration.CALIBRATED
 
 
 def test_context_edits_reset_the_prefix_for_the_compaction_call() -> None:

@@ -6,7 +6,8 @@ content-free: it needs only billed usage buckets, timestamps, request parameters
 Semantics (SPEC §9.1): **minimal change** — a policy changes only the transitions it affects and
 every other request keeps its priced ledger figure exactly (``changed=False``); savings are
 ``cost(observed) − cost(policy)`` **per request, then summed**, so model error on unaffected
-traffic never leaks into them. ``replay(Policy.observed())`` returns ``cost == baseline`` to the
+traffic never leaks into them (an unchanged request saves exactly 0; an unpriced *changed* request
+makes the saving unpriced, R2). ``replay(Policy.observed())`` returns ``cost == baseline`` to the
 nano (points and bounds). One billing class per call (mixed input raises ``UsageError``).
 
 Per request, the fixed application order is (1) rate transforms (model remap with the tokenizer
@@ -126,6 +127,8 @@ _SUMMARY_DEFAULT: int = COMPACTION_SUMMARY_TOKENS_DEFAULT.value  # type: ignore[
 _PROBE_HUGE = 2**50
 #: Note of an unpriced total (no per-call counts: shard replays merge to the same text).
 _UNPRICED_NOTE = "unpriced: some billable inferences have no priced rate row"
+#: Note of an unpriced saving: a request the policy changes is unpriced (R2).
+_UNPRICED_SAVING_NOTE = "unpriced: a request the policy changes has no priced rate row"
 _PROBE_SMALL = 5_000
 _PROBE_EACH = 1_000
 
@@ -631,6 +634,10 @@ class _Run:
                  keep_outcomes: bool) -> None:
         if mode not in MODES:
             raise UsageError("replay: mode must be 'documented' or 'calibrated'")
+        if isinstance(lanes, (str, bytes)) or not isinstance(lanes, Iterable):
+            raise UsageError("replay: lanes must be a collection of Lane records")
+        if calibration is not None and not isinstance(calibration, CalibrationReport):
+            raise UsageError("replay: calibration must be a CalibrationReport or None")
         lanes = list(lanes)
         for lane in lanes:
             if not isinstance(lane, Lane):
@@ -1450,8 +1457,7 @@ class _Run:
         cost_unpriced = 0
         sav_point = sav_low = sav_high = 0
         sav_ranged = False
-        sav_excluded = 0
-        n_changed = 0
+        sav_unpriced = 0          # changed requests whose observed or policy point is unpriced
         per_lane: list[tuple[str, int]] = []
         outcomes: list[ReplayRequestOutcome] = []
         n_requests = 0
@@ -1511,9 +1517,11 @@ class _Run:
                     cost_ranged = cost_ranged or cost[3]
                     lane_point += cost[0]
                 if changed:
-                    n_changed += 1
+                    # an unchanged request saves exactly 0 (priced or not); a changed one saves
+                    # base − cost with crosswise bounds, and makes the saving unpriced when either
+                    # side is unpriced (R2: unknown is not zero)
                     if base is None or cost is None:
-                        sav_excluded += 1
+                        sav_unpriced += 1
                     else:
                         sav_point += base[0] - cost[0]
                         sav_low += base[1] - cost[2]
@@ -1528,13 +1536,12 @@ class _Run:
         rows = tuple(sorted(self.base_rows))
         baseline = self._figure(base_point, base_low, base_high, base_ranged, base_unpriced,
                                 rows, estimated_label=False)
-        assumptions = self._assumptions(sav_excluded)
+        assumptions = self._assumptions(sav_unpriced)
         rate_only = self.c.rate_only and not self.rate_flips
         if self.observed:
             cost_fig = baseline
             saving = zero(basis)
-        elif rate_only and not (base_ranged or cost_ranged or base_unpriced or cost_unpriced
-                                or sav_excluded):
+        elif rate_only and not (base_ranged or cost_ranged or base_unpriced or cost_unpriced):
             # §9.3.5: fast=off / geo=global / regional=global without a flip are exact rate
             # arithmetic on identical tokens
             prov = tuple(sorted(self.base_rows | self.policy_rows))
@@ -1547,15 +1554,21 @@ class _Run:
             prov = tuple(sorted(self.base_rows | self.policy_rows | {replay_id}))
             cost_fig = self._figure(cost_point, cost_low, cost_high, cost_ranged, cost_unpriced,
                                     prov, estimated_label=True)
-            note = "usage-level replay (documented rules)" if self.mode == "documented" \
-                else "usage-level replay (calibrated rho)"
-            if sav_excluded:
-                note += "; excludes unpriced changed requests"
-            saving = Figure(nano=sav_point, evidence=Evidence.ESTIMATED, basis=basis,
-                            low_nano=min(sav_low, sav_point) if sav_ranged else None,
-                            high_nano=max(sav_high, sav_point) if sav_ranged else None,
-                            calibration=self.calibration_label, upper_bound=c.upper_bound,
-                            provenance=prov, note=note)
+            if sav_unpriced:
+                # R2 (unknown is not zero): the saving of an unpriced changed request is
+                # unknown, so the sum is too (core.labels.add semantics; no per-call counts in
+                # the note, so shard replays merge to the same figure)
+                saving = Figure(nano=None, evidence=Evidence.ESTIMATED, basis=basis,
+                                calibration=self.calibration_label, upper_bound=c.upper_bound,
+                                provenance=prov, note=_UNPRICED_SAVING_NOTE)
+            else:
+                note = "usage-level replay (documented rules)" if self.mode == "documented" \
+                    else "usage-level replay (calibrated rho)"
+                saving = Figure(nano=sav_point, evidence=Evidence.ESTIMATED, basis=basis,
+                                low_nano=min(sav_low, sav_point) if sav_ranged else None,
+                                high_nano=max(sav_high, sav_point) if sav_ranged else None,
+                                calibration=self.calibration_label, upper_bound=c.upper_bound,
+                                provenance=prov, note=note)
         return ReplayResult(
             policy=self.policy,
             mode=self.mode,
@@ -1634,7 +1647,7 @@ class _Run:
                                     cost_nano=cost[0], low_nano=cost[1] if ranged else None,
                                     high_nano=cost[2] if ranged else None, changed=changed)
 
-    def _assumptions(self, sav_excluded: int) -> tuple[str, ...]:
+    def _assumptions(self, sav_unpriced: int) -> tuple[str, ...]:
         """Content-free assumption strings; they carry no per-call counts, so merging the replays
         of shards (``core.shards.merge_replay`` de-duplicates them) equals one replay."""
         c = self.c
@@ -1683,8 +1696,9 @@ class _Run:
             out.append("saving is an upper bound")
         if c.needs_eval:
             out.append("needs_eval: quality effects are not modeled")
-        if sav_excluded:
-            out.append("unpriced changed requests are excluded from the saving")
+        if sav_unpriced:
+            out.append("a changed request is unpriced: the saving is unpriced (unknown is not "
+                       "zero)")
         for reason in sorted(self.book.unpriced_reasons):
             out.append(f"unpriced inferences: {reason}")
         return tuple(dict.fromkeys(out))
