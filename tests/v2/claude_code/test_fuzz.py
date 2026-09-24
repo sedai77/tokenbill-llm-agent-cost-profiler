@@ -94,10 +94,8 @@ def test_transcript_fuzz_never_raises_outside_tokenbill_errors(tmp_path: Path,
     path = tmp_path / "projects" / "-x" / "fuzz.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(_mutate(ALPHA, data), encoding="utf-8")
-    try:
-        r = CC.read(path, opts(billing_path="subscription"))
-    except TokenbillError:
-        return
+    # lenient mode: malformed records are quarantined, the read itself never raises (§5.1)
+    r = CC.read(path, opts(billing_path="subscription"))
     assert_no_canary(repr(r), canonical(r))
     state = CollectorState()
     try:
@@ -115,10 +113,7 @@ def test_headless_fuzz_never_raises_outside_tokenbill_errors(tmp_path: Path, dat
     text = _mutate(STREAM, data) if form == "jsonl" else _truncate(ARRAY, data)
     path = tmp_path / "h.jsonl"
     path.write_text(text, encoding="utf-8")
-    try:
-        r = HEADLESS.read(path, opts())
-    except TokenbillError:
-        return
+    r = HEADLESS.read(path, opts())       # lenient: quarantine, never raise (§5.1)
     assert_no_canary(repr(r), canonical(r))
 
 
@@ -132,11 +127,12 @@ def test_random_bytes_never_raise(tmp_path: Path, raw: bytes) -> None:
     for name, adapter in (("r.jsonl", CC), ("r.json", HEADLESS)):
         path = tmp_path / name
         path.write_bytes(raw)
-        try:
-            adapter.read(path, opts())
-        except TokenbillError:
-            pass
+        adapter.read(path, opts())            # lenient: quarantine, never raise (§5.1)
         assert isinstance(adapter.sniff(path, raw), bool)
+        try:
+            adapter.read(path, opts(lenient=False))
+        except TokenbillError:                # strict mode: SourceError on the first bad record
+            pass
 
 
 long_text = st.text(alphabet=st.characters(codec="utf-8", exclude_categories=("Cs",)),

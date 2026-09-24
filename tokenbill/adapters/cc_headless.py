@@ -500,6 +500,8 @@ class _Reader:
             index, locator, msg = entry
             try:
                 self.build_result(sid, index, locator, msg)
+            except BadUsageError:   # malformed result.usage: quarantined, never raised (§5.1)
+                self._quarantine(locator, "bad_usage")
             except (ContractViolation, TypeError, ValueError, KeyError, AttributeError,
                     IndexError, OverflowError, RecursionError):
                 self._quarantine(locator, "bad_type:result")

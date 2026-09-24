@@ -282,3 +282,14 @@ def test_residual_is_priced_at_the_served_speed_of_its_model(tmp_path: Path) -> 
     by_model = {i.pricing.model: i for i in _residual(r).attempts[0].inferences}
     assert by_model[OPUS].pricing.speed == "fast" and by_model[OPUS].usage.output == 298
     assert by_model[SONNET].pricing.speed == "standard"     # no step on the model
+
+
+@pytest.mark.parametrize("usage", [{"input_tokens": "x", "output_tokens": 5},
+                                   {"input_tokens": 1.5}, {"cache_creation": 7}])
+def test_malformed_result_usage_is_quarantined_not_raised(tmp_path: Path, usage: dict) -> None:
+    text = json.dumps({"type": "result", "subtype": "success", "session_id": "s1",
+                       "usage": usage, "total_cost_usd": 0.1})
+    r = read_headless(tmp_path, text, name="result.json")
+    assert [q.reason for q in r.quarantined] == ["bad_usage"] and r.aggregates == []
+    with pytest.raises(SourceError):
+        read_headless(tmp_path, text, name="result.json", lenient=False)
