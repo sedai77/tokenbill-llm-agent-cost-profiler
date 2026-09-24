@@ -807,6 +807,9 @@ _COST_DIMS = ("date", "provider", "channel", "model", "team", "cost_center", "pr
               "workspace_id", "lane_kind", "workload_class", "agent_product", "billing_path")
 _WHERE_KEYS = frozenset(_AGG_DIMS) | {"billing_class", "provider", "project"}
 _HASHED_ATTR = ("repo", "workspace_id", "api_key_id", "skill", "mcp_server", "plugin", "cwd_key")
+#: ``CostLine`` fields that may carry ``h_`` values (name key): the wave-1 workspace / account and
+#: the GitHub repository and agentic-workflow names (C-4).
+_COST_LINE_HASHED = ("workspace_id", "repo", "workflow")
 _HASH_RE = re.compile(r"h_[0-9a-f]{20}\Z")
 _STORE_P_RE = re.compile(r"p_[0-9a-f]{20}\Z")
 _CLUSTER_KINDS = ("team", "workspace", "mdm_group", "gateway")  # "gateway": R-E28
@@ -1002,9 +1005,10 @@ class MemoryStore:
     * **Key-id adoption** (ruling R-E21) with ``adopt_key_ids=True``: the first ingested source of
       adapter ``copilot-export`` whose ``principal_key_id`` is not the store's own is adopted —
       ``meta()`` gains ``adopted_key_id`` / ``adopted_name_key_id`` (a store without an org key also
-      takes them as ``org_key_id`` / ``name_key_id`` and ``org_key_mode == "adopted"``) and an
-      ``adopt_key_id`` audit row; ``p_`` / ``h_`` values under the own or the adopted key id are
-      kept, others nulled (``dq.principal_key_mismatch`` / ``dq.name_key_mismatch``); a second
+      takes them as ``org_key_id`` / ``name_key_id`` — never the name key id of an earlier source —
+      and ``org_key_mode == "adopted"``) and an ``adopt_key_id`` audit row; ``p_`` / ``h_`` values
+      (cost-line ``repo`` / ``workflow`` included) under the own or the adopted key id are kept,
+      others nulled (``dq.principal_key_mismatch`` / ``dq.name_key_mismatch``); a second
       bundle under another key id → ``UsageError`` (nothing stored); another adapter's key id is
       never adopted; ``r_`` / ``c_`` principals still need the store's own org key. Without the
       flag the wave-1 behaviour is unchanged. ``meta()`` always reports ``org_key_mode`` (``own`` |
@@ -1126,9 +1130,14 @@ class MemoryStore:
         if mark in self._ingested:
             counts["skipped"] = 1
             counts["dq.name_key_mismatch"] = 0
+            counts[DQ_PRINCIPAL_KEY_MISMATCH] = 0
             return counts
         adopting = self._adoption(src)
-        store_name = self._meta["name_key_id"] or src.name_key_id or ""
+        # a keyless store opened for adoption takes its name key id from the bundle only (R-E21),
+        # never from whichever source comes first (the SPEC §7.2 rule of every other store)
+        keyless_adopt = self._adopt and self._org_key is None
+        store_name = (self._meta["name_key_id"] if keyless_adopt
+                      else self._meta["name_key_id"] or src.name_key_id or "")
         name_ids = {store_name, self._meta["adopted_name_key_id"]} - {""}
         principal_ids = {self._meta["org_key_id"], self._meta["adopted_key_id"]} - {""}
         if adopting:
@@ -1152,9 +1161,13 @@ class MemoryStore:
             principal = self._pseudonymize(line.principal, principals_ok, counts)
             if principal != line.principal:
                 changes["principal"] = principal
-            if _is_hash(line.workspace_id) and not names_ok:
-                changes["workspace_id"] = None
-                counts["names_nulled"] += 1
+            if not names_ok:
+                # h_ values under a name key id that is neither the store's nor the adopted one
+                # (R-E21); repo / workflow are the GitHub cost-line names (C-4)
+                for name in _COST_LINE_HASHED:
+                    if _is_hash(getattr(line, name)):
+                        changes[name] = None
+                        counts["names_nulled"] += 1
             cost_lines.append(dataclasses.replace(line, **changes) if changes else line)
         aggregates = []
         for agg in result.aggregates:
@@ -1166,7 +1179,7 @@ class MemoryStore:
         # --- commit (nothing above has mutated the store) ---
         if adopting:
             self._adopt_from(src)
-        if not self._meta["name_key_id"] and src.name_key_id:
+        if not self._meta["name_key_id"] and src.name_key_id and not keyless_adopt:
             self._meta["name_key_id"] = src.name_key_id
         ingest_pricer = self._pidx(pricer) if pricer is not None else self._default
         self._ingested.add(mark)
@@ -3829,6 +3842,10 @@ def assert_record_store_conforms(factory: Callable[..., ExtRecordStore], *,
         for b in batches:
             counts = store.put(b, principal_key_id=kid)
             _check(isinstance(counts, dict), "put returns counts")
+            _check(not counts.get(DQ_PRINCIPAL_KEY_MISMATCH),
+                   "the store refused p_ values under key_id(RECORD_STORE_ORG_KEY): the factory "
+                   "must return a store whose ledger accepts that key id (e.g. take "
+                   "(path, org_key) and open the ledger with org_key first)")
         reference = _record_dump(store)
         lics = store.licenses(**w)
         _check(len(lics) == 6, f"expected 6 stored licenses, got {len(lics)}")
@@ -3927,9 +3944,10 @@ def _copilot_source(source_id: str, adapter: str, principal_key: bytes | None,
 
 def _copilot_ledger_batch(source: SourceInfo, principal_key: bytes | None, *,
                           users: Sequence[str] = ("u1", "u2"), fetched_ms: int = 0,
-                          finality: str = "final", day: str = "2026-09-10") -> IngestResult:
+                          finality: str = "final", day: str = "2026-09-10",
+                          name_key: bytes | None = None) -> IngestResult:
     """Copilot requests and AI-usage cost lines of *users* (``p_`` under *principal_key*, or ``r_``
-    refs when it is None)."""
+    refs when it is None); with *name_key* the cost lines carry an ``h_`` repository name."""
     from tokenbill.core.builders import make_ai_usage_row
 
     requests, lines, aggs = [], [], []
@@ -3945,8 +3963,10 @@ def _copilot_ledger_batch(source: SourceInfo, principal_key: bytes | None, *,
                                         "extra": (("gateway", "gw-1"),)})
         requests.append(req)
         if principal_key:
+            repo = pseudonym(name_key, "h", f"repo-{i}") if name_key else None
             line, agg = make_ai_usage_row(date_utc=day, principal=who, credits=str(10 + i),
-                                          team="t1", fetched_ms=fetched_ms, finality=finality)
+                                          team="t1", fetched_ms=fetched_ms, finality=finality,
+                                          repo=repo)
             lines.append(line)
             aggs.append(agg)
     result = _result(source, requests, aggregates=aggs, cost_lines=lines)
@@ -3964,8 +3984,9 @@ def assert_store_copilot_conforms(factory: Callable[..., LedgerStore]) -> dict[s
     ``ClusterDay.pool_nano``; cluster kind ``gateway``; a Copilot cost line re-fetched later
     replaces the earlier version even when that one was final; key-id adoption (R-E21) — a keyless
     store adopts the first ``copilot-export`` key id (``meta`` ``adopted_key_id``, ``org_key_mode
-    == "adopted"``), nulls another adapter's ``p_`` values (``dq.principal_key_mismatch``),
-    refuses a second bundle key id (``UsageError``) and ``r_`` principals (``PrivacyError``); an
+    == "adopted"``), keeps the bundle's ``h_`` cost-line names (adopted name key id), nulls
+    another adapter's ``p_`` values (``dq.principal_key_mismatch``) and ``h_`` names, refuses a
+    second bundle key id (``UsageError``) and ``r_`` principals (``PrivacyError``); an
     org-keyed store keeps its own pseudonyms and the adopted ones side by side. Returns a
     summary."""
     pricer = FakePricer()
@@ -4008,7 +4029,8 @@ def assert_store_copilot_conforms(factory: Callable[..., LedgerStore]) -> dict[s
     # --- keyless adoption ---
     keyless = factory(org_key=None, adopt_key_ids=True, **kw)
     bundle = _copilot_source("bundle-1", ADOPTABLE_ADAPTER, ADOPTED_EXPORT_KEY, ADOPTED_EXPORT_KEY)
-    keyless.ingest(_copilot_ledger_batch(bundle, ADOPTED_EXPORT_KEY), pricer=pricer)
+    keyless.ingest(_copilot_ledger_batch(bundle, ADOPTED_EXPORT_KEY, name_key=ADOPTED_EXPORT_KEY),
+                   pricer=pricer)
     meta = keyless.meta()
     adopted = key_id(ADOPTED_EXPORT_KEY)
     _check(meta.get("adopted_key_id") == adopted and meta.get("org_key_mode") == "adopted"
@@ -4016,12 +4038,16 @@ def assert_store_copilot_conforms(factory: Callable[..., LedgerStore]) -> dict[s
     kept = {r.attribution.principal for r in keyless.iter_requests(**w)}
     _check(kept == {pseudonym(ADOPTED_EXPORT_KEY, "p", u) for u in ("u1", "u2")},
            "the adopted bundle's p_ values are kept")
-    other = _copilot_source("vendor-x", "github-ai-usage", _OTHER_EXPORT_KEY)
-    counts = keyless.ingest(_copilot_ledger_batch(other, _OTHER_EXPORT_KEY, users=("u9",)),
-                            pricer=pricer)
+    other = _copilot_source("vendor-x", "github-ai-usage", _OTHER_EXPORT_KEY, _OTHER_EXPORT_KEY)
+    counts = keyless.ingest(_copilot_ledger_batch(other, _OTHER_EXPORT_KEY, users=("u9",),
+                                                  name_key=_OTHER_EXPORT_KEY), pricer=pricer)
     _check(counts.get(DQ_PRINCIPAL_KEY_MISMATCH, 0) >= 1
            and keyless.meta().get("adopted_key_id") == adopted,
            "another adapter's key id is never adopted; its p_ values are nulled")
+    repos = {c.principal: c.repo for c in keyless.cost_lines(**w)}
+    _check(repos.get(None, "") is None
+           and all(r is not None for p, r in repos.items() if p is not None),
+           "h_ cost-line names are kept under the adopted name key id, nulled under another")
     second = _copilot_source("bundle-2", ADOPTABLE_ADAPTER, _OTHER_EXPORT_KEY, _OTHER_EXPORT_KEY)
     try:
         keyless.ingest(_copilot_ledger_batch(second, _OTHER_EXPORT_KEY), pricer=pricer)

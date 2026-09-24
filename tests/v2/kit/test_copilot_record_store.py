@@ -218,3 +218,10 @@ def test_record_store_conformance_catches(broken, message: str) -> None:
     with pytest.raises(AssertionError, match=message):
         kit.assert_record_store_conforms(
             lambda path: broken(kit.MemoryStore(org_key=ORG)), permutations=2)
+
+
+def test_a_store_without_an_accepting_ledger_fails_with_guidance() -> None:
+    """A record store on a fresh file with no ledger ``meta`` refuses every ``p_`` row (R-E21):
+    the suite says so instead of failing on a row count."""
+    with pytest.raises(AssertionError, match="refused p_ values"):
+        kit.assert_record_store_conforms(lambda path: kit.MemoryRecordStore(), permutations=1)

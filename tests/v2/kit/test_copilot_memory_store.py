@@ -90,6 +90,28 @@ def test_other_adapters_are_never_adopted() -> None:
     assert principals(store) == {None, pseudonym(A, "p", "u1")}
 
 
+def test_a_keyless_adopting_store_takes_its_name_key_from_the_bundle_only() -> None:
+    """R-E21: a store without its own key sets ``name_key_id`` to the bundle's; a source ingested
+    earlier never lends it its name key (the SPEC §7.2 first-ingest rule is for other stores)."""
+    store = kit.MemoryStore(adopt_key_ids=True)
+    vendor = batch(src("vendor", "github-ai-usage", B, B), [pseudonym(B, "p", "v1")],
+                   repo_key=B)
+    counts = store.ingest(vendor)
+    assert counts["names_nulled"] == 1 and store.meta()["name_key_id"] == ""
+    assert {r.attribution.repo for r in store.iter_requests(**W)} == {None}
+    store.ingest(batch(src("bundle", "copilot-export", A, A), [pseudonym(A, "p", "u1")],
+                       repo_key=A))
+    meta = store.meta()
+    assert (meta["name_key_id"], meta["adopted_name_key_id"]) == (key_id(A), key_id(A))
+    assert {r.attribution.repo for r in store.iter_requests(**W)} == {
+        None, pseudonym(A, "h", "repo-0")}
+    # a store that is not adopting keeps the SPEC rule: the first source sets the name key id
+    plain = kit.MemoryStore()
+    plain.ingest(batch(src("vendor", "github-ai-usage", B, B), [pseudonym(B, "p", "v1")],
+                       repo_key=B))
+    assert plain.meta()["name_key_id"] == key_id(B)
+
+
 def test_a_second_bundle_key_is_refused_atomically() -> None:
     store = kit.MemoryStore(adopt_key_ids=True)
     store.ingest(batch(src("bundle", "copilot-export", A, A), [pseudonym(A, "p", "u1")]))
@@ -164,12 +186,57 @@ class _FinalWins(kit.MemoryStore):
         return cands[best]
 
 
+class _KeepsNames(kit.MemoryStore):
+    """Keeps h_ cost-line names whatever their name key id (the wave-1 rule nulled only
+    ``workspace_id``)."""
+
+    def ingest(self, result, *, pricer=None):  # type: ignore[override]
+        src_info = dataclasses.replace(result.source, name_key_id=None)
+        own = self._meta["adopted_name_key_id"] or self._meta["name_key_id"] or None
+        if result.source.name_key_id and own is not None:
+            src_info = dataclasses.replace(result.source, name_key_id=own)
+        result = dataclasses.replace(result, source=src_info)
+        return super().ingest(result, pricer=pricer)
+
+
 @pytest.mark.parametrize("broken,message", [
     (_NoAdoption, "adopts"), (_Unfiltered, "count_users"), (_FinalWins, "latest-fetch"),
+    (_KeepsNames, "h_ cost-line names"),
 ])
 def test_copilot_store_conformance_catches(broken, message: str) -> None:
     with pytest.raises(AssertionError, match=message):
         kit.assert_store_copilot_conforms(lambda **kw: broken(**kw))
+
+
+def test_hashed_cost_line_names_follow_the_name_key() -> None:
+    """R-E21: ``h_`` values under a name key id that is neither the store's nor the adopted one
+    are nulled — on cost lines too (``repo`` / ``workflow`` of GitHub rows, C-4)."""
+    store = kit.MemoryStore(org_key=K_ORG, name_key_id=key_id(K_ORG), adopt_key_ids=True)
+    def lines(source, key):
+        line, _ = make_ai_usage_row(principal=pseudonym(K_ORG, "p", "a"), credits="2",
+                                    repo=pseudonym(key, "h", "repo"))
+        line = dataclasses.replace(line, workflow=pseudonym(key, "h", "wf"))
+        return IngestResult(source=source, requests=[], sessions=[], events=[], aggregates=[],
+                            cost_lines=[line], outcomes=[], quarantined=[], notes=[], stats={},
+                            capabilities=frozenset())
+    own = store.ingest(lines(src("own", "github-ai-usage", K_ORG, K_ORG), K_ORG))
+    assert own["names_nulled"] == 0
+    foreign = lines(src("foreign", "github-ai-usage", K_ORG, C), C)
+    counts = store.ingest(foreign)
+    assert counts["names_nulled"] == 2 and counts["dq.name_key_mismatch"] == 2
+    assert counts[kit.DQ_PRINCIPAL_KEY_MISMATCH] == 0  # the principal key matches
+    by_repo = {(c.repo, c.workflow) for c in store.cost_lines(**W)}
+    assert (None, None) in by_repo
+    assert (pseudonym(K_ORG, "h", "repo"), pseudonym(K_ORG, "h", "wf")) in by_repo
+    # an adopted bundle's names are kept
+    bundle = batch(src("bundle", "copilot-export", A, A), [pseudonym(A, "p", "u1")])
+    bundle.cost_lines = [dataclasses.replace(bundle.cost_lines[0],
+                                             repo=pseudonym(A, "h", "repo"))]
+    assert store.ingest(bundle)["names_nulled"] == 0
+    assert pseudonym(A, "h", "repo") in {c.repo for c in store.cost_lines(**W)}
+    # re-ingesting a source is skipped with every dq count present
+    again = store.ingest(foreign)
+    assert again["skipped"] == 1 and again[kit.DQ_PRINCIPAL_KEY_MISMATCH] == 0
 
 
 def test_count_users_over_cost_lines() -> None:
