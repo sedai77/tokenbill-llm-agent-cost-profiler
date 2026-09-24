@@ -1,14 +1,21 @@
-"""Shared detector helpers (SPEC §3.22, §10.1; F-SEM).
+"""Shared detector helpers (SPEC §3.22, §10.1; F-SEM, Copilot additions F-SEM-C).
 
 Cohorts, stable finding ids, scopes, a validating :class:`~tokenbill.core.types.Finding` builder,
 the billed-rewrite split of a miss, thresholds, the bytes-per-token fit of the carry detector,
 evidence ordering, figure sums and per-bucket rate arithmetic. Money is int nano; no floats.
+
+GitHub Copilot (CORE-AMENDMENTS S-1 … S-3, ruling R-E20): :func:`product_family` names a lane's
+product family (``"copilot"`` for pooled-credit lanes); :func:`make_scope` gives a ``pool`` cohort
+the ``product: copilot`` dim; :func:`build_finding` validates Copilot scopes with the R-E20
+per-field basis domains, labels pool cohorts as list-equivalent AI-credit value and swaps
+Claude Code fixes for Copilot ones; :func:`min_usd_gate` is the ``min_usd`` test for every scope.
+``cohort_key`` is unchanged: billing class ``pool`` already separates Copilot cohorts.
 """
 
 from __future__ import annotations
 
 from bisect import bisect_right
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 
@@ -25,25 +32,34 @@ from tokenbill.core.records import (
     Request,
     UsageBuckets,
 )
-from tokenbill.core.types import AnalysisContext, EvidenceItem, Finding, Scope, Transition
+from tokenbill.core.types import AnalysisContext, EvidenceItem, Finding, Fix, Scope, Transition
 
 __all__ = [
     "AUDIENCES",
     "CATEGORIES",
     "CONFIDENCES",
+    "COPILOT_CHANNEL",
+    "COPILOT_FAMILY",
+    "COPILOT_FIX_TARGET",
+    "COPILOT_SUMMARY_PHRASE",
+    "COPILOT_TITLE_PREFIX",
     "CPT_MIN_SAMPLES",
+    "DEFAULT_FAMILY",
     "LEVER_CLASSES",
     "MAX_EVIDENCE",
     "MAX_SUMMARY",
     "MAX_TITLE",
+    "NO_COPILOT_SETTING",
     "build_finding",
     "cohort_key",
     "evidence_magnitude",
     "finding_id",
     "fit_cpt",
     "make_scope",
+    "min_usd_gate",
     "min_usd_nano",
     "miss_waste",
+    "product_family",
     "rate_nano",
     "sum_figures",
     "threshold",
@@ -63,11 +79,52 @@ CONFIDENCES = frozenset({"high", "medium", "low"})
 _MIN_USD_DEFAULT = "1.00"
 _MAGNITUDE_KEYS = ("magnitude", "nano", "tokens")
 
+#: Product family of every lane that is not a Copilot lane (and of findings without a product dim).
+DEFAULT_FAMILY = "default"
+#: Product family (and ``product`` scope-dim value) of GitHub Copilot lanes and findings (DC14).
+COPILOT_FAMILY = "copilot"
+#: The pricing channel of Copilot AI-credit usage.
+COPILOT_CHANNEL = "github_copilot"
+#: The billing class of GitHub Copilot's pooled AI credits (``core.records.billing_class``).
+_POOL_CLASS = "pool"
+#: Title prefix of pool-cohort findings (list-equivalent credit value, never invoice dollars).
+COPILOT_TITLE_PREFIX = "Copilot credits: "
+#: The labelling phrase every pool-cohort summary carries.
+COPILOT_SUMMARY_PHRASE = "list-equivalent AI-credit value"
+_COPILOT_SUMMARY_TAIL = f"({COPILOT_SUMMARY_PHRASE})"
+#: ``Fix.target`` of Copilot fixes (``core.catalog.fix_for(…, "copilot")``).
+COPILOT_FIX_TARGET = "github-copilot"
+#: Appended to a kept fix text on a Copilot scope when the catalog has no Copilot fix.
+NO_COPILOT_SETTING = " (no Copilot setting known)"
+
 
 def cohort_key(lane: Lane) -> tuple[str | None, str, str]:
     """``(team, lane_kind, billing_class)`` of *lane*: the boundary of every cross-lane
-    computation, so per-shard and whole runs agree. An empty team is unattributed (None)."""
+    computation, so per-shard and whole runs agree. An empty team is unattributed (None).
+
+    Copilot lanes need no fourth element: only the two Copilot billing paths map to billing class
+    ``pool``, so a Copilot lane never shares a cohort with a Claude Code lane of the same team."""
     return (lane.team or None, lane.kind.value, lane.billing_class)
+
+
+def product_family(lane: Lane) -> str:
+    """``"copilot"`` when *lane* is a GitHub Copilot lane, else ``"default"`` (S-1, DC14).
+
+    A Copilot lane has billing class ``pool`` or its first request is priced on channel
+    ``github_copilot`` (the serving inference's pricing context, else the first inference of the
+    request's attempts). ``core.registry.run_detectors`` filters the lanes a detector sees by this
+    family (detector ``families`` and ``core.catalog.FAMILY_EXCLUSIONS``).
+    """
+    if lane.billing_class == _POOL_CLASS:
+        return COPILOT_FAMILY
+    if lane.requests:
+        first = lane.requests[0]
+        inf = first.serving_inference
+        if inf is None:
+            inf = next((i for att in first.attempts for i in att.inferences), None)
+        if inf is not None and inf.pricing.channel == COPILOT_CHANNEL:
+            return COPILOT_FAMILY
+    return DEFAULT_FAMILY
 
 
 def finding_id(detector_id: str, kind: str, scope: Scope) -> str:
@@ -78,7 +135,10 @@ def finding_id(detector_id: str, kind: str, scope: Scope) -> str:
 
 
 def make_scope(**dims: str | None) -> Scope:
-    """A :class:`Scope` from keyword dims: ``None`` values dropped, enums by value, sorted."""
+    """A :class:`Scope` from keyword dims: ``None`` values dropped, enums by value, sorted.
+
+    A ``billing_class="pool"`` scope without a (non-None) ``product`` dim gets
+    ``product="copilot"`` (S-1), so generic detectors' pool cohorts are Copilot findings."""
     out: list[tuple[str, str]] = []
     for key, value in dims.items():
         if value is None:
@@ -88,13 +148,33 @@ def make_scope(**dims: str | None) -> Scope:
         if not isinstance(value, str):
             raise ContractViolation(f"make_scope: dim {key} must be a str")
         out.append((key, value))
+    if ("billing_class", _POOL_CLASS) in out and not any(k == "product" for k, _ in out):
+        out.append(("product", COPILOT_FAMILY))
     return Scope(dims=tuple(sorted(out)))
+
+
+def _is_copilot_scope(scope: Scope) -> bool:
+    """R-E20: a scope with ``product=copilot`` or ``billing_class=pool``."""
+    dims = scope.dims
+    return ("product", COPILOT_FAMILY) in dims or ("billing_class", _POOL_CLASS) in dims
 
 
 def _figures(finding: Finding) -> list[Figure]:
     figs = [finding.cost_observed, finding.recoverable, finding.recoverable_shapley,
             finding.projected_monthly]
     return [f for f in figs if f is not None]
+
+
+#: R-E20 basis domain of each money field of a Copilot-scope finding (CONTRACT is in none;
+#: PROVIDER_ESTIMATE is added for data-quality findings, except on ``headroom``).
+_COPILOT_DOMAINS: tuple[tuple[str, frozenset[Basis]], ...] = (
+    ("cost_observed", frozenset({Basis.LIST_EQUIVALENT, Basis.LIST, Basis.INVOICE})),
+    ("recoverable", frozenset({Basis.LIST, Basis.LIST_EQUIVALENT})),
+    ("recoverable_shapley", frozenset({Basis.LIST, Basis.LIST_EQUIVALENT})),
+    ("projected_monthly", frozenset({Basis.LIST, Basis.LIST_EQUIVALENT})),
+    ("headroom", frozenset({Basis.LIST_EQUIVALENT})),
+)
+_MONEY_FIELDS = tuple(name for name, _ in _COPILOT_DOMAINS)
 
 
 def build_finding(**fields: object) -> Finding:
@@ -106,8 +186,27 @@ def build_finding(**fields: object) -> Finding:
     category / lever_class / audience / confidence in their SPEC value sets, non-negative counts,
     and figure bases — every figure is a :class:`Figure` on one common basis, ``PROVIDER_ESTIMATE``
     only on data-quality findings (R4, in any cohort), otherwise ``LIST_EQUIVALENT`` exactly when
-    the scope's ``billing_class`` is ``allowance`` (D26). Violations raise
-    :class:`ContractViolation`.
+    the scope's ``billing_class`` is ``allowance`` (D26); ``headroom`` must be None. Violations
+    raise :class:`ContractViolation`.
+
+    **Copilot scopes** (a ``product=copilot`` or ``billing_class=pool`` dim; ruling R-E20) replace
+    the one-basis rule by per-field domains: ``cost_observed`` ∈ {LIST_EQUIVALENT, LIST,
+    INVOICE}; ``recoverable``, ``recoverable_shapley``, ``projected_monthly`` ∈ {LIST,
+    LIST_EQUIVALENT}; ``headroom`` LIST_EQUIVALENT; CONTRACT never; PROVIDER_ESTIMATE only in
+    data-quality findings (R4) and never as ``headroom``. Before validation the finding is
+    normalized, never rejected (S-2):
+
+    - a ``billing_class=pool`` cohort with a LIST_EQUIVALENT figure gets the title prefix
+      ``"Copilot credits: "`` and the summary phrase ``"(list-equivalent AI-credit value)"``
+      when absent; the text before them is cut at a word boundary (with "…") so the title stays
+      ≤ 120 and the summary ≤ 400 chars and the labels always survive;
+    - a fix that does not already target ``github-copilot`` is replaced by
+      ``core.catalog.fix_for(detector_id, kind, "copilot")`` (resolved lazily) when that returns
+      a ``github-copilot`` fix; otherwise its text is kept with ``" (no Copilot setting known)"``
+      appended and its config patch, target and applicability gates are dropped (the gates
+      qualify the dropped patch), so no Claude Code key reaches a Copilot fix (DC14). A None fix
+      gets the catalog's Copilot fix when one exists (on Copilot lanes fix text comes from
+      ``fix_for``, addendum §10.4), else stays None.
     """
     data = dict(fields)
     for name in ("lever_ids", "evidence", "references"):
@@ -123,12 +222,84 @@ def build_finding(**fields: object) -> Finding:
     given = data.setdefault("finding_id", expected)
     if given != expected:
         raise ContractViolation("build_finding: finding_id does not match detector/kind/scope")
+    if _is_copilot_scope(scope):
+        _normalize_copilot(data, scope, detector, kind)
     try:
         finding = Finding(**data)  # type: ignore[arg-type]
     except TypeError as exc:
         raise ContractViolation(f"build_finding: {exc}") from None
     _validate(finding)
     return finding
+
+
+def _cut(text: str, limit: int) -> str:
+    """*text* within *limit* chars: cut at a word boundary with "…" (a scope value is never left
+    half-cut in generated text, which ``core.kanon`` scrubs as whole tokens)."""
+    if len(text) <= limit:
+        return text
+    head = text[:limit - 1]
+    if " " in head:
+        head = head.rsplit(" ", 1)[0]
+    return head.rstrip() + "…"
+
+
+def _pool_labels(data: dict[str, object]) -> None:
+    """S-2 title prefix and summary phrase of a pool cohort (idempotent)."""
+    title, summary = data.get("title"), data.get("summary")
+    if isinstance(title, str) and title:
+        body = title[len(COPILOT_TITLE_PREFIX):] if title.startswith(COPILOT_TITLE_PREFIX) \
+            else title
+        data["title"] = COPILOT_TITLE_PREFIX + _cut(body, MAX_TITLE - len(COPILOT_TITLE_PREFIX))
+    if isinstance(summary, str) and COPILOT_SUMMARY_PHRASE not in summary:
+        if not summary:
+            data["summary"] = _COPILOT_SUMMARY_TAIL
+        else:
+            tail = " " + _COPILOT_SUMMARY_TAIL
+            data["summary"] = _cut(summary, MAX_SUMMARY - len(tail)) + tail
+
+
+def _catalog_fix(detector_id: str, kind: str) -> Fix | None:
+    """``core.catalog.fix_for(detector_id, kind, "copilot")`` (F-KIT-C), resolved lazily: a
+    missing module or accessor, or an answer that is not a ``github-copilot`` :class:`Fix`,
+    means "no Copilot fix known"."""
+    try:
+        from tokenbill.core import catalog
+    except ImportError:  # pragma: no cover - core.catalog ships with the foundation
+        return None
+    fix_for = getattr(catalog, "fix_for", None)
+    if not callable(fix_for):
+        return None
+    fix = fix_for(detector_id, kind, COPILOT_FAMILY)
+    if isinstance(fix, Fix) and fix.target == COPILOT_FIX_TARGET:
+        return fix
+    return None
+
+
+def _copilot_fix(fix: Fix | None, detector_id: str, kind: str) -> Fix | None:
+    """S-2 fix substitution for a Copilot scope (idempotent): the catalog's Copilot fix when
+    one exists (also for a detector that emitted none: on Copilot lanes the fix comes from
+    ``fix_for``, addendum §10.4), else the stripped fix, else None."""
+    if fix is not None and fix.target == COPILOT_FIX_TARGET:
+        return fix
+    replacement = _catalog_fix(detector_id, kind)
+    if replacement is not None or fix is None:
+        return replacement
+    text = fix.text if isinstance(fix.text, str) else ""
+    if not text.endswith(NO_COPILOT_SETTING):
+        text += NO_COPILOT_SETTING
+    return Fix(text=text, config_patch=None, target=None, doc_url=fix.doc_url, gates=())
+
+
+def _normalize_copilot(data: dict[str, object], scope: Scope, detector_id: str,
+                       kind: str) -> None:
+    """Pool-cohort labels and the Copilot fix (S-2) on the raw fields of a Copilot finding."""
+    if ("billing_class", _POOL_CLASS) in scope.dims and any(
+            isinstance(fig, Figure) and fig.basis is Basis.LIST_EQUIVALENT
+            for fig in (data.get(name) for name in _MONEY_FIELDS)):
+        _pool_labels(data)
+    fix = data.get("fix")
+    if fix is None or isinstance(fix, Fix):   # anything else is left for Finding validation
+        data["fix"] = _copilot_fix(fix, detector_id, kind)
 
 
 def _validate(f: Finding) -> None:
@@ -165,10 +336,15 @@ def _validate(f: Finding) -> None:
         raise fail("needs_eval must be a bool")
     if not isinstance(f.cost_observed, Figure):
         raise fail("cost_observed must be a Figure")
-    for name in ("recoverable", "recoverable_shapley", "projected_monthly"):
+    for name in ("recoverable", "recoverable_shapley", "projected_monthly", "headroom"):
         value = getattr(f, name)
         if value is not None and not isinstance(value, Figure):
             raise fail(f"{name} must be a Figure or None")
+    if _is_copilot_scope(f.scope):
+        _validate_copilot_bases(f, fail)
+        return
+    if f.headroom is not None:
+        raise fail("headroom appears only on Copilot scopes (R-E20)")
     bases = {fig.basis for fig in _figures(f)}
     if len(bases) != 1:
         raise fail("figures must share one basis")
@@ -182,6 +358,25 @@ def _validate(f: Finding) -> None:
     allowance = ("billing_class", "allowance") in f.scope.dims
     if allowance != (basis is Basis.LIST_EQUIVALENT):
         raise fail("allowance cohorts use basis list_equivalent and only they do (D26)")
+
+
+def _validate_copilot_bases(f: Finding, fail: Callable[[str], ContractViolation]) -> None:
+    """R-E20 per-field basis domains of a Copilot-scope finding (figures are never summed across
+    fields, so no common basis is required)."""
+    data_quality = f.category == "data-quality"
+    for name, domain in _COPILOT_DOMAINS:
+        fig: Figure | None = getattr(f, name)
+        if fig is None:
+            continue
+        basis = fig.basis
+        if basis is Basis.PROVIDER_ESTIMATE:
+            if not data_quality:
+                raise fail("provider estimates appear only in data-quality findings (R4)")
+            if name != "headroom":
+                continue
+        if basis not in domain:
+            allowed = ", ".join(sorted(b.value for b in domain))
+            raise fail(f"{name} on a Copilot scope must have basis in {{{allowed}}} (R-E20)")
 
 
 def miss_waste(t: Transition, request: Request) -> tuple[int, int]:
@@ -219,6 +414,31 @@ def min_usd_nano(ctx: AnalysisContext) -> int:
         return decimal_to_nano(usd(value))
     except (ValueError, TypeError):
         raise UsageError("threshold min_usd: out of range") from None
+
+
+def min_usd_gate(finding: Finding, ctx: AnalysisContext) -> bool:
+    """True when *finding* reaches the ``min_usd`` threshold (S-3, SPEC §10.1).
+
+    The compared point is the recoverable point; on a Copilot scope (``product=copilot`` or
+    ``billing_class=pool``) the larger of the recoverable and ``headroom`` points (credits and
+    dollars are compared only as numbers of nano for this gate, never added). A priced compared
+    point at or above ``min_usd`` passes. Otherwise, when no compared figure is present or one of
+    them is unpriced (so their maximum is unknown, never zero: R2), the ``cost_observed`` point
+    decides (triage / info kinds, as DETECT-CACHE's own gate does); when every compared figure
+    is priced and below, the finding fails. An unpriced ``cost_observed`` never passes.
+    """
+    figs = [finding.recoverable]
+    if _is_copilot_scope(finding.scope):
+        figs.append(finding.headroom)
+    present = [fig for fig in figs if fig is not None]
+    limit = min_usd_nano(ctx)
+    known = [fig.nano for fig in present if fig.nano is not None]
+    if known and max(known) >= limit:
+        return True
+    if present and len(known) == len(present):
+        return False
+    cost = finding.cost_observed.nano
+    return cost is not None and cost >= limit
 
 
 _RESET_EVENTS = frozenset({LaneEventKind.COMPACTION, LaneEventKind.CLEAR,
