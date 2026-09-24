@@ -9,7 +9,7 @@ Run: `uv run --python 3.12 --extra dev pytest -q tests/v2/sim` (also on 3.10); f
 `… pytest -q -m perf tests/v2/sim/test_perf.py`.
 Coverage: `uv run --python 3.12 --extra dev coverage run -m pytest tests/v2/sim && uv run --python
 3.12 --extra dev coverage report --include='tokenbill/sim/usage_replay.py,tokenbill/sim/calibrate.py'`
-(99–100% at hand-off).
+(100% at hand-off).
 
 | file | covers |
 |---|---|
@@ -23,9 +23,9 @@ Coverage: `uv run --python 3.12 --extra dev coverage run -m pytest tests/v2/sim 
 | `test_readings.py` | each interpretation listed below, pinned by a hand-computed case |
 | `test_calibrate.py` | documented-rule lanes → NMBE 0, CV(RMSE) 0, `pass`; 10% of predicted hits flipped (seeded) → ρ ≈ 0.90 ± 0.03, documented fails, calibrated passes; a cache outliving the documented TTL fails; 11 periods → `insufficient_data`; month granularity; zero billed cost; predictions never read the transition's own reads; one batch == five batches; out-of-fold ρ; pass 2 blending; Wilson intervals; TTL corroboration 128/128 not scored; `model_changed` vs a predicted model switch; OpenAI `param_changed` vs a predicted effort change in the param class; per-provider P/R; `unavailable` as no-comparison; expected rebuilds and `key_changed` unscored; rule-5 labels are never compared with themselves; validation; no floats |
 | `test_properties.py` | hypothesis: random lanes × random policy combinations (documented and calibrated) keep every invariant (determinism, no floats, bounds contain points, unchanged outcomes equal the ledger, saving = Σ changed, cost = Σ outcomes, per-lane totals, ping counts); fuzzed malformed `Policy` fields raise only `TokenbillError` |
-| `test_edges.py` | probe rejections of inconsistent pricer lines, raising unit rates, unpriced calibrated flips, context-edit resets, un-repaired speed toggles, empty lanes, CI chains under a TTL clause, batch with a calibrated flip, passthrough placeholder bounds under the band, gate corner cases |
-| `test_hygiene.py` | AST lint: no float in either module; the content canary planted in every free-text field never reaches a `ReplayResult` or a `CalibrationReport` |
-| `test_perf.py` | PR variants (1/10 size, CPU time, best of runs): 10⁵ requests × `ttl=1h` ≤ 3 s, 2× requests ≤ 2.3× time, calibrate 10⁵ ≤ 12 s; `perf` marker: 10⁶ × 1 policy ≤ 30 s, calibrate 10⁶ ≤ 120 s |
+| `test_edges.py` | probe rejections of inconsistent pricer lines, raising unit rates, unpriced calibrated flips, context-edit resets, un-repaired speed toggles, empty lanes, CI chains under a TTL clause, batch with a calibrated flip, a CI member already reading more than `S_ci`, OpenAI 30-minute writes in replay and in the gate (τ's bucket), passthrough placeholder bounds under the band, gate corner cases |
+| `test_hygiene.py` | AST lint: no float in either module; the content canary planted in every free-text field never reaches a `ReplayResult` or a `CalibrationReport`; byte-identical replay and calibration JSON across two processes with different `PYTHONHASHSEED` |
+| `test_perf.py` | PR variants (1/10 size, CPU time, best of runs; budgets skipped under coverage or a tracer): 10⁵ requests × `ttl=1h` ≤ 3 s, 2× requests ≤ 2.3× time, calibrate 10⁵ ≤ 12 s; `perf` marker: 10⁶ × 1 policy ≤ 30 s, calibrate 10⁶ ≤ 120 s (both pass: ≈ 15 s and ≈ 25 s CPU) |
 | `test_gate_ratecard.py` | **gate** (`importorskip("tokenbill.rates.engine")`): conformance, Appendix A and the hot-path/Decimal agreement with the real `RateCard`; calibrate with it |
 
 Measured on the build machine (Python 3.12, FakePricer): replay ≈ 14 µs/request for `ttl=1h`
