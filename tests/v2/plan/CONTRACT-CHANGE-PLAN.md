@@ -73,8 +73,9 @@ between the two engines, or keep the current treatment and say so in SPEC §11.2
 ## 6. Fleet-level TTL value vs per-cohort heterogeneity
 
 **What.** SPEC §11.2 chooses one grid value per lever for the whole class. On the synthetic fleet
-the whole-fleet choice for `cc.prompt_cache_ttl.main` is `5m` (teams billed at 1h lose more than
-payments gains), while payments alone chooses `1h` (matching `FleetTruth`).
+the whole-fleet choice for `cc.prompt_cache_ttl.main` is `5m` (its documented saving over all
+Claude Code main lanes exceeds that of `1h`), while payments alone chooses `1h` (matching
+`FleetTruth`).
 
 **Today.** The plan reports the class-level choice; cohort values reach the packs through the
 findings' `Fix.config_patch` (cohort packs, forced by `ttl-heterogeneous`).
