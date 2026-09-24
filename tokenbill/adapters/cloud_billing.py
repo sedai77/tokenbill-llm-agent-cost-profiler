@@ -190,7 +190,9 @@ def _is_parquet(path: Path) -> bool:
 def iter_csv(ctx: ReadContext, path: Path, file_index: int, aliases: Mapping[str, str]
              ) -> Iterator[tuple[str, dict[str, str]]]:
     """``(locator, row)`` for every data row of a CSV / CSV.gz file (header names normalized
-    through *aliases*); rows the csv module rejects are quarantined."""
+    through *aliases*). Rows the csv module rejects or whose cell count differs from the header
+    are quarantined with SPEC §5.1 reasons (``oversize_line`` for a field over the csv limit,
+    else ``bad_type:row``); an unparseable header makes the file unreadable (``SourceError``)."""
     raw = open_text(path)
     try:
         text = io.TextIOWrapper(raw, encoding="utf-8-sig", errors="replace", newline="")
@@ -202,12 +204,15 @@ def iter_csv(ctx: ReadContext, path: Path, file_index: int, aliases: Mapping[str
                 row = next(reader)
             except StopIteration:
                 return
-            except csv.Error:
+            except csv.Error as exc:
+                if header is None:
+                    raise SourceError(f"{path.name}: unreadable CSV header") from None
                 loc = ctx.file_locator(file_index, f"line:{reader.line_num}")
                 if reader.line_num == last_error_line:
                     return
                 last_error_line = reader.line_num
-                ctx.quarantine(loc, "bad_csv")
+                ctx.quarantine(loc, "oversize_line" if "field limit" in str(exc)
+                               else "bad_type:row")
                 continue
             except (OSError, EOFError, ValueError, zlib.error) as exc:
                 raise SourceError(f"{path.name}: corrupt stream ({type(exc).__name__})") from None
@@ -218,7 +223,7 @@ def iter_csv(ctx: ReadContext, path: Path, file_index: int, aliases: Mapping[str
                 continue
             loc = ctx.file_locator(file_index, f"line:{reader.line_num}")
             if len(row) != len(header):
-                ctx.quarantine(loc, "bad_csv")
+                ctx.quarantine(loc, "bad_type:row")
                 continue
             yield loc, dict(zip(header, row, strict=True))
     finally:

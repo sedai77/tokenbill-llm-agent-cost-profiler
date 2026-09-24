@@ -268,7 +268,7 @@ def test_ragged_and_blank_csv_lines(tmp_path: Path) -> None:
     path.write_text(good + "only,three,cells\n\n,,,,,,,,,,,\n")
     result = read("aws-cur", path)
     assert len(result.cost_lines) == 1
-    assert [q.reason for q in result.quarantined] == ["bad_csv"]
+    assert [q.reason for q in result.quarantined] == ["bad_type:row"]
 
 
 def test_directory_of_export_parts(tmp_path: Path) -> None:
@@ -286,6 +286,13 @@ def test_corrupt_gzip_is_a_source_error(tmp_path: Path) -> None:
     data = gzip.compress(fixture(CSV).read_bytes())
     path.write_bytes(data[: len(data) // 2])
     with pytest.raises(SourceError):
+        read("aws-cur", path)
+
+
+def test_unparseable_header_is_a_source_error(tmp_path: Path) -> None:
+    path = tmp_path / "cur.csv"
+    path.write_text('line_item_usage_type,"' + "x" * 200_000 + '"\nUSE1-a,1\n')
+    with pytest.raises(SourceError, match="CSV header"):
         read("aws-cur", path)
 
 
@@ -315,7 +322,7 @@ def test_oversize_csv_field_is_quarantined(tmp_path: Path) -> None:
     rows = [_row(), _row(tags="x" * 200_000), _row(line_item_usage_start_date=
                                                    "2026-09-02T00:00:00Z")]
     result = read("aws-cur", _write(tmp_path / "cur.csv", rows))
-    assert [q.reason for q in result.quarantined] == ["bad_csv"]
+    assert [q.reason for q in result.quarantined] == ["oversize_line"]
     assert len(result.cost_lines) == 2
 
 
