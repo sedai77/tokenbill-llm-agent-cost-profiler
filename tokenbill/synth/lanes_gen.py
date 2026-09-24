@@ -3,8 +3,8 @@
 
 * :func:`random_lanes` — ``n`` seeded random lanes of one *family* (the policy family they
   exercise), covering every inference shape the ledger can hold: placeholder output, unknown-TTL
-  writes, refusal iterations (declined 0 / ambiguous 6-token outputs), retried attempts, compaction
-  and advisor iterations, reconstructed (ESTIMATED) iterations, output-residual-only requests,
+  writes, refusal iterations (declined 0 / ambiguous 6-token outputs), retried attempts, compaction,
+  advisor and other iterations, reconstructed (ESTIMATED) iterations, output-residual-only requests,
   server-tool counters, lane events and parameter changes. Allowance (subscription) lanes are a
   family of their own (one billing class per replay, SPEC §9.1 #5).
 * :func:`family_policies` — the policies the differential test replays on each family.
@@ -230,6 +230,11 @@ def _build(lane_key: str, session_key: str, seq: int, spec: _Spec, base_attr: di
             {"uncached_input": rnd.randint(2_000, 30_000), "output": rnd.randint(100, 2_000)},
             model="claude-opus-5-5", kind=InferenceKind.ADVISOR,
             inference_id=stable_id("inf", rid, "advisor"), **ctx_kw))
+    elif shape == "other_iter":
+        extra.append(make_inference(
+            {"uncached_input": rnd.randint(500, 8_000), "output": rnd.randint(10, 800)},
+            model=spec.model, kind=InferenceKind.OTHER,
+            inference_id=stable_id("inf", rid, "other"), **ctx_kw))
     elif shape == "estimated_iter":
         extra.append(make_inference(
             {"cache_read": rnd.randint(1_000, 20_000), "output": rnd.randint(500, 5_000)},
@@ -407,7 +412,8 @@ def _names(family: str, seed: int, i: int) -> tuple[str, str]:
 
 _COMMON_SHAPES = {"placeholder": 0.02, "refusal": 0.015, "refusal_ambiguous": 0.01,
                   "retry": 0.02, "compaction_iter": 0.01, "advisor": 0.01,
-                  "estimated_iter": 0.01, "residual_only": 0.01, "web": 0.02}
+                  "estimated_iter": 0.01, "residual_only": 0.01, "web": 0.02,
+                  "other_iter": 0.01}
 
 
 # =============================================================================================
@@ -1166,8 +1172,9 @@ def ab_campaign(*, tasks: int, trials: int, cost_effect: Decimal | str | int | f
     requests tagged with ``attribution.extra`` ``task_id`` and ``run_attempt`` (the trial) and
     ``attribution.arm``. Relative to the baseline arm, the candidate uses ``1 + token_effect`` the
     tokens (Σ total input + output), ``1 + turn_effect`` the turns (requests) and ``1 +
-    cost_effect`` the list cost (priced with *pricer*, default ``core.testing.FakePricer``) —
-    campaign-wide, each per task within a few percent. The RTK-like shape is ``token_effect=-0.38,
+    cost_effect`` the list cost (priced with *pricer*, default ``core.testing.FakePricer``), in
+    every (task, trial) pair (up to integer rounding) and so campaign-wide; turns are rounded per
+    run with the campaign total exact. The RTK-like shape is ``token_effect=-0.38,
     turn_effect=0.14, cost_effect=0.07`` (fewer tokens but a colder cache). Outcomes are dicts
     ``{task_id, arm, trial, success, order}`` with arms ``"baseline"``/``"candidate"`` and order
     1/2 (run position within the pair); success rates are equal in expectation.
@@ -1204,14 +1211,12 @@ def ab_campaign(*, tasks: int, trials: int, cost_effect: Decimal | str | int | f
                 success = rnd.random() < p_success
                 outcomes.append({"task_id": task_id, "arm": arm, "trial": trial,
                                  "success": success, "order": position})
-    base_runs = [r for r in runs if r["arm"] == "baseline"]
+    base_runs = {(r["task"], r["trial"]): r for r in runs if r["arm"] == "baseline"}
     cand_runs = [r for r in runs if r["arm"] == "candidate"]
-    baseline = [req for r in base_runs for req in _ab_run(rnd, r, model)]
-    base_tokens = sum(_tokens_of(req) for req in baseline)
-    base_turns = len(baseline)
-    base_cost = _cost_of(baseline, pricer)
-    # candidate turns: allocate round((1 + ue) · turns) per run, fixing the total exactly
-    target_turns = _round(base_turns * (1 + ue))
+    base_reqs = {key: _ab_run(rnd, run, model) for key, run in base_runs.items()}
+    # candidate turns: round((1 + ue) · turns) per run, the campaign total fixed exactly by the
+    # largest-remainder rule
+    target_turns = _round(sum(len(reqs) for reqs in base_reqs.values()) * (1 + ue))
     raw = [Fraction(r["turns"]) * (1 + ue) for r in cand_runs]
     alloc = [max(1, _floor_f(x)) for x in raw]
     remainders = sorted(range(len(raw)), key=lambda k: (-(raw[k] - _floor_f(raw[k])), k))
@@ -1219,12 +1224,16 @@ def ab_campaign(*, tasks: int, trials: int, cost_effect: Decimal | str | int | f
     while sum(alloc) < target_turns and remainders:
         alloc[remainders[k % len(remainders)]] += 1
         k += 1
-    for r, n in zip(cand_runs, alloc, strict=True):
-        r["turns"] = n
-    target_tokens = _round(base_tokens * (1 + te))
-    target_cost = _round(base_cost * (1 + ce))
-    shape = [_ab_shape(rnd, r) for r in cand_runs]
-    candidate = _ab_candidate(cand_runs, shape, model, pricer, target_tokens, target_cost)
+    candidate: list[Request] = []
+    for run, n in zip(cand_runs, alloc, strict=True):
+        run["turns"] = n
+        paired = base_reqs[(run["task"], run["trial"])]
+        # every (task, trial) pair carries the whole effect, so per-task paired differences
+        # have the campaign's sign and size
+        tokens = _round(sum(_tokens_of(req) for req in paired) * (1 + te))
+        cost = _round(_cost_of(paired, pricer) * (1 + ce))
+        candidate.extend(_ab_candidate(run, _ab_shape(rnd, run), model, pricer, tokens, cost))
+    baseline = [req for key in base_runs for req in base_reqs[key]]
     return baseline, candidate, outcomes
 
 
@@ -1267,50 +1276,36 @@ def _ab_shape(rnd: random.Random, run: dict[str, Any]) -> list[tuple[int, int]]:
     return weights
 
 
-def _ab_candidate(runs: list[dict[str, Any]], shapes: list[list[tuple[int, int]]], model: str,
+def _ab_candidate(run: dict[str, Any], shape: list[tuple[int, int]], model: str,
                   pricer: Pricer, target_tokens: int, target_cost: int) -> list[Request]:
-    """Candidate runs scaled to *target_tokens* whose cache read share is solved so that the
-    list cost hits *target_cost* (cost is linear in the read share for fixed token counts)."""
-    ctx_rates = pricer.resolve(make_inference({"output": 1}, model=model).pricing,
-                               ts_ms=EPOCH_MS)
-    if ctx_rates is None or ctx_rates.cache_read is None or ctx_rates.cache_write_5m is None:
+    """One candidate run scaled to *target_tokens* whose cache read share ρ is solved so that
+    its list cost hits *target_cost* (for fixed token counts the cost is linear in ρ)."""
+    rates = pricer.resolve(make_inference({"output": 1}, model=model).pricing, ts_ms=run["ts"])
+    if rates is None or rates.cache_read is None or rates.cache_write_5m is None:
         raise UsageError(f"no cache rates for {model}")
-    ctx_w = sum(c for shape in shapes for c, _o in shape)
-    out_w = sum(o for shape in shapes for _c, o in shape)
-    base_ratio = Fraction(out_w, ctx_w + out_w)
-    out_total = _round(target_tokens * base_ratio)
+    ctx_w = sum(c for c, _o in shape)
+    out_w = sum(o for _c, o in shape)
+    out_total = _round(Fraction(target_tokens * out_w, ctx_w + out_w))
     in_total = target_tokens - out_total
-    turns = []
-    for shape in shapes:
-        run_turns = []
-        for c, o in shape:
-            run_turns.append((_round(Fraction(in_total * c, ctx_w)),
-                              max(1, _round(Fraction(out_total * o, out_w)))))
-        turns.append(run_turns)
-    # readable share per turn: min(previous context, this context); cost(ρ) is linear in ρ
-    w = Fraction(ctx_rates.cache_write_5m)
-    r = Fraction(ctx_rates.cache_read)
-    out_rate = Fraction(ctx_rates.output)
-    readable = 0
-    cost0 = Fraction(0)
-    for run_turns in turns:
-        prev = 0
-        for t_in, t_out in run_turns:
-            readable += min(prev, t_in)
-            cost0 += t_in * w + t_out * out_rate
-            prev = t_in
-    cost0 *= 1_000   # tokens × USD/MTok → nano (× 10⁹ / 10⁶)
+    turns = [(_round(Fraction(in_total * c, ctx_w)), max(1, _round(Fraction(out_total * o, out_w))))
+             for c, o in shape]
+    # readable tokens per turn: min(previous context, this context)
+    w, r = Fraction(rates.cache_write_5m), Fraction(rates.cache_read)
+    out_rate = Fraction(rates.output)
+    readable = sum(min(prev, t_in) for prev, (t_in, _o) in
+                   zip([0] + [t for t, _o in turns], turns, strict=False))
+    cost_cold = sum(t_in * w + t_out * out_rate for t_in, t_out in turns) * 1_000   # nano
     slope = readable * (w - r) * 1_000
-    rho = (cost0 - target_cost) / slope if slope else Fraction(0)
-    rho = min(Fraction(1), max(Fraction(0), rho))
+    rho = (cost_cold - target_cost) / slope if slope else Fraction(0)
+    if not Fraction(0) <= rho <= Fraction(1):
+        raise UsageError("cost_effect is not reachable with these token and turn effects")
+    lane_key = f"ab-{run['arm']}-{run['task']}-{run['trial']}"
     reqs = []
-    for run, run_turns in zip(runs, turns, strict=True):
-        lane_key = f"ab-{run['arm']}-{run['task']}-{run['trial']}"
-        prev = 0
-        for turn, (t_in, t_out) in enumerate(run_turns):
-            reads = _floor_f(rho * min(prev, t_in))
-            usage = {"cache_read": reads, "cache_write_5m": t_in - reads, "output": t_out}
-            reqs.append(make_request(lane_key, turn, run["ts"] + turn * 20_000, usage, model,
-                                     session_key=f"s_{lane_key}", attribution=_ab_attr(run)))
-            prev = t_in
+    prev = 0
+    for turn, (t_in, t_out) in enumerate(turns):
+        reads = _floor_f(rho * min(prev, t_in))
+        usage = {"cache_read": reads, "cache_write_5m": t_in - reads, "output": t_out}
+        reqs.append(make_request(lane_key, turn, run["ts"] + turn * 20_000, usage, model,
+                                 session_key=f"s_{lane_key}", attribution=_ab_attr(run)))
+        prev = t_in
     return reqs
