@@ -147,6 +147,25 @@ class FakeRecordStore:
         return 3
 
 
+class BadCountsStore(FakeRecordStore):
+    """A record store whose counts have the wrong types (``put`` answers *put_result*; ``retain``
+    / ``purge`` answer *count*)."""
+
+    def __init__(self, put_result: object, count: object) -> None:
+        super().__init__(name="bad")
+        self.put_result = put_result
+        self.count = count
+
+    def put(self, result: IngestResult, *, principal_key_id: str | None) -> dict[str, int]:
+        return self.put_result  # type: ignore[return-value]
+
+    def retain(self, *, identity_before_ms: int) -> int:
+        return self.count  # type: ignore[return-value]
+
+    def purge(self, *, principal: str | None, before_ms: int | None, actor: str) -> int:
+        return self.count  # type: ignore[return-value]
+
+
 class NotARecordStore:
     """A ``record_store`` class whose instances do not implement ``ExtRecordStore``."""
 
@@ -322,6 +341,16 @@ def panel(store: Any, record_stores: Sequence[Any], **kw: Any) -> list[PanelRow]
 def panel_wrong_type(*args: Any, **kw: Any) -> list[object]:
     """Returns something that is not a PanelRow."""
     return [("team-a", "2026-09-10")]
+
+
+def returns_none(*args: Any, **kw: Any) -> None:
+    """A list-returning hook (FOCUS rows, showback, policy packs, panel) that returns None."""
+    return None
+
+
+def returns_mapping(*args: Any, **kw: Any) -> dict[str, object]:
+    """A list-returning hook that returns a mapping instead of a list."""
+    return {"rows": []}
 
 
 # ---------- hooks that fail while running (the host must not swallow these) ----------

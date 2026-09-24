@@ -127,12 +127,12 @@ def test_record_store_attribution_by_name(install: Install) -> None:
 
 
 class _CountingStore:
-    """Wraps a ledger, counting protocol reads and whether request iterators were closed."""
+    """Wraps a ledger, recording every protocol read ``capabilities_present`` makes."""
 
     def __init__(self, inner: Any) -> None:
         self.inner = inner
         self.reads: list[str] = []
-        self.closed = 0
+        self.aggregate_calls: list[dict[str, Any]] = []
 
     def cost_lines(self, source_kind: str | None = None, **window: int) -> list[Any]:
         self.reads.append("cost_lines")
@@ -142,31 +142,36 @@ class _CountingStore:
         self.reads.append("aggregates")
         return self.inner.aggregates(source_kind, **window)
 
-    def iter_requests(self, **kw: Any) -> Iterator[Any]:
-        self.reads.append(f"requests:{kw['where']['channel']}")
+    def aggregate(self, **kw: Any) -> Any:
+        self.reads.append("aggregate")
+        self.aggregate_calls.append(kw)
+        return self.inner.aggregate(**kw)
 
-        def gen() -> Iterator[Any]:
-            try:
-                yield from self.inner.iter_requests(**kw)
-            finally:
-                self.closed += 1
-
-        return gen()
+    def iter_requests(self, **kw: Any) -> Iterator[Any]:  # pragma: no cover - must not be used
+        self.reads.append("iter_requests")
+        return self.inner.iter_requests(**kw)
 
 
-def test_ledger_lists_read_once_and_request_probe_is_limit_one(install: Install) -> None:
+def test_each_ledger_source_is_read_at_most_once(install: Install) -> None:
     install(fake_spec(), COPILOT)
     inner = memory_store(ingest_result(requests=(
         fake_request("github_copilot", lane="ln_1"), fake_request("github_copilot", lane="ln_2"))))
     store = _CountingStore(inner)
     assert _caps(store, []) == frozenset({"ext:copilot"})
-    assert store.reads.count("cost_lines") == 1 and store.reads.count("aggregates") == 1
-    # extensions in name order, channels sorted; probes stop at the first channel with a request
-    # (github_sandbox is never probed) and every probe iterator is closed
-    probes = [r for r in store.reads if r.startswith("requests:")]
-    assert probes == ["requests:github_actions", "requests:github_copilot", "requests:fake_a",
-                      "requests:fake_b"]
-    assert store.closed == len(probes)
+    # two extensions, three ledger sources: each read once, requests through one GROUP BY channel
+    # (SPEC §7.2 whitelists `channel` for SqliteStore.aggregate; never an iter_requests filter)
+    assert store.reads == ["cost_lines", "aggregates", "aggregate"]
+    assert store.aggregate_calls == [{**WINDOW, "group_by": ("channel",)}]
+
+
+def test_request_channels_are_the_serving_inference_channels(install: Install) -> None:
+    install(fake_spec(), COPILOT)
+    store = memory_store(ingest_result(requests=(
+        fake_request("fake_b", lane="ln_1"), fake_request("anthropic_api", lane="ln_2"))))
+    assert _caps(store, []) == frozenset({"ext:fake"})
+    # outside the window: nothing
+    assert _caps(store, [], since_ms=WINDOW["until_ms"], until_ms=WINDOW["until_ms"] + 1) == (
+        frozenset())
 
 
 def test_short_circuit_when_cost_lines_decide(install: Install) -> None:

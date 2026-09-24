@@ -19,11 +19,15 @@ never through ``core.registry.EXTENSIONS`` directly. Rules shared by every funct
   ``rate_verifier``).
 * Only ``ImportError`` (incl. ``ModuleNotFoundError``) raised while *resolving* a hook and missing
   ``importlib.resources`` resources are absorbed. Every other exception — including anything a
-  hook raises while it runs, and malformed registrations — propagates. A hook that returns the
-  wrong type raises ``ContractViolation``.
-* Every function that can resolve an extension module takes the keyword ``notes`` (CA-39 plus the
-  F-EXT delta: also ``command_modules``, ``capabilities_present``, ``policy_targets``, ``panel``,
-  ``rate_verifiers`` and ``count_users_fn``). The pure table readers :func:`extensions`,
+  hook raises while it runs, and malformed registrations — propagates. A hook (or record store)
+  that returns the wrong type — including ``None`` where a list or counts are due — raises
+  ``ContractViolation``.
+* Every function that can resolve an extension module takes ``notes: list[DataQualityNote] |
+  None = None`` (CA-39 plus the F-EXT delta: also ``command_modules``, ``capabilities_present``,
+  ``policy_targets``, ``panel``, ``rate_verifiers`` and ``count_users_fn``). It can always be
+  passed by keyword; where CA-39 lists it positionally (``extension_rate_files(notes)``,
+  ``persist(record_stores, result, notes)``, ``showback(result, out_dir, formats, notes)``) it
+  may also be passed by position. The pure table readers :func:`extensions`,
   :func:`delegated_channels` and :func:`rewrite_argv` import nothing and take none. The CLI
   listings :func:`command_modules` and :func:`policy_targets` only *locate* modules
   (``importlib.util.find_spec``), so building a parser never executes extension code; the hooks
@@ -48,7 +52,10 @@ Decisions of this implementation where CA-39 is silent (documented for the wave-
   one of its extension's channels raises ``ContractViolation``.
 * ``capabilities_present`` attributes a record store to the extension whose name equals the
   store's ``name``; a store whose name is no extension's name is attributed to every extension
-  that declares a ``record_store`` hook.
+  that declares a ``record_store`` hook. Ledger requests are found by channel through
+  ``store.aggregate(group_by=("channel",))`` — ``channel`` is in SqliteStore's whitelisted
+  ``GROUP BY`` set (SPEC §7.2), whereas ``iter_requests``' ``where`` is only specified over lane
+  and request columns and ``channel`` is an inference column.
 * ``command_modules`` maps the extension name (the top-level verb, e.g. ``copilot``) to its
   module.
 * ``count_users_fn`` needs ``core.kanon.scope_counter`` and ``core.catalog.COUNT_SOURCE``
@@ -209,16 +216,20 @@ def _e18_to_usd(count: int) -> Decimal:
     return Decimal((sign, tuple(int(d) for d in str(abs(count))), -18))
 
 
-def _first(iterable: Iterable[Any]) -> Any | None:
-    """The first item of *iterable* (None when empty), closing a generator / cursor afterwards —
-    the ``LIMIT 1`` of the protocol iterators."""
-    it = iter(iterable)
-    try:
-        return next(it, None)
-    finally:
-        close = getattr(it, "close", None)
-        if callable(close):
-            close()
+def _items(value: object, what: str) -> list[Any]:
+    """The items of a hook's list / iterator result; ``ContractViolation`` for anything that is
+    not a finite sequence or iterator (``None``, a mapping, a string)."""
+    if value is None or isinstance(value, (str, bytes, Mapping)) or not isinstance(
+            value, Iterable):
+        raise ContractViolation(f"{what} must return a list")
+    return list(value)
+
+
+def _count(value: object, what: str) -> int:
+    """A non-negative integer count returned by a record store."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ContractViolation(f"{what} must return a non-negative int")
+    return value
 
 
 def _pairs_of(decisions: object) -> tuple[tuple[str, str], ...]:
@@ -313,7 +324,7 @@ def recon_decisions_of(reports: Sequence[ReconciliationReport]) -> tuple[tuple[s
 # ---------------------------------------------------------------------------------------------
 
 
-def extension_rate_files(*, notes: list[DataQualityNote] | None = None) -> tuple[Traversable, ...]:
+def extension_rate_files(notes: list[DataQualityNote] | None = None) -> tuple[Traversable, ...]:
     """The rate files (``tokenbill/rates@1`` JSON) extensions ship, as ``importlib.resources``
     handles in extension-name and declared order. Entries are ``"package:resource.json"`` (the
     resource may name a sub-path with ``/``; the anchor must be a package, never a plain module). A
@@ -422,7 +433,7 @@ def open_record_stores(db_path: Path, *, create: bool,
     return stores
 
 
-def persist(record_stores: Sequence[ExtRecordStore], result: IngestResult, *,
+def persist(record_stores: Sequence[ExtRecordStore], result: IngestResult,
             notes: list[DataQualityNote] | None = None) -> dict[str, int]:
     """Route ``result.licenses`` / ``activity`` / ``config`` to the record stores.
 
@@ -440,8 +451,10 @@ def persist(record_stores: Sequence[ExtRecordStore], result: IngestResult, *,
     counts: dict[str, int] = {}
     for store in record_stores:
         got = store.put(result, principal_key_id=result.source.principal_key_id)
+        if not isinstance(got, Mapping) or not all(isinstance(k, str) for k in got):
+            raise ContractViolation("ExtRecordStore.put must return counts by record kind")
         for key, value in got.items():
-            counts[key] = counts.get(key, 0) + int(value)
+            counts[key] = counts.get(key, 0) + _count(value, "ExtRecordStore.put")
     return dict(sorted(counts.items()))
 
 
@@ -449,8 +462,8 @@ def retain(record_stores: Sequence[ExtRecordStore], *, identity_before_ms: int,
            notes: list[DataQualityNote] | None = None) -> int:
     """Apply identity retention in every record store; returns the rows removed in total."""
     _check_notes(notes)
-    return sum(int(store.retain(identity_before_ms=identity_before_ms))
-               for store in record_stores)
+    return sum(_count(store.retain(identity_before_ms=identity_before_ms),
+                      "ExtRecordStore.retain") for store in record_stores)
 
 
 def purge(record_stores: Sequence[ExtRecordStore], *, principal: str | None,
@@ -459,8 +472,8 @@ def purge(record_stores: Sequence[ExtRecordStore], *, principal: str | None,
     """Erase one principal's rows and/or rows older than *before_ms* in every record store (each
     store writes its own audit row); returns the rows removed in total."""
     _check_notes(notes)
-    return sum(int(store.purge(principal=principal, before_ms=before_ms, actor=actor))
-               for store in record_stores)
+    return sum(_count(store.purge(principal=principal, before_ms=before_ms, actor=actor),
+                      "ExtRecordStore.purge") for store in record_stores)
 
 
 def _stores_of(spec: ExtensionSpec, record_stores: Sequence[ExtRecordStore],
@@ -479,31 +492,34 @@ def capabilities_present(store: LedgerStore, record_stores: Sequence[ExtRecordSt
     """``"ext:<name>"`` for every extension with data in ``[since_ms, until_ms)``: a cost line, an
     aggregate (``channel`` dim) or a request on one of its channels in the ledger, or a license,
     activity day or config snapshot in one of its record stores (e.g. an activity-report-only
-    handoff has only licenses). Requests are probed per channel with a ``LIMIT 1`` style read of
-    ``iter_requests(where={"channel": …})``; the protocol lists are read once per call. *notes* is
+    handoff has only licenses). Each ledger source is read at most once per call and only when
+    the cheaper ones did not decide: the channels of the window's cost lines, then of its usage
+    aggregates, then of its requests — one ``store.aggregate(group_by=("channel",))`` (a single
+    ``GROUP BY`` in SqliteStore; ``channel`` is a whitelisted dimension, SPEC §7.2). *notes* is
     accepted for the uniform host signature (no module is resolved here)."""
     _check_notes(notes)
     specs = extensions()
     names = frozenset(spec.name for spec in specs)
     window = {"since_ms": since_ms, "until_ms": until_ms}
-    lines: list[Any] | None = None
-    aggregates: list[Any] | None = None
     present: set[str] = set()
+    seen: list[frozenset[str | None]] = []   # channels per ledger source, read lazily
+
+    def read(stage: int) -> frozenset[str | None]:
+        if stage == 0:
+            return frozenset(line.channel for line in store.cost_lines(None, **window))
+        if stage == 1:
+            return frozenset(dict(agg.dims).get("channel")
+                             for agg in store.aggregates(None, **window))
+        raw = store.aggregate(since_ms=since_ms, until_ms=until_ms, group_by=("channel",))
+        return frozenset(dict(row.dims).get("channel") for row in raw.rows)
 
     def ledger_has(channels: frozenset[str]) -> bool:
-        nonlocal lines, aggregates
-        if lines is None:
-            lines = store.cost_lines(None, **window)
-        if any(line.channel in channels for line in lines):
-            return True
-        if aggregates is None:
-            aggregates = store.aggregates(None, **window)
-        if any(dict(agg.dims).get("channel") in channels for agg in aggregates):
-            return True
-        return any(
-            _first(store.iter_requests(since_ms=since_ms, until_ms=until_ms,
-                                       where={"channel": channel})) is not None
-            for channel in sorted(channels))
+        for stage in range(3):
+            if stage == len(seen):
+                seen.append(read(stage))
+            if channels & seen[stage]:
+                return True
+        return False
 
     def records_have(stores: Sequence[ExtRecordStore]) -> bool:
         return any(rs.licenses(**window) or rs.activity(**window) or rs.config(**window)
@@ -682,9 +698,10 @@ def focus_rows(store: LedgerStore, record_stores: Sequence[ExtRecordStore], *, s
         fn = _resolve(spec, "focus_rows", spec.focus_rows, missing)
         if fn is None:
             continue
-        for row in fn(store, record_stores, since_ms=since_ms, until_ms=until_ms,
-                      reconciled_channels=reconciled_channels, k=k,
-                      allow_unreconciled=allow_unreconciled, role=role):
+        for row in _items(fn(store, record_stores, since_ms=since_ms, until_ms=until_ms,
+                             reconciled_channels=reconciled_channels, k=k,
+                             allow_unreconciled=allow_unreconciled, role=role),
+                          "an extension focus_rows hook"):
             if not isinstance(row, FocusRow):
                 raise ContractViolation("an extension focus_rows hook must yield FocusRows")
             if row.channel not in spec.channels:
@@ -693,7 +710,7 @@ def focus_rows(store: LedgerStore, record_stores: Sequence[ExtRecordStore], *, s
     return rows, frozenset(owned)
 
 
-def showback(result: RunResult, out_dir: Path, formats: Sequence[str], *,
+def showback(result: RunResult, out_dir: Path, formats: Sequence[str],
              notes: list[DataQualityNote] | None = None) -> list[Path]:
     """Write every extension's showback pages for *result* into *out_dir*; returns the paths
     written, in extension-name order."""
@@ -705,8 +722,7 @@ def showback(result: RunResult, out_dir: Path, formats: Sequence[str], *,
         fn = _resolve(spec, "showback", spec.showback, missing)
         if fn is None:
             continue
-        paths = fn(result, out_dir, formats)
-        for path in paths:
+        for path in _items(fn(result, out_dir, formats), "an extension showback hook"):
             if not isinstance(path, Path):
                 raise ContractViolation("an extension showback hook must return Paths")
             written.append(path)
@@ -734,9 +750,9 @@ def policy_packs(target: str, store: LedgerStore, record_stores: Sequence[ExtRec
         fn = _resolve(spec, "policy_targets", dotted, missing)
         if fn is None:
             return []
-        packs = list(fn(store, record_stores, ctx, findings, result, out_dir=out_dir,
-                        current=current, cohort_by=cohort_by,
-                        include_tradeoffs=include_tradeoffs))
+        packs = _items(fn(store, record_stores, ctx, findings, result, out_dir=out_dir,
+                          current=current, cohort_by=cohort_by,
+                          include_tradeoffs=include_tradeoffs), "an extension policy builder")
         if not all(isinstance(p, PolicyPack) for p in packs):
             raise ContractViolation("an extension policy builder must return PolicyPacks")
         return packs
@@ -758,7 +774,7 @@ def panel(name: str, store: LedgerStore, record_stores: Sequence[ExtRecordStore]
         fn = _resolve(spec, "panel_builder", spec.panel_builder, missing)
         if fn is None:
             return []
-        rows = list(fn(store, record_stores, **kw))
+        rows = _items(fn(store, record_stores, **kw), "an extension panel builder")
         if not all(isinstance(r, PanelRow) for r in rows):
             raise ContractViolation("an extension panel builder must return PanelRows")
         return rows

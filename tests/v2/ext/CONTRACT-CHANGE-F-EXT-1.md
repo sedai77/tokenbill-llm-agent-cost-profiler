@@ -24,9 +24,10 @@ CLI-LEDGER, CLI-SAVINGS, RATES) before wave 2 starts.
    `builder(store, record_stores, ctx, findings, result, out_dir=…, current=…, cohort_by=…,
    include_tradeoffs=…)`. A target no extension declares → `UsageError`; an unavailable builder → `[]`
    plus a note.
-4. **`notes` is keyword-only everywhere** (brief item 1), including `persist`, `retain`, `purge`,
-   `showback` (CA-39 listed it positionally for some). `persist` has no `accepted_key_ids` (withdrawn,
-   CA-47 / R-E21).
+4. **`notes`** (`list[DataQualityNote] | None = None`) can be passed by keyword everywhere (brief
+   item 1) and, where CA-39 lists it positionally, also by position: `extension_rate_files(notes)`,
+   `persist(record_stores, result, notes)`, `showback(result, out_dir, formats, notes)`. `persist` has
+   no `accepted_key_ids` (withdrawn, CA-47 / R-E21).
 5. **Listings vs resolution (CLI-LEDGER, CLI-SAVINGS, RATES).** `command_modules()` (verb = extension
    name → module) and `policy_targets()` only locate modules (`importlib.util.find_spec`), so a parser
    can be built without importing extension code; `rate_verifiers()` resolves each verifier with
@@ -38,3 +39,14 @@ CLI-LEDGER, CLI-SAVINGS, RATES) before wave 2 starts.
 7. **Record-store attribution in `capabilities_present`.** A record store belongs to the extension
    whose name equals the store's `name`; a store named after no extension belongs to every extension
    that declares a `record_store`. CP-STORE's `CopilotRecordStore.name` should be `"copilot"`.
+8. **Ledger reads of `capabilities_present` (STORE).** Requests on extension channels are found
+   with one `store.aggregate(since_ms=…, until_ms=…, group_by=("channel",))` (SPEC §7.2 whitelists
+   `channel` for SqliteStore's `GROUP BY`), not with an `iter_requests(where={"channel": …})`
+   filter, which SPEC §7.2 does not promise (`channel` is an inference column). Cost lines and usage
+   aggregates are read through `cost_lines(None, …)` / `aggregates(None, …)` (the protocols offer no
+   channel filter), each at most once per call and only when the earlier source did not decide.
+   `aggregate` groups billable inferences (`billable` not False), so a window whose only data on an
+   extension channel is non-billable requests does not by itself add `ext:<name>`.
+9. **Wrong result types.** A list-returning hook (`focus_rows`, `showback`, the policy builder, the
+   panel builder) that returns `None`, a mapping or a string, and a record store whose `put` counts
+   or `retain` / `purge` totals are not non-negative ints, raise `ContractViolation`.

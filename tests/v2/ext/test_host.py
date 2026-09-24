@@ -515,3 +515,56 @@ def test_record_store_values_are_not_mutated() -> None:
     result = ingest_result(licenses=(lic,))
     ext.persist([store], result)
     assert result.licenses == [lic]
+
+
+# ---------- wrong result types are contract violations (never a stray TypeError) ----------
+
+
+@pytest.mark.parametrize("variant", ["returns_none", "returns_mapping"])
+def test_list_hooks_returning_no_list_are_contract_violations(install: Install, tmp_path: Path,
+                                                              variant: str) -> None:
+    bad = f"{HOOKS}:{variant}"
+    install(fake_spec(focus_rows=bad, showback=bad, policy_targets=(("fake-target", bad),),
+                      panel_builder=bad))
+    with pytest.raises(ContractViolation):
+        ext.focus_rows(PlainLedger(), [], since_ms=0, until_ms=1, reconciled_channels=frozenset(),
+                       k=5, allow_unreconciled=False, role="primary")
+    with pytest.raises(ContractViolation):
+        ext.showback(make_run_result(), tmp_path, ("html",))
+    with pytest.raises(ContractViolation):
+        ext.policy_packs("fake-target", PlainLedger(), [], make_ctx(), [], None, out_dir=None,
+                         current=None, cohort_by="team", include_tradeoffs=False)
+    with pytest.raises(ContractViolation):
+        ext.panel("fake", PlainLedger(), [])
+
+
+@pytest.mark.parametrize("put_result", [None, [("licenses", 1)], {"licenses": "1"},
+                                        {"licenses": True}, {"licenses": -1}, {1: 1}])
+def test_record_store_put_counts_are_checked(put_result: object) -> None:
+    store = hooks.BadCountsStore(put_result, 0)
+    with pytest.raises(ContractViolation):
+        ext.persist([store], ingest_result(licenses=(make_license(),)))
+
+
+@pytest.mark.parametrize("count", [None, "2", 2.0, True, -1])
+def test_record_store_retain_and_purge_counts_are_checked(count: object) -> None:
+    store = hooks.BadCountsStore({}, count)
+    with pytest.raises(ContractViolation):
+        ext.retain([store], identity_before_ms=0)
+    with pytest.raises(ContractViolation):
+        ext.purge([store], principal=None, before_ms=0, actor="admin")
+
+
+def test_notes_may_be_passed_where_ca39_lists_it_positionally(install: Install,
+                                                              tmp_path: Path) -> None:
+    """CA-39 writes ``extension_rate_files(notes)``, ``persist(record_stores, result, notes)``
+    and ``showback(result, out_dir, formats, notes)``; the keyword form works as well."""
+    install(fake_spec(rate_files=(f"{PKG}:fake_rates.json", f"{PKG}:absent.json"),
+                      showback=f"{PKG}.absent_module:showback"))
+    notes: list[DataQualityNote] = []
+    assert [f.name for f in ext.extension_rate_files(notes)] == ["fake_rates.json"]
+    store = hooks.FakeRecordStore()
+    assert ext.persist([store], ingest_result(licenses=(make_license(),)), notes) == {
+        "activity": 0, "config": 0, "licenses": 1}
+    assert ext.showback(make_run_result(), tmp_path, ("html",), notes) == []
+    assert [n.detail for n in notes] == ["fake:rate_files", "fake:showback"]

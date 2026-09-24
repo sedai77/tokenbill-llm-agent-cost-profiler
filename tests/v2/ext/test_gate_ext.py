@@ -1,6 +1,7 @@
 """Gate F' seams of the host with the sibling wave-1.5b core pieces (F-KIT-C): the real
-``core.kanon.scope_counter`` behind ``count_users_fn`` and the real ``MemoryStore`` as a
-``LedgerStats`` feeding ``rounding_remainders``. Skipped until those pieces are merged."""
+``core.kanon.scope_counter`` behind ``count_users_fn``, the real ``MemoryStore`` as a
+``LedgerStats`` feeding ``rounding_remainders``, and the real ``MemoryRecordStore`` behind
+``persist`` / ``capabilities_present``. Skipped until those pieces are merged."""
 
 from __future__ import annotations
 
@@ -10,14 +11,15 @@ from decimal import Decimal
 import pytest
 
 from tokenbill.core import extensions as ext
-from tokenbill.core.builders import FlatRates
+from tokenbill.core import testing as core_testing
+from tokenbill.core.builders import FlatRates, make_license
 from tokenbill.core.labels import Basis, estimated
 from tokenbill.core.protocols import LedgerStats
 from tokenbill.core.testing import MemoryStore
 from tokenbill.core.types import DataQualityNote, Finding, Scope
 
 from .fake_ext import hooks
-from .support import fake_spec, ingest_result, source
+from .support import COPILOT, WINDOW, fake_spec, ingest_result, source
 
 Install = Callable[..., None]
 
@@ -53,3 +55,23 @@ def test_run_reconcilers_on_the_real_memory_store(install: Install) -> None:
                         unexplained_pct="1.0", closed_only=False, today="2026-09-24")
     (_args, kw), = hooks.calls("reconciler")
     assert kw["rounding_remainders"] == {"github-ai-usage": Decimal("1.2E-17")}
+
+
+@pytest.mark.gate
+def test_activity_report_only_handoff_with_the_real_record_store(install: Install) -> None:
+    """The brief's acceptance case on F-KIT-C's ``MemoryRecordStore``: a store holding only
+    record-store licenses (activity report, plan and team assignment unknown) → ``ext:copilot``."""
+    record_store_cls = getattr(core_testing, "MemoryRecordStore", None)
+    if record_store_cls is None:
+        pytest.skip("MemoryRecordStore (F-KIT-C) not merged")
+    install(COPILOT)
+    records = record_store_cls(None, org_key_id="k_org")
+    lic = make_license(snapshot_date="2026-09-15", plan="unknown", assigned_via_team=None,
+                       source_kind="github.copilot_activity_report")
+    counts = ext.persist([records], ingest_result(licenses=(lic,)), notes=[])
+    assert counts["licenses"] == 1 and counts["activity"] == 0 and counts["config"] == 0
+    notes: list[DataQualityNote] = []
+    assert ext.capabilities_present(MemoryStore(), [records], since_ms=WINDOW["since_ms"],
+                                    until_ms=WINDOW["until_ms"], notes=notes) == frozenset(
+        {"ext:copilot"})
+    assert notes == []
