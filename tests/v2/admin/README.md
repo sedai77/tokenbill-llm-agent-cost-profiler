@@ -19,9 +19,11 @@ tests/v2/admin/test_fuzz.py` (60 examples per property by default; 2,500 ran cle
 
 - **Inputs.** One recorded page per file (the documented response object), a JSON array of pages,
   JSONL of pages, a recorded-page wrapper `{"endpoint"|"url"|"path", "fetched_at"|"fetched_ms",
-  "response"|"page"|"body"}`, `.gz` of any of these, or a **directory** (every file read in one
-  pass; pages of other endpoints in a directory are skipped). Pages are classified by shape (or the
-  wrapper's endpoint), so an empty page needs a wrapper to be attributed.
+  "response"|"page"|"body"}` (the body a JSON object or the HTTP body as JSON text), `.gz` of any
+  of these, or a **directory** (every `.json`/`.jsonl`/`.ndjson` file, optionally `.gz`, read in
+  one pass; pages of other endpoints in a directory are skipped, other file types are not read).
+  Pages are classified by shape (or the wrapper's endpoint), so an empty page needs a wrapper to
+  be attributed.
 - **Ids.** Workspace, API-key, project and account ids become `h_` pseudonyms under the name key
   unless listed in `opts.name_allowlist` (brief: "api keys and workspaces `h_` under the name key";
   `IngestOptions` has no `--hash-workspaces` flag, see CONTRACT-CHANGE-ADMIN-1 (e)). A name key is
@@ -29,11 +31,15 @@ tests/v2/admin/test_fuzz.py` (60 examples per property by default; 2,500 ran cle
 - **People.** Person-level grouping values (`account_id`, `service_account_id`, `user_id`,
   `claude_tag_user_id`) are dropped and their rows summed (`stats["person_dims_dropped"]`). Analytics
   actors (e-mail, API key name, user id) are used only for the `opts.team_map` lookup (exact, then
-  case-folded) and the distinct-user count, then discarded. Teams per `(date, team)` go through
+  case-folded) and the distinct-user count (identities case-folded, so one person under two
+  spellings is one user), then discarded. Teams per `(date, team)` go through
   `core.kanon.merge_small_groups` with `opts.k_anonymity`: small groups merge into `(other)`, or are
   dropped with `dq.outcomes_suppressed` (count = groups; no token magnitude, which would
   disclose what the suppression hides; `stats["users_dropped"]` counts the people). Unmapped actors
-  count as team `(unmapped)`.
+  count as team `(unmapped)`; `attribution.team` is reported only when some team is mapped. A
+  record whose counts would push a team's sums past 2**53 is quarantined (`bad_usage`); if the
+  merged `(other)` group would, its small groups are suppressed and the day is quarantined
+  (`rollup:<date>`). Timestamps must fall in [1970, 9999] (else `bad_type:<field>`).
 - **Money.** JSON numbers are parsed as exact `Decimal` (never float); every amount is accumulated as
   an exact integer of 10⁻²¹⁰ USD, rows sharing a cost line's identifying fields are summed, and each
   line is rounded half-even once through `core.money.cents_to_nano` / `usd_str_to_nano`. The
@@ -53,7 +59,9 @@ tests/v2/admin/test_fuzz.py` (60 examples per property by default; 2,500 ran cle
   `invoice`, `list_cost_nano` from `list_amount`), never mixed with the organization-level
   `anthropic.enterprise_usage` / `anthropic.enterprise_cost` (CONTRACT-CHANGE-ADMIN-1 (a)).
   Per-user records need `starting_at` (request them with `bucket_width`).
-- **OpenAI.** Only `organization.usage.completions.result` rows are token usage (other usage kinds
+- **OpenAI.** The disjoint fields map directly (`input_tokens` is needed only when
+  `input_uncached_tokens` is absent; when both are present a disagreement is
+  `dq.sum_check_failed`). Only `organization.usage.completions.result` rows are token usage (other usage kinds
   are counted in `stats["results_skipped_other_kinds"]`); cache writes are `cache_write_other` with
   TTL 1800 s; `batch: true` → tier `batch`, `default` → `standard`. Cost lines keep `line_item` as
   the description; model/token type are never guessed from it.
@@ -67,13 +75,14 @@ tests/v2/admin/test_fuzz.py` (60 examples per property by default; 2,500 ran cle
   `central-ingest`/`install` with a principal key) on the cost lines; team on the token aggregates:
   `opts.team_map` on the raw ARN, then on the role ARN of an `assumed-role` session, then the
   `iamPrincipal/team` tag, else `(unmapped)`. Legacy `lineItem/…` column names are accepted. Parquet
-  → `SourceError` asking for the CSV export.
+  → `SourceError` asking for the CSV export. An export directory is read for `*.csv(.gz)` parts
+  only (the Data Exports `metadata/*-Manifest.json` is not data).
 - **GCP.** Claude SKUs only (`sku.description` contains "Claude" or a verified rule matches); `tax`
   rows skipped; `amount = cost + Σ credits`, `list_amount = cost`; tokens only from `regular` rows;
   scope from `location.region` (then `location.location`, then a verified rule; none →
-  `dq.scope_unknown`); labels allowlisted in `GCP_LABEL_DIMS` (`team`, `cost_center`/`cost-center`,
-  `department`, `environment`, values `[A-Za-z0-9_.:/ -]{1,63}`), others dropped with
-  `dq.unknown_fields`.
+  `dq.scope_unknown`); labels allowlisted in `GCP_LABEL_DIMS` (the attribution dimensions `team`
+  and `cost_center`/`cost-center`, values `[A-Za-z0-9_.:/ -]{1,63}`), others dropped with
+  `dq.unknown_fields`. A directory is read for `.jsonl`/`.json`/`.ndjson`/`.csv` files only.
 
 ## Test files
 
@@ -86,6 +95,7 @@ tests/v2/admin/test_fuzz.py` (60 examples per property by default; 2,500 ran cle
 | `test_aws_cur.py` | fixture CSV and `.gz` equal; net vs unblended, credits; principals `p_` and teams (role map, tag), central mode; verified-rule mapping of input/output/read/5m/1h/batch in 1K and 1M units; only Bedrock rows; hourly → daily; Parquet refusal; legacy columns; bad rows, strict mode, ragged/oversize CSV lines; export directories; corrupt gzip; unit parser; exact token conversion |
 | `test_gcp_billing.py` | JSONL and CSV equal; `cost + credits`; region → scope; labels allowlist; unmapped vs verified SKU rules; units from pricing units or rules; non-Claude/tax/bad rows; flattened CSV headers; strict mode |
 | `test_common.py` | `assert_adapter_conforms` on **every fixture** (and with the conformance default options); registry paths; sniff matrix (each fixture claimed only by its adapter) and truncated heads; classification; wrappers/arrays/JSONL/BOM/gzip; directory handling; bad documents; streaming of large files; required name key; window filters; content-free `SourceInfo`; byte-identical output across processes; no float and no network imports in the owned modules; shared parsers |
+| `test_review_regressions.py` | review fixes: JSON-text wrapper bodies; OpenAI disjoint fields without `input_tokens`; case-variant actors counted once (k-anonymity); outcome/`(other)` overflow quarantined instead of aborting; timestamps past 9999 quarantined (never `ValueError`); CUR export and page/GCP directories skip metadata and notes; `attribution.team` only with a mapped team; GCP labels limited to attribution dims |
 | `test_fuzz.py` | hypothesis: random JSON documents and mutated fixture pages for all eight adapters, random bytes (`.json`/`.csv`/`.gz`), random CUR rows and GCP rows, sniffing, scalar parsers — only `TokenbillError` escapes, outputs encode, no person dims/canary; cents parsing exact vs `core.money`; k-anonymity property over random teams |
 | `test_fixtures_manifest.py` | MANIFEST lists every fixture; `build_fixtures.py` reproduces every file byte-identically; every adapter reproduces the script's closed-form expectations; all fixtures ingest into `MemoryStore` (idempotent, `p_` kept under the org key) |
 | `test_gate_recon_pair.py` | **gate** (`importorskip` RATES, RECON): the recorded pair priced to the nano by the real `RateCard`; `recon.reconcile` verdict `reconciled` for `anthropic_api` |

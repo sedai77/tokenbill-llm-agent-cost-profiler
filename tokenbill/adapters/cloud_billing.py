@@ -94,16 +94,19 @@ CUR_ALIASES: Mapping[str, str] = {
     "lineItem/IamPrincipal": "line_item_iam_principal",
     "pricing/unit": "pricing_unit",
 }
+#: File formats read from an export directory (Data Exports also write ``metadata/*.json``).
+CUR_SUFFIXES = (".csv",)
+GCP_SUFFIXES = (".jsonl", ".json", ".ndjson", ".csv")
 #: CUR line item types whose usage amount is billed token usage.
 CUR_TOKEN_LINE_TYPES = frozenset({"", "Usage", "DiscountedUsage", "SavingsPlanCoveredUsage"})
 #: Line item types that are not model cost (skipped, counted in stats).
 CUR_SKIPPED_LINE_TYPES = frozenset({"Tax"})
 #: CUR 2.0 ``tags`` keys that name the principal's team (IAM principal cost-allocation tags).
 CUR_TEAM_TAGS = ("iamPrincipal/team", "iamPrincipal/Team")
-#: GCP label keys → aggregate dims (all other labels are dropped).
+#: GCP label keys → aggregate dims (all other labels are dropped). Only attribution dimensions
+#: (``core.records.Attribution`` fields): a label is never a free-form dim of its own.
 GCP_LABEL_DIMS: Mapping[str, str] = {
     "team": "team", "cost_center": "cost_center", "cost-center": "cost_center",
-    "department": "department", "environment": "environment",
 }
 GCP_SKIPPED_COST_TYPES = frozenset({"tax"})
 GCP_TOKEN_COST_TYPES = frozenset({"", "regular"})
@@ -275,10 +278,10 @@ class AwsCurAdapter:
 
     def read(self, path: Path, opts: IngestOptions) -> IngestResult:
         """Parse the export (a file or a directory of parts) per SPEC §5.13."""
-        ctx = ReadContext(self.name, Path(path), opts)
-        for f in source_files(Path(path)):
+        for f in source_files(Path(path), CUR_SUFFIXES + (".parquet",)):
             if _is_parquet(f):
                 raise SourceError(f"{f.name}: {PARQUET_MESSAGE}")
+        ctx = ReadContext(self.name, Path(path), opts, CUR_SUFFIXES)
         unmapped = [0, 0]
         for i, f in enumerate(ctx.files):
             for loc, row in iter_csv(ctx, f, i, CUR_ALIASES):
@@ -471,7 +474,7 @@ class GcpBillingExportAdapter:
 
     def read(self, path: Path, opts: IngestOptions) -> IngestResult:
         """Parse the export (a file or a directory) per SPEC §5.13."""
-        ctx = ReadContext(self.name, Path(path), opts)
+        ctx = ReadContext(self.name, Path(path), opts, GCP_SUFFIXES)
         state: dict[str, Any] = {"unmapped": [0, 0], "labels_dropped": 0, "scope_unknown": 0}
         for i, f in enumerate(ctx.files):
             for loc, row in self._rows(ctx, f, i):

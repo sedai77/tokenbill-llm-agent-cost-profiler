@@ -105,6 +105,8 @@ MAX_LABEL = 64
 MAX_DESCRIPTION = 256
 
 _EPOCH_ORDINAL = _date(1970, 1, 1).toordinal()
+#: Timestamps must fall before 10000-01-01T00:00Z (a ``YYYY-MM-DD`` date must exist for them).
+MAX_TS_MS = (_date(9999, 12, 31).toordinal() + 1 - _EPOCH_ORDINAL) * DAY_MS
 _TS_RE = re.compile(
     r"(\d{4})-(\d{2})-(\d{2})"
     r"(?:[Tt ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d{1,12}))?)?)?"
@@ -350,25 +352,28 @@ def ts_ms(value: Any, field_name: str) -> int:
         offset_min = (oh * 60 + om) * (1 if tz[0] == "+" else -1)
     ms = ((ordinal - _EPOCH_ORDINAL) * DAY_MS + h * 3_600_000 + mnt * 60_000 + sec * 1000
           + frac_ms - offset_min * 60_000)
-    if ms < 0 or ms > MAX_TOKENS:
+    if ms < 0 or ms >= MAX_TS_MS:  # e.g. 9999-12-31T23:30-01:00 is in year 10000
         raise BadRecord(f"bad_type:{field_name}")
     return ms
 
 
 def unix_s_to_ms(value: Any, field_name: str) -> int:
-    """Unix seconds (an int) → epoch ms."""
+    """Unix seconds (an int) → epoch ms, before 10000-01-01 (:data:`MAX_TS_MS`)."""
     if type(value) is not int:
         if value is None:
             raise BadRecord(f"missing:{field_name}")
         raise BadRecord(f"bad_type:{field_name}")
     ms = value * 1000
-    if ms < 0 or ms > MAX_TOKENS:
+    if ms < 0 or ms >= MAX_TS_MS:
         raise BadRecord(f"bad_type:{field_name}")
     return ms
 
 
 def date_of(ms: int) -> str:
-    """The UTC ``YYYY-MM-DD`` of an epoch-ms timestamp."""
+    """The UTC ``YYYY-MM-DD`` of an epoch-ms timestamp; outside ``[1970, 9999]`` →
+    ``BadRecord("bad_type:date")`` (never a ``ValueError``)."""
+    if type(ms) is not int or ms < 0 or ms >= MAX_TS_MS:
+        raise BadRecord("bad_type:date")
     return _date.fromordinal(_EPOCH_ORDINAL + ms // DAY_MS).isoformat()
 
 
@@ -392,15 +397,33 @@ class Document:
     reason: str | None = None       # quarantine reason when value is None
 
 
-def source_files(path: Path) -> list[Path]:
-    """The files of a source: *path* itself, or every regular file below a directory (sorted,
-    hidden files, ``MANIFEST.json`` and ``*.md``/``*.py`` skipped)."""
+#: Compression suffixes a data file may carry after its format suffix.
+_COMPRESSION_SUFFIXES = (".gz", ".zst")
+#: Format suffixes of recorded pages (files of other types in a directory are not read).
+PAGE_SUFFIXES = (".json", ".jsonl", ".ndjson")
+
+
+def _has_suffix(name: str, suffixes: tuple[str, ...]) -> bool:
+    name = name.lower()
+    for comp in _COMPRESSION_SUFFIXES:
+        if name.endswith(comp):
+            name = name[: -len(comp)]
+            break
+    return name.endswith(suffixes)
+
+
+def source_files(path: Path, suffixes: tuple[str, ...] | None = None) -> list[Path]:
+    """The files of a source: *path* itself, or every regular file below a directory (sorted;
+    hidden files, ``MANIFEST.json`` and ``*.md``/``*.py`` skipped; with *suffixes*, only files of
+    those formats, optionally ``.gz``/``.zst`` compressed — so an export's metadata or notes next
+    to the data are not parsed as data)."""
     path = Path(path)
     if path.is_dir():
         return sorted(
             p for p in path.rglob("*")
             if p.is_file() and not p.name.startswith(".") and p.name != "MANIFEST.json"
             and p.suffix.lower() not in (".md", ".py")
+            and (suffixes is None or _has_suffix(p.name, suffixes))
         )
     if not path.exists():
         raise SourceError(f"{path.name}: not found")
@@ -481,13 +504,19 @@ class Page:
 
 def unwrap(doc: dict[str, Any]) -> tuple[dict[str, Any], str | None, int]:
     """``(page, endpoint hint, fetched_ms)`` of a document: a recorded-page wrapper holds the page
-    under ``response``/``page``/``body`` and may name the endpoint and the fetch time."""
+    under ``response``/``page``/``body`` (a JSON object, or the recorded HTTP body as JSON text)
+    and may name the endpoint and the fetch time."""
     hint: str | None = None
     fetched = 0
     body = doc
     if "data" not in doc:
         for key in _WRAPPER_BODY_KEYS:
             inner = doc.get(key)
+            if isinstance(inner, str) and inner.lstrip().startswith("{"):
+                try:
+                    inner = loads(inner)
+                except BadRecord:
+                    inner = None
             if isinstance(inner, dict):
                 body = inner
                 break
@@ -498,7 +527,8 @@ def unwrap(doc: dict[str, Any]) -> tuple[dict[str, Any], str | None, int]:
                 hint = value
                 break
         fetched = _fetched_ms(doc)
-    else:
+    elif "data" in doc or not any(key in doc for key in _WRAPPER_BODY_KEYS):
+        # (a wrapper whose body is unusable gets no hint: it is not a page → bad_type:page)
         for key in _WRAPPER_HINT_KEYS:
             value = doc.get(key)
             if isinstance(value, str) and value.startswith(("/", "http")):
@@ -685,7 +715,8 @@ class ReadContext:
     aggregates / cost lines / outcomes, quarantine (lenient or strict), data-quality notes and
     stats. :meth:`result` builds the deterministic :class:`IngestResult`."""
 
-    def __init__(self, adapter: str, path: Path, opts: IngestOptions) -> None:
+    def __init__(self, adapter: str, path: Path, opts: IngestOptions,
+                 suffixes: tuple[str, ...] | None = None) -> None:
         if not isinstance(opts, IngestOptions):
             raise UsageError("read() needs IngestOptions")
         if not opts.name_key:
@@ -693,7 +724,7 @@ class ReadContext:
         self.adapter = adapter
         self.path = Path(path)
         self.opts = opts
-        self.files = source_files(self.path)
+        self.files = source_files(self.path, suffixes)
         self.source_id = pseudonym(opts.name_key, "s", f"{adapter}:{self.path.name}")
         self._name_hmac = pseudonym(opts.name_key, "h", self.path.name)
         self.stats: dict[str, int] = {"files": len(self.files), "records": 0,
@@ -704,7 +735,8 @@ class ReadContext:
         self._costs: dict[tuple[Any, ...], _CostCell] = {}
         self.outcomes: list[OutcomeAggregate] = []
         self.used_principal_key = False
-        self.team_dims = False
+        #: team values seen on aggregates (``attribution.team`` needs one that is mapped)
+        self.teams: set[str] = set()
         team_map = dict(opts.team_map)
         self._team_map = team_map
         self._team_map_folded = {k.casefold(): v for k, v in sorted(team_map.items())}
@@ -837,8 +869,6 @@ class ReadContext:
             self.stat("filtered_by_window")
             return False
         clean = tuple(sorted((k, v) for k, v in dims.items() if v is not None))
-        if any(k == "team" for k, _ in clean):
-            self.team_dims = True
         key = (source_kind, start_ms, end_ms, clean)
         cell = self._aggs.get(key)
         try:
@@ -847,6 +877,7 @@ class ReadContext:
             raise BadRecord("bad_usage") from None
         if cell is None:
             cell = self._aggs[key] = _AggCell()
+        self.teams.update(v for k, v in clean if k == "team")
         cell.usage = total
         if cost is not None:
             cell.cost += cost
@@ -950,8 +981,8 @@ class ReadContext:
             caps.add("cost")
         if outcomes:
             caps.add("outcomes")
-        if self.team_dims or outcomes:
-            caps.add("attribution.team")
+        if (self.teams | {o.team for o in outcomes}) - {UNMAPPED_TEAM}:
+            caps.add("attribution.team")  # not when every actor/principal was unmapped
         self.stats.update(aggregates=len(aggregates), cost_lines=len(cost_lines),
                           outcomes=len(outcomes), quarantined=len(self.quarantined))
         notes = self.notes()
@@ -982,15 +1013,37 @@ class TeamRollup:
         """Count *actor* (a raw reference, held only in memory) for ``(date, team)`` and add its
         outcome counts and aggregate cells (``cell key → (UsageBuckets, cost, n_cost, listed,
         n_list)`` with scaled money)."""
-        team_cells = self._days.setdefault(date_utc, {}).setdefault(team, [set(), None, {}])
+        team_cells = self._days.get(date_utc, {}).get(team) or [set(), None, {}]
         merged = {key: value if (prev := team_cells[2].get(key)) is None
                   else _add_cell(prev, value) for key, value in (cells or {}).items()}
-        team_cells[0].add(actor)            # only after every cell added cleanly
-        team_cells[2].update(merged)
+        new_outcome = team_cells[1]
         if outcome is not None:
-            prev_out = team_cells[1]
-            team_cells[1] = outcome if prev_out is None else tuple(
-                a + b for a, b in zip(prev_out, outcome, strict=True))
+            new_outcome = outcome if new_outcome is None else tuple(
+                a + b for a, b in zip(new_outcome, outcome, strict=True))
+            if any(v > MAX_TOKENS for v in new_outcome):  # an OutcomeAggregate count > 2**53
+                raise BadRecord("bad_usage")
+        # only after every cell and count was added cleanly: a rejected record adds nothing
+        self._days.setdefault(date_utc, {})[team] = team_cells
+        team_cells[0].add(actor)
+        team_cells[2].update(merged)
+        team_cells[1] = new_outcome
+
+    def _merge(self, day: str, rows: list[tuple[str, int, tuple[Any, ...]]], k: int
+               ) -> tuple[list[tuple[str, int, tuple[Any, ...]]], int]:
+        """``merge_small_groups`` for one date. When the merged ``(other)`` row would exceed the
+        record ranges (token or outcome sums beyond 2**53) the small groups are suppressed
+        instead, and the day is quarantined (``rollup:<date>``, ``bad_usage``)."""
+        try:
+            merged, dropped = merge_small_groups(rows, k=k, other_label=OTHER_TEAM)
+            other = [payload for team, _n, payload in merged if team == OTHER_TEAM]
+            if other and any(v > MAX_TOKENS for v in other[0][1]):
+                raise ContractViolation("merged outcome counts out of range")
+            return merged, dropped
+        except ContractViolation:
+            self.ctx.quarantine(f"rollup:{day}", "bad_usage")
+            big = [r for r in rows if r[1] >= k and r[0] != OTHER_TEAM]
+            merged, _ = merge_small_groups(big, k=k, other_label=OTHER_TEAM)
+            return merged, len(rows) - len(big)
 
     def flush(self, *, emit: Callable[[str, str, int, tuple[int, ...] | None,
                                         Mapping[str, tuple[Any, ...]]], None]) -> None:
@@ -1003,7 +1056,7 @@ class TeamRollup:
             for team in sorted(teams):
                 users, outcome, cells = teams[team]
                 rows.append((team, len(users), (outcome is not None, outcome or (), cells)))
-            merged, dropped = merge_small_groups(_payload_rows(rows), k=k, other_label=OTHER_TEAM)
+            merged, dropped = self._merge(day, _payload_rows(rows), k)
             if dropped:
                 # The note carries the group count only: a token magnitude of the dropped groups
                 # would disclose exactly what the suppression hides (as few as one person).
@@ -1070,6 +1123,8 @@ class PageAdapter:
     name: str = ""
     capabilities: frozenset[str] = frozenset()
     kinds: frozenset[str] = frozenset()
+    #: file formats read from a directory source
+    suffixes: tuple[str, ...] = PAGE_SUFFIXES
 
     def sniff(self, path: Path, head: bytes) -> bool:
         """True when the head of *path* classifies as one of this adapter's page kinds."""
@@ -1080,7 +1135,7 @@ class PageAdapter:
 
     def read(self, path: Path, opts: IngestOptions) -> IngestResult:
         """Parse every page of *path* (a file or a directory) into records (SPEC §5.11)."""
-        ctx = ReadContext(self.name, Path(path), opts)
+        ctx = ReadContext(self.name, Path(path), opts, self.suffixes)
         self.begin(ctx)
         for i, f in enumerate(ctx.files):
             for doc in load_documents(f, i):
@@ -1328,7 +1383,11 @@ _TOOL_ACTIONS = ("edit_tool", "multi_edit_tool", "write_tool", "notebook_edit_to
 def actor_refs(record: Mapping[str, Any]) -> tuple[str, list[str]]:
     """``(identity, references)`` of a person-level record's actor: the stable ``user_id`` when
     present (else the first reference) for distinct-user counting, and every reference in lookup
-    order for ``opts.team_map``. Held in memory only; ``missing:actor`` when there is none."""
+    order for ``opts.team_map``. Held in memory only; ``missing:actor`` when there is none.
+
+    The identity is case-folded: ``Dev@X.io`` and ``dev@x.io`` are one person (the team lookup
+    folds case too). Counting them twice would inflate ``n_users`` and could publish a group of
+    fewer than k people; folding can only merge identities, which errs toward suppression."""
     actor = record.get("actor")
     if not isinstance(actor, dict):
         raise BadRecord("missing:actor")
@@ -1338,7 +1397,7 @@ def actor_refs(record: Mapping[str, Any]) -> tuple[str, list[str]]:
         raise BadRecord("missing:actor")
     user_id = actor.get("user_id")
     identity = user_id.strip() if isinstance(user_id, str) and user_id.strip() else refs[0]
-    return identity, refs
+    return identity.casefold(), refs
 
 
 def _count(obj: Any, *path: str) -> int:

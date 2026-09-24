@@ -57,17 +57,21 @@ SERVICE_TIERS: Mapping[str, str] = {"default": "standard", "auto": "standard",
 
 
 def openai_usage(result: Mapping[str, Any], ctx: ReadContext) -> UsageBuckets:
-    """Completions usage result → disjoint buckets (see the module docstring)."""
-    total_in = req_tokens(result, "input_tokens")
+    """Completions usage result → disjoint buckets (see the module docstring). The disjoint
+    fields map directly (convention ``openai.usage_buckets``, SPEC §5.2), so ``input_tokens`` is
+    needed only when ``input_uncached_tokens`` is absent."""
     output = req_tokens(result, "output_tokens")
     cached = opt_tokens(result, "input_cached_tokens")
     write = opt_tokens(result, "input_cache_write_tokens")
+    total_in = None if result.get("input_tokens") is None else req_tokens(result, "input_tokens")
     if result.get("input_uncached_tokens") is not None:
         uncached = req_tokens(result, "input_uncached_tokens")
-        if uncached + cached + write != total_in:
+        if total_in is not None and uncached + cached + write != total_in:
             ctx.note("dq.sum_check_failed", "warn", "OpenAI usage bucket: uncached + cached + "
                      "cache_write != input_tokens (disjoint fields kept)", 1,
                      abs(total_in - uncached - cached - write))
+    elif total_in is None:
+        raise BadRecord("missing:input_tokens")
     else:
         uncached = total_in - cached - write
         if uncached < 0:

@@ -33,7 +33,7 @@ from tokenbill.core.errors import SourceError, UsageError
 from tokenbill.core.ids import key_id
 from tokenbill.core.protocols import Adapter
 from tokenbill.core.registry import _read_head
-from tokenbill.core.testing import assert_adapter_conforms
+from tokenbill.core.testing import assert_adapter_conforms, conformance_ingest_options
 from tokenbill.core.types import IngestOptions
 
 from .helpers import (
@@ -86,8 +86,11 @@ def test_conformance_with_default_options(name: str) -> None:
     """``assert_adapter_conforms`` with its own default options (install mode, its keys)."""
     rel = next(e["path"] for e in MANIFEST["files"] if e["adapter"] == name)
     adapter = ADAPTERS[name]()
-    result = adapter.read(fixture(rel), opts())
+    result = adapter.read(fixture(rel), conformance_ingest_options())
     assert_adapter_conforms(adapter, fixture(rel), expect_capabilities=result.capabilities)
+    if name == "anthropic-cc-analytics":   # no team map: every actor is (unmapped)
+        assert "attribution.team" not in result.capabilities
+        assert {o.team for o in result.outcomes} == {"(unmapped)"}
 
 
 @pytest.mark.parametrize("name", sorted(ADAPTERS))
