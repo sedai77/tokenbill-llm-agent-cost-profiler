@@ -246,3 +246,16 @@ def test_parse_report_date(text: str, expected: str | None) -> None:
 
 def test_parse_report_date_rejects_non_strings() -> None:
     assert parse_report_date(20260901) is None  # type: ignore[arg-type]
+
+
+def test_names_stay_within_64_bytes(tmp_path: Path) -> None:
+    cc, org = "Cost Center " + "é" * 60, "a" * 70
+    row = ("2026-09-01,copilot,copilot_ai_credit,1,ai-credits,0.01,0.01,0,0.01,u,{org},,\"{cc}\","
+           "GPT-5.5,1,1,1,0\n")
+    path = write(tmp_path, "names.csv", HEADER + row.format(org="acme-a", cc=cc)
+                 + row.format(org=org, cc=""))
+    r = AiUsageReportAdapter().read(path, opts())
+    (line,) = r.cost_lines
+    assert line.cost_center is not None and len(line.cost_center.encode()) <= 64
+    assert line.cost_center.startswith("Cost Center é")
+    assert [q.reason for q in r.quarantined] == ["bad_type:organization"]

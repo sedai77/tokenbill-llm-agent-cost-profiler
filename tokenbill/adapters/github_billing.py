@@ -184,7 +184,7 @@ _ISO_TS_RE = re.compile(
 _NUMBER_RE = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]{1,6})?\Z")
 _INT_RE = re.compile(r"[0-9]{1,16}\Z")
 _SKU_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/ -]{0,63}\Z")
-_ORG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}\Z")
+_ORG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 _MODEL_RE = re.compile(r"[a-z0-9][a-z0-9._()+:/-]{0,63}\Z")
 _UNIT_RE = re.compile(r"[a-z0-9][a-z0-9_. -]{0,31}\Z")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]+")
@@ -322,6 +322,13 @@ def _tokens(value: str, name: str) -> int | None:
 
 def _clean(text: str, limit: int) -> str:
     return " ".join(_CONTROL_RE.sub(" ", text).split())[:limit]
+
+
+def _name(text: str) -> str:
+    """An organizational name (cost center) as stored: control characters and runs of spaces
+    collapsed, at most 64 UTF-8 bytes (SPEC §8.1: no field carries more than 64 bytes of source
+    text)."""
+    return _clean(text, 64).encode("utf-8")[:64].decode("utf-8", "ignore").strip()
 
 
 def _code(text: str, rx: re.Pattern[str], name: str) -> str:
@@ -735,7 +742,7 @@ class AiUsageReportAdapter:
         label = row["model"]
         cm = normalize_copilot_model(label)
         model = cm.model if _MODEL_RE.match(cm.model or "-") else ""
-        cc_col = _clean(row.get("cost_center_name", ""), 128)
+        cc_col = _name(row.get("cost_center_name", ""))
         team = rd.team(login) if login else None
         cost_center = rd.cost_center(login, cc_col) or None
         dims = {"channel": _CHANNEL, "organization": org or None, "team": team,
@@ -968,7 +975,7 @@ class MeteredUsageAdapter:
             workload = None                # workflow paths classify Actions rows only
         rd.check_identity(gross, discount, net)
         login = row.get("username", "").strip()
-        cc_col = _clean(row.get("cost_center_name", ""), 128)
+        cc_col = _name(row.get("cost_center_name", ""))
         repo_raw = row.get("repository", "").strip()
         repo = rd.name_hash(repo_raw) if repo_raw else None
         principal = rd.principal(login) if login else None
@@ -1172,7 +1179,7 @@ class BillingApiAdapter:
         scope["enterprise"] = _clean(_text(body.get("enterprise"), "enterprise"), 128)
         cc = body.get("costCenter")
         if isinstance(cc, dict):
-            scope["cc_name"] = _clean(_text(cc.get("name"), "costCenter"), 128)
+            scope["cc_name"] = _name(_text(cc.get("name"), "costCenter"))
             scope["cc_id"] = _clean(_text(cc.get("id"), "costCenter"), 128)
         qcc = query.get("cost_center_id")
         if not scope["cc_id"] and isinstance(qcc, str):
@@ -1187,6 +1194,8 @@ class BillingApiAdapter:
         if not sku_raw or len(sku_raw) > 64:
             raise _Bad("bad_type:sku")
         sku, known = _canonical_sku(sku_raw)
+        if not sku:
+            raise _Bad("bad_type:sku")
         fact = _facts.copilot_skus().get(sku)
         product = _key(_text(item.get("product"), "product"))
         product = PRODUCT_ALIASES.get(product, product)

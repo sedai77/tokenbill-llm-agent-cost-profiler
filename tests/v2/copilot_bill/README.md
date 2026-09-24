@@ -41,8 +41,10 @@ checks every `MANIFEST.json` expectation against the adapters.
   `opts.cost_center_map` (exact, then case-folded; a `cost_center_name` cell wins) and becomes
   `pseudonym(opts.principal_key, "p", login.strip())` — the raw login, case kept (SPEC §5.1
   `central-ingest`; CONTRACT-CHANGE §2). Without a principal key such a row raises `PrivacyError`.
-  Repositories and agentic-workflow paths are `h_` under `opts.name_key` (required). Org logins,
-  cost-center names and enterprise names stay clear (organizational). Empty username →
+  Repositories and agentic-workflow paths are `h_` under `opts.name_key` (required). Org logins
+  (`[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, else `bad_type:organization`) and cost-center names (control
+  characters collapsed, clipped to 64 UTF-8 bytes — SPEC §8.1) stay clear; enterprise names enter
+  natural keys only. Empty username →
   `principal=None`, `ai_credit.direct`, `dq.copilot_unattributed_rows`.
 - **Tokens.** Stored under `github.ai_usage_report.excl` (input → uncached, `cache_write` →
   `cache_write_unknown`). A row with every token cell empty contributes no tokens and no aggregate

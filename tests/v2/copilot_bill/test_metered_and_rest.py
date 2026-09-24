@@ -167,7 +167,7 @@ def test_rest_malformed_pages(tmp_path: Path) -> None:
                     "response": {"timePeriod": {"year": 2026, "month": 9}, "usageItems": [
                         5, {"sku": "copilot_ai_credit", "product": "Copilot",
                             "grossAmount": "x", "discountAmount": 0, "netAmount": 0},
-                        {"sku": 7}, {"product": "Copilot"},
+                        {"sku": 7}, {"product": "Copilot"}, {"sku": "!!!", "product": "Copilot"},
                         {"sku": "copilot_ai_credit", "product": "Copilot", "grossAmount": 1,
                          "discountAmount": 0},
                         {"sku": "Copilot Business Seats", "product": "Copilot",
@@ -184,7 +184,8 @@ def test_rest_malformed_pages(tmp_path: Path) -> None:
     assert reasons == sorted([
         "bad_json", "bad_json", "not_object", "missing:usageItems", "bad_type:usageItems",
         "bad_type:timePeriod", "bad_type:timePeriod", "not_object", "bad_type:grossAmount",
-        "bad_type:sku", "missing:sku", "missing:netAmount", "bad_type:grossAmount",
+        "bad_type:sku", "bad_type:sku", "missing:sku", "missing:netAmount",
+        "bad_type:grossAmount",
         "bad_type:date"])
     (seat,) = r.cost_lines
     assert (seat.sku, seat.unit, seat.cost_type) == ("copilot_for_business", "user months",

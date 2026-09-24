@@ -8,7 +8,7 @@ from pathlib import Path
 
 from tokenbill.core.builders import CANARY_LOGIN
 from tokenbill.core.ids import pseudonym
-from tokenbill.core.pool import detect_plans
+from tokenbill.core.pool import build_cells, detect_plans
 from tokenbill.core.records import record_key, to_json
 from tokenbill.core.testing import MemoryStore
 
@@ -120,3 +120,16 @@ def test_ui_download_equals_export_api_file(tmp_path: Path) -> None:
     assert len(api.cost_lines) == ENTRIES["ai_usage_quota_ui.csv"]["expect"]["cost_lines"]
     for r in (api, ui):
         assert CANARY_LOGIN not in dump(r) and "dev000" not in dump(r)
+
+
+def test_core_pool_cells_join_lines_and_token_aggregates() -> None:
+    r = read("ai_usage_2026-09.csv")
+    exp = ENTRIES["ai_usage_2026-09.csv"]["expect"]
+    for convention in ("excl", "incl"):
+        cells, _ = build_cells(r.aggregates, r.cost_lines, grain="day", convention=convention)
+        assert not [c for c in cells if c.cost_type == "other"]   # every token cell has its line
+        assert sum(c.gross_nano for c in cells) == exp["gross_nano"]
+        assert sum(c.net_nano for c in cells) == exp["net_nano"]
+    cells, _ = build_cells(r.aggregates, r.cost_lines, grain="month")
+    assert sum(c.usage.total_input + c.usage.output for c in cells) == exp["tokens"]
+    assert {c.cost_type for c in cells} == {"ai_credit.user", "ai_credit.direct"}
