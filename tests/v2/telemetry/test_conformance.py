@@ -3,6 +3,7 @@ across processes, and ingest into the foundation ``MemoryStore``."""
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -147,3 +148,16 @@ def test_a_genai_span_and_a_recorded_response_merge_by_message_id(tmp_path: Path
     store.ingest(responses_result)
     (req,) = list(store.iter_requests())
     assert req.source is not None and req.source.adapter == "anthropic-responses"  # priority 35
+
+
+def test_checked_in_fixtures_match_their_builder(tmp_path: Path) -> None:
+    spec = importlib.util.spec_from_file_location("tb_telem_fixture_builder",
+                                                  h.FIXTURES / "build_fixtures.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.main(tmp_path)
+    built = sorted(p.name for p in tmp_path.iterdir())
+    assert built == sorted(p.name for p in h.FIXTURES.iterdir() if p.suffix in (".jsonl", ".json"))
+    for name in built:
+        assert (tmp_path / name).read_bytes() == (h.FIXTURES / name).read_bytes(), name

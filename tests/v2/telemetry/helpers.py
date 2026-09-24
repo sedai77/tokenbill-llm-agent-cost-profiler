@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from tokenbill.core.builders import CANARY, CANARY_EMAIL
-from tokenbill.core.ids import key_id, pseudonym
-from tokenbill.core.records import Attribution, to_json
+from tokenbill.core.ids import pseudonym
+from tokenbill.core.records import to_json
 from tokenbill.core.testing import (
     CONFORMANCE_NAME_KEY,
     CONFORMANCE_PRINCIPAL_KEY,
@@ -38,7 +38,7 @@ TEAM_MAP = ((CANARY_EMAIL, "payments"),
 __all__ = [
     "ANTHROPIC", "BEDROCK", "CANARY", "CANARY_EMAIL", "FIXTURES", "GOLDEN", "NAME_KEY", "OPENAI",
     "ORG_KEY", "OTLP_CC", "OTLP_GENAI", "OTLP_OI", "T0", "TEAM_MAP", "attr", "blob", "central",
-    "event", "logs", "metrics", "p_of", "spans", "span", "write_lines",
+    "event", "logs", "metrics", "p_of", "point", "spans", "span", "write_lines",
 ]
 
 
@@ -140,12 +140,3 @@ def point(start_ms: int, end_ms: int, value: Any, attrs: Mapping[str, Any]) -> d
     return {"attributes": _attrs(attrs), "startTimeUnixNano": str(start_ms * 1_000_000),
             "timeUnixNano": str(end_ms * 1_000_000),
             key: value if isinstance(value, float) else str(value)}
-
-
-def unused_key_id() -> str:
-    """A key id no fixture uses."""
-    return key_id(b"unused")
-
-
-def default_attribution() -> Attribution:
-    return Attribution()

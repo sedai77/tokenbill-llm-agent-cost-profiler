@@ -152,6 +152,12 @@ def test_variants(tmp_path: Path) -> None:
         {"request_meta": {"ts_ms": h.T0}, "response": "text"},
         {"usage": {"inputTokens": 1, "outputTokens": 2}, "ResponseMetadata": {
             "RequestId": "boto-1"}},
+        {"usage": {"inputTokens": 3, "outputTokens": 4}, "ResponseMetadata": {
+            "RequestId": "boto-2", "HTTPHeaders": {"date": "Wed, 23 Sep 2026 09:00:00 GMT"}}},
+        {"usage": {"inputTokens": 3, "outputTokens": 4}, "ResponseMetadata": {
+            "RequestId": "boto-3", "HTTPHeaders": {"date": "not a date"}}},
+        {"usage": {"inputTokens": 3, "outputTokens": 4}, "ResponseMetadata": {
+            "RequestId": "boto-4", "HTTPHeaders": {"date": "Wed, 23 Sep 2026 09:00:00"}}},
     ])
     result = read(path)
     req = by_rid(result)
@@ -172,8 +178,10 @@ def test_variants(tmp_path: Path) -> None:
     assert (unknown_error.outcome, unknown_error.error_type) == (Outcome.UNKNOWN, "other")
     assert sorted(q.reason for q in result.quarantined) == sorted([
         "bad_usage", "missing:output.outputBodyJson.usage", "missing:timestamp",
-        "missing:request_meta.ts_ms", "missing:response", "missing:request_meta.ts_ms"])
-    assert {n.code: n.count for n in result.notes}["dq.unpriced_model"] == 2
+        "missing:request_meta.ts_ms", "missing:response", "missing:request_meta.ts_ms",
+        "missing:request_meta.ts_ms", "missing:request_meta.ts_ms"])
+    assert req["boto-2"].ts_start_ms == h.T0
+    assert {n.code: n.count for n in result.notes}["dq.unpriced_model"] == 3  # n1, app, boto-2
     assert h.CANARY not in h.blob(result)
 
 

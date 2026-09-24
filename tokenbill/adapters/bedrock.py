@@ -3,7 +3,8 @@
 Reads JSONL of Bedrock **model-invocation log records** (``schemaType: "ModelInvocationLog"``:
 ``timestamp``, ``accountId``, ``requestId``, ``operation``, ``modelId``, ``identity.arn``,
 ``requestMetadata``, ``output.outputBodyJson``) and of **Converse responses**, bare or as
-``{request_meta, response}`` pairs. Usage comes from the logged response body
+``{request_meta, response}`` pairs (a bare response is dated by ``request_meta.ts_ms`` or the boto3
+``ResponseMetadata.HTTPHeaders.date``, else quarantined). Usage comes from the logged response body
 (``output.outputBodyJson.usage``; streams: the Converse ``metadata`` event, or the Anthropic
 ``message_start`` + ``message_delta`` events); the log's ``inputTokenCount`` / ``outputTokenCount``
 carry no cache split and are never used. Conventions by usage shape: Converse
@@ -27,6 +28,7 @@ carry no cache split and are never used. Conventions by usage shape: Converse
 from __future__ import annotations
 
 import dataclasses
+import email.utils
 import re
 from collections.abc import Mapping
 from pathlib import Path
@@ -157,6 +159,22 @@ def _body_usage(body: Any) -> tuple[Mapping[str, Any] | None, Any, Any, Any]:
     return usage, stop, tier, latency
 
 
+def _http_date_ms(metadata: object) -> int | None:
+    """The ``date`` header of a boto3 ``ResponseMetadata`` (RFC 7231) as epoch ms, else None."""
+    headers = metadata.get("HTTPHeaders") if isinstance(metadata, Mapping) else None
+    value = headers.get("date") if isinstance(headers, Mapping) else None
+    if not isinstance(value, str) or len(value) > 64:
+        return None
+    try:
+        when = email.utils.parsedate_to_datetime(value)
+    except (TypeError, ValueError, IndexError):
+        return None
+    if when.tzinfo is None:
+        return None
+    ms = int(when.timestamp()) * 1000
+    return ms if ms > 0 else None
+
+
 def _role_arn(arn: str) -> str | None:
     """``arn:aws:sts::<acct>:assumed-role/<Role>/<session>`` → ``…:assumed-role/<Role>``."""
     parts = arn.split("/")
@@ -195,11 +213,13 @@ class _Reader:
         if not isinstance(body, Mapping):
             self.scan.quarantine(locator, "missing:response")
             return
+        headers = body.get("ResponseMetadata")
         ts = meta_ts(meta)
+        if ts is None:
+            ts = _http_date_ms(headers)
         if ts is None:
             self.scan.quarantine(locator, "missing:request_meta.ts_ms")
             return
-        headers = body.get("ResponseMetadata")
         rid = clean_label(meta.get("request_id")) if meta else None
         if rid is None and isinstance(headers, Mapping):
             rid = clean_label(headers.get("RequestId"))

@@ -64,8 +64,8 @@ def resource(**kw: Any) -> dict[str, Any]:
     return {"attributes": attrs(**kw)}
 
 
-def write(name: str, records: list[Any]) -> None:
-    with open(HERE / name, "w", encoding="utf-8", newline="\n") as f:
+def write(name: str, records: list[Any], out: Path = HERE) -> None:
+    with open(out / name, "w", encoding="utf-8", newline="\n") as f:
         for rec in records:
             if isinstance(rec, str):
                 f.write(rec + "\n")
@@ -417,13 +417,327 @@ def anthropic() -> list[Any]:
     ]
 
 
-def main() -> None:
-    write("otlp_claude_code.jsonl", claude_code())
-    write("otlp_genai.jsonl", genai())
-    write("otlp_openinference.jsonl", openinference())
-    write("openai_usage.jsonl", openai())
-    write("bedrock_invocations.jsonl", bedrock())
-    write("anthropic_responses.jsonl", anthropic())
+# ---------------------------------------------------------------------------------------------
+# golden sum-check cases, one or more per TELEM convention (SPEC §5.2)
+# ---------------------------------------------------------------------------------------------
+
+def golden() -> dict[str, Any]:
+    """provider_total_input is the provider's own input total where the convention defines one;
+    buckets list only non-zero fields."""
+    cases = [
+     {
+      "buckets": {
+       "cache_read": 6000,
+       "cache_write_other": 2000,
+       "cache_write_other_ttl_s": 1800,
+       "output": 500,
+       "output_reasoning": 100,
+       "uncached_input": 2000
+      },
+      "codes": [],
+      "convention": "openai.responses",
+      "id": "openai.responses/brief",
+      "provider_total_input": 10000,
+      "raw": {
+       "input_tokens": 10000,
+       "input_tokens_details": {
+        "cache_write_tokens": 2000,
+        "cached_tokens": 6000
+       },
+       "output_tokens": 500,
+       "output_tokens_details": {
+        "reasoning_tokens": 100
+       },
+       "total_tokens": 10500
+      }
+     },
+     {
+      "buckets": {
+       "cache_read": 1024,
+       "output": 300,
+       "output_reasoning": 64,
+       "uncached_input": 976
+      },
+      "codes": [],
+      "convention": "openai.chat",
+      "id": "openai.chat/reasoning-subset",
+      "provider_total_input": 2000,
+      "raw": {
+       "completion_tokens": 300,
+       "completion_tokens_details": {
+        "accepted_prediction_tokens": 0,
+        "reasoning_tokens": 64,
+        "rejected_prediction_tokens": 10
+       },
+       "prompt_tokens": 2000,
+       "prompt_tokens_details": {
+        "cached_tokens": 1024
+       },
+       "total_tokens": 2300
+      }
+     },
+     {
+      "buckets": {
+       "cache_read": 3000,
+       "cache_write_other": 1500,
+       "cache_write_other_ttl_s": 1800,
+       "output": 20,
+       "uncached_input": 500
+      },
+      "codes": [],
+      "convention": "openai.chat",
+      "id": "openai.chat/5.6-cache-write",
+      "provider_total_input": 5000,
+      "raw": {
+       "completion_tokens": 20,
+       "prompt_tokens": 5000,
+       "prompt_tokens_details": {
+        "cache_write_tokens": 1500,
+        "cached_tokens": 3000
+       }
+      }
+     },
+     {
+      "buckets": {
+       "cache_read": 6000,
+       "cache_write_unknown": 2000,
+       "output": 500,
+       "output_reasoning": 120,
+       "uncached_input": 2000
+      },
+      "codes": [],
+      "convention": "otel.genai",
+      "id": "otel.genai/new-names",
+      "provider_total_input": 10000,
+      "raw": {
+       "gen_ai.usage.cache_read.input_tokens": 6000,
+       "gen_ai.usage.cache_write.input_tokens": 2000,
+       "gen_ai.usage.input_tokens": 10000,
+       "gen_ai.usage.output_tokens": 500,
+       "gen_ai.usage.reasoning.output_tokens": 120
+      }
+     },
+     {
+      "buckets": {
+       "cache_read": 3000,
+       "cache_write_unknown": 1000,
+       "output": 200,
+       "uncached_input": 1000
+      },
+      "codes": [],
+      "convention": "otel.genai.legacy",
+      "id": "otel.genai.legacy/cache-creation",
+      "provider_total_input": 5000,
+      "raw": {
+       "gen_ai.usage.cache_creation.input_tokens": 1000,
+       "gen_ai.usage.cache_read.input_tokens": 3000,
+       "gen_ai.usage.input_tokens": 5000,
+       "gen_ai.usage.output_tokens": 200
+      }
+     },
+     {
+      "buckets": {
+       "output": 40,
+       "uncached_input": 800
+      },
+      "codes": [],
+      "convention": "otel.genai.legacy",
+      "id": "otel.genai.legacy/deprecated-prompt-tokens",
+      "provider_total_input": 800,
+      "raw": {
+       "gen_ai.usage.completion_tokens": 40,
+       "gen_ai.usage.prompt_tokens": 800
+      }
+     },
+     {
+      "buckets": {
+       "cache_read": 40000,
+       "cache_write_unknown": 900,
+       "output": 300,
+       "uncached_input": 12
+      },
+      "codes": [
+       "dq.convention_mismatch"
+      ],
+      "convention": "otel.genai",
+      "id": "otel.genai/read-plus-write-exceeds-input",
+      "provider_total_input": None,
+      "raw": {
+       "gen_ai.usage.cache_read.input_tokens": 40000,
+       "gen_ai.usage.cache_write.input_tokens": 900,
+       "gen_ai.usage.input_tokens": 12,
+       "gen_ai.usage.output_tokens": 300
+      }
+     },
+     {
+      "buckets": {
+       "cache_read": 2048,
+       "output": 200,
+       "output_reasoning": 50,
+       "uncached_input": 952
+      },
+      "codes": [],
+      "convention": "openinference",
+      "id": "openinference/llm-span",
+      "provider_total_input": 3000,
+      "raw": {
+       "llm.token_count.completion": 200,
+       "llm.token_count.completion_details.reasoning": 50,
+       "llm.token_count.prompt": 3000,
+       "llm.token_count.prompt_details.cache_read": 2048,
+       "llm.token_count.prompt_details.cache_write": 0,
+       "llm.token_count.total": 3200
+      }
+     },
+     {
+      "buckets": {
+       "output": 350,
+       "uncached_input": 17
+      },
+      "codes": [
+       "dq.sum_check_failed"
+      ],
+      "convention": "openinference",
+      "id": "openinference/crewai-17-vs-17119",
+      "provider_total_input": None,
+      "raw": {
+       "llm.token_count.completion": 350,
+       "llm.token_count.prompt": 17,
+       "llm.token_count.total": 17469
+      }
+     },
+     {
+      "buckets": {
+       "cache_read": 17102,
+       "output": 350,
+       "uncached_input": 17
+      },
+      "codes": [
+       "dq.convention_mismatch",
+       "dq.sum_check_failed"
+      ],
+      "convention": "openinference",
+      "id": "openinference/crewai-exclusive-cache-read",
+      "provider_total_input": None,
+      "raw": {
+       "llm.token_count.completion": 350,
+       "llm.token_count.prompt": 17,
+       "llm.token_count.prompt_details.cache_read": 17102,
+       "llm.token_count.total": 367
+      }
+     },
+     {
+      "buckets": {
+       "cache_write_1h": 20000,
+       "cache_write_5m": 8000,
+       "cache_write_unknown": 2000,
+       "output": 500,
+       "uncached_input": 100
+      },
+      "codes": [
+       "dq.ttl_split_residual"
+      ],
+      "convention": "bedrock.converse",
+      "id": "bedrock.converse/cache-details-with-residual",
+      "provider_total_input": 30100,
+      "raw": {
+       "cacheDetails": [
+        {
+         "inputTokens": 20000,
+         "ttl": "1h"
+        },
+        {
+         "inputTokens": 8000,
+         "ttl": "5m"
+        }
+       ],
+       "cacheReadInputTokens": 0,
+       "cacheWriteInputTokens": 30000,
+       "inputTokens": 100,
+       "outputTokens": 500,
+       "totalTokens": 30600
+      }
+     },
+     {
+      "buckets": {
+       "cache_read": 1000,
+       "cache_write_unknown": 5000,
+       "output": 60,
+       "uncached_input": 40
+      },
+      "codes": [
+       "dq.no_ttl_split"
+      ],
+      "convention": "bedrock.converse",
+      "id": "bedrock.converse/no-cache-details",
+      "provider_total_input": 6040,
+      "raw": {
+       "cacheReadInputTokens": 1000,
+       "cacheWriteInputTokens": 5000,
+       "inputTokens": 40,
+       "outputTokens": 60
+      }
+     },
+     {
+      "buckets": {
+       "cache_write_5m": 3000,
+       "output": 9,
+       "uncached_input": 7
+      },
+      "codes": [],
+      "convention": "bedrock.converse",
+      "id": "bedrock.converse/exact-split",
+      "provider_total_input": 3007,
+      "raw": {
+       "cacheDetails": [
+        {
+         "inputTokens": 3000,
+         "ttl": "5m"
+        }
+       ],
+       "cacheWriteInputTokens": 3000,
+       "inputTokens": 7,
+       "outputTokens": 9
+      }
+     },
+     {
+      "buckets": {
+       "cache_write_unknown": 30000,
+       "output": 800,
+       "uncached_input": 12
+      },
+      "codes": [
+       "dq.no_ttl_split"
+      ],
+      "convention": "claude_code.otel",
+      "id": "claude_code.otel/api-request",
+      "provider_total_input": 30012,
+      "raw": {
+       "cache_creation_tokens": 30000,
+       "cache_read_tokens": 0,
+       "input_tokens": 12,
+       "output_tokens": 800
+      }
+     }
+    ]
+    return {"schema": "tokenbill/telemetry-conventions-golden@1", "notes": NOTES, "cases": cases}
+
+
+NOTES = ("Synthetic golden sum-check cases per TELEM convention (SPEC §5.2). provider_total_input "
+         "is the provider's own input total where the convention defines one; buckets list only "
+         "non-zero fields.")
+
+
+def main(out: Path = HERE) -> None:
+    """Write every fixture file into *out* (default: this directory)."""
+    write("otlp_claude_code.jsonl", claude_code(), out)
+    write("otlp_genai.jsonl", genai(), out)
+    write("otlp_openinference.jsonl", openinference(), out)
+    write("openai_usage.jsonl", openai(), out)
+    write("bedrock_invocations.jsonl", bedrock(), out)
+    write("anthropic_responses.jsonl", anthropic(), out)
+    with open(out / "conventions_golden.json", "w", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(golden(), indent=1, sort_keys=True) + "\n")
 
 
 if __name__ == "__main__":
