@@ -11,7 +11,7 @@ import pytest
 from tokenbill.common import canonical_json
 from tokenbill.core.builders import make_attempt, make_inference
 from tokenbill.core.errors import UsageError
-from tokenbill.core.labels import Basis, Calibration
+from tokenbill.core.labels import Basis, Calibration, Evidence
 from tokenbill.core.records import (
     InferenceKind,
     LaneKind,
@@ -291,14 +291,23 @@ def test_allowance_lanes_are_list_equivalent() -> None:
 def test_unpriced_usage_is_never_zero() -> None:
     unknown = lane([(0, 0, 1_000, 0, 0, 0), (30, 1_000, 500, 0, 0, 0)], lane_key="Lu",
                    model="claude-unknown-9")
-    priced = lane([(0, 0, 1_000, 0, 0, 0)], lane_key="Lp")
+    priced = lane([(0, 0, 1_000, 0, 0, 0)], lane_key="Lp", kind=LaneKind.SUBAGENT)
     obs = replay([unknown, priced], Policy.observed())
-    assert obs.baseline.nano is None and obs.saving.nano is None
+    # every request is unchanged: the saving is exactly 0 even though the baseline is unpriced
+    assert obs.baseline.nano is None and obs.cost.nano is None
+    assert obs.saving.nano == 0 and obs.saving.evidence is Evidence.EXACT
+    # the policy changes the unpriced lane: its saving is unknown, never zero (R2)
     res = replay([unknown, priced], "ttl=1h")
     assert res.cost.nano is None and res.saving.nano is None
     assert res.cost.note.startswith("unpriced:") and res.saving.note.startswith("unpriced:")
     assert dict(res.per_lane) == {"Lp": 1_000 * W1}
     assert request_costs(res)[unknown.requests[0].request_id] == (None, None, None)
+    # the policy changes only the priced lane: the unpriced requests are unchanged (saving 0)
+    scoped = replay([unknown, priced], "ttl=1h@lane_kind:subagent")
+    assert scoped.baseline.nano is None and scoped.cost.nano is None
+    assert scoped.saving.nano == 1_000 * (W5 - W1)
+    assert "unpriced requests are unchanged" in scoped.saving.note
+    assert all(not o.changed for o in scoped.outcomes or () if o.cost_nano is None)
 
 
 def test_passthrough_only_requests_and_rate_transforms() -> None:

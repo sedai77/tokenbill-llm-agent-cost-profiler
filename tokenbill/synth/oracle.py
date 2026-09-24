@@ -42,7 +42,7 @@ from tokenbill.core.evidence import (
     TOKENIZER_BAND,
 )
 from tokenbill.core.ids import stable_id
-from tokenbill.core.labels import Basis, Calibration, Evidence, Figure, add, unpriced, zero
+from tokenbill.core.labels import Basis, Calibration, Evidence, Figure, add, zero
 from tokenbill.core.policy import EFFORT_LEVELS, lane_matches
 from tokenbill.core.protocols import CacheRulesProvider, Pricer
 from tokenbill.core.records import (
@@ -510,8 +510,7 @@ class ReferenceReplay:
                         changed=False))
             if total is not None:
                 per_lane.append((lane.lane_key, total))
-        saving = zero(basis) if baseline.nano is not None else unpriced("baseline unpriced",
-                                                                         basis)
+        saving = zero(basis)   # every request is unchanged: it saves exactly 0, priced or not
         return ReplayResult(
             policy=policy, mode="documented", baseline=baseline, cost=baseline, saving=saving,
             per_lane=tuple(per_lane), outcomes=tuple(outcomes) if keep_outcomes else None,
@@ -1314,15 +1313,17 @@ class ReferenceReplay:
     def _saving_figure(baseline: Figure, cost: Figure, policy: Policy,
                        per_request: Sequence[int] | None) -> Figure:
         """``baseline − cost``, per request then summed (*per_request*: the summed ``(point,
-        low, high)`` of the changed requests, None when one is unpriced); trajectory levers are
-        upper bounds."""
-        if baseline.nano is None or cost.nano is None or per_request is None:
+        low, high)`` of the changed requests, None when one of them is unpriced); trajectory
+        levers are upper bounds. An unchanged request saves exactly 0 even when it is unpriced
+        (same usage, same context, same price), so only an unpriced *changed* request makes the
+        saving unpriced (R2: unknown is not zero)."""
+        if per_request is None:
             return Figure(nano=None, evidence=Evidence.ESTIMATED, basis=baseline.basis,
                           calibration=cost.calibration if cost.calibration is not Calibration.NA
                           else Calibration.UNCALIBRATED,
-                          note="unpriced: baseline or policy cost unpriced")
-        # an unchanged request has the observed point (``changed`` compares the bounds), so the
-        # summed point is exactly baseline − cost
+                          note="unpriced: a request the policy changes is unpriced")
+        # an unchanged request has the observed point (``changed`` compares the bounds), so when
+        # everything is priced the summed point is exactly baseline − cost
         point, low, high = per_request
         if cost.evidence is Evidence.EXACT and baseline.evidence is Evidence.EXACT:
             return Figure(nano=point, evidence=Evidence.EXACT, basis=baseline.basis,
@@ -1336,7 +1337,9 @@ class ReferenceReplay:
             calibration=cost.calibration if cost.calibration is not Calibration.NA
             else Calibration.UNCALIBRATED,
             upper_bound=upper, provenance=("oracle",),
-            note=f"saving vs observed: {policy.spec() or 'observed'}")
+            note=f"saving vs observed: {policy.spec() or 'observed'}" + (
+                "; unpriced requests are unchanged (saving 0)"
+                if baseline.nano is None or cost.nano is None else ""))
 
 
 # =============================================================================================
