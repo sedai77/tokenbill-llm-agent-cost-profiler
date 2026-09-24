@@ -1,4 +1,4 @@
-# CONTRACT-CHANGE-KIT-C-1: consequences of rulings R-E28 and R-E10 outside F-KIT's files
+# CONTRACT-CHANGE-KIT-C-1: consequences of rulings R-E28, R-E10 and R-E21 outside F-KIT's files
 
 **Raised by:** F-KIT-C (wave 1.5b), for the orchestrator / contract owner.
 
@@ -27,3 +27,21 @@ with `assert P.build_panel(store, cluster_kind="gateway", **kw) == []` (or a fix
 `core.kanon.USERS_UNKNOWN`; renderers (OUT, CP-OUT) should print "users unknown" for such rows. If a
 field is preferred, the additive change would be `AggRow.notes: tuple[str, ...] = appended(())`
 (F-CORE), filled by `publish`.
+
+## 3. CP-STORE's record-store conformance factory needs a ledger that accepts the suite's key id
+
+The CP-STORE brief's acceptance test reads `assert_record_store_conforms(lambda p: CopilotRecordStore(p))`.
+The same brief (and R-E21) makes `CopilotRecordStore` accept `p_` rows only under the key ids of the
+SPEC §7.1 `meta` of the ledger in the same file, and a fresh file has no ledger: that factory refuses
+every person row, so no conforming record store can pass the suite with it. The suite pseudonymizes its
+people with `core.testing.RECORD_STORE_ORG_KEY` and calls `factory(path, org_key)` when the factory
+takes two positional parameters. Proposed edit to the CP-STORE brief (not started): use a two-argument
+factory that opens the ledger first, e.g.
+
+    def factory(path, org_key):
+        SqliteStore(path, org_key=org_key)          # writes meta.org_key_id
+        return CopilotRecordStore(path)
+
+(or `SqliteStore` / `MemoryStore` created by the test and a record store bound to it). The suite now
+fails with an explicit message ("the store refused p_ values under key_id(RECORD_STORE_ORG_KEY) …")
+instead of a row count when the factory's store refuses the suite's key id.

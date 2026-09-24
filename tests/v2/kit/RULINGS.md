@@ -146,7 +146,11 @@ s` for canonical strings and `parse(to(x)) == x` always. Value domains: `auto`/`
 `auto_tier` efficiency|balance|intelligence, `seat_policy` assign_selected|disabled, `plan`
 business|enterprise, `context_tier` default|long_context, `mcp` trim|off, `seats_idle`/`seats_team`
 `<n>d`, `aw_cap` a positive int, `remap` a model id, `runner` a runner SKU known to `runner_rate`.
-Scope values contain no whitespace, `@` or `;`; `entity:` takes `enterprise | org:<o> | cc:<n>`.
+Team / org / cost-center names in scopes follow the SPEC §9.5 selector value rule of `core.policy`
+(non-empty, no surrounding whitespace, no `; , @ =`; inner spaces allowed, e.g. `team:Data Platform`)
+and must be printable (no control, format or non-ASCII separator characters); `entity:` takes
+`enterprise | org:<o> | cc:<n>` (review fix: the first cut rejected every space, so a real team name
+such as "Data Platform" made `to_aggregate_spec` raise).
 Per-team / per-org candidates (`@team:<t>`, `@org:<o>`) are built by CP-PLAN; the static grids use
 `@all` (the seat-policy grid too).
 
@@ -169,7 +173,12 @@ known)").
 (e.g. `lane_kind`, `workload`, `surface`, `sku`), then `team`, `bucket`, `plan`, `model`,
 `cost_center`; the root keeps `product`, `entity`, `org`, `plan_scenario` **and `billing_class`** (so
 pool and billed figures never add, as in SPEC's chain). Complementary suppression only absorbs peers
-of the same chain. The R-E16 exemption set also admits `billing_class` (it names no people).
+of the same chain. The R-E16 exemption set is exactly the ruling's (`product`, `entity`, `org`,
+`model`, `sku`, `plan_scenario`; a `billing_class` dim makes a finding non-exempt). R-E16 also
+holds for re-scoped findings: a merged finding whose parent scope is exempt (count source `entity`,
+entity-level dims) is published there whatever the count (`n_users` = the larger of the scope count
+and the largest child count), and it absorbs an exempt finding of the same detector and kind already
+published at that scope, so no two findings share a finding id (review fixes).
 
 **KC-7 — `scope_counter`.** `entity`-source findings that R-E16 does not exempt (e.g. a team-scoped
 `agentic-workflow-cost`) are counted over cost lines. A scope dim the source cannot filter (e.g. `plan`
@@ -184,9 +193,11 @@ returns `("users_unknown",)` for it; renderers print "users unknown". Person-pro
 
 **KC-9 — R-E31.** A merged summary keeps the whole original summary whenever it fits beside the
 re-scoping prefix (the prefix shortens to `[re-scoped for k-anonymity] ` or `[re-scoped] ` first);
-otherwise whole trailing sentences are dropped (ending "…") while labelling sentences (list-equivalent,
-not invoice, estimated, upper bound, unpriced, provider estimate, no mechanical fix, scenario) are always
-kept; only if those alone overflow is the text cut at a word boundary. Summaries that fitted before are
+otherwise labelling sentences (list-equivalent, not invoice, estimated, upper bound, unpriced, provider
+estimate, no mechanical fix, scenario) are always kept, the other sentences are kept whole in order
+while they fit, and the room left goes to the first sentence that did not fit, cut between words and
+ended with "…" (review fix: a one-sentence summary used to collapse to "…"); only if the labelling
+sentences alone overflow is their text cut at a word boundary. Summaries that fitted before are
 byte-identical.
 
 **KC-10 — FakePricer on Copilot.** Band hypothesis B applies only on channel `github_copilot`; a
@@ -200,8 +211,11 @@ Copilot rows (a contract card skips them, like the SPEC cases).
 **KC-11 — MemoryStore.** Adoption follows R-E21 (only `SourceInfo.adapter == "copilot-export"`, one
 adopted key id, a second → `UsageError` before anything is stored). `meta()` always reports
 `org_key_mode` (`own` | `adopted` | `none`), `adopted_key_id`, `adopted_name_key_id`. The ingest
-counts gain `dq.principal_key_mismatch` (principals nulled); `dq.name_key_mismatch` keeps its wave-1
-meaning (names + principals). Latest-fetch-wins (addendum §7.1) applies to Copilot records (cost lines
+counts gain `dq.principal_key_mismatch` (principals nulled; also `0` on a skipped re-ingest);
+`dq.name_key_mismatch` keeps its wave-1 meaning (names + principals). `h_` cost-line names (`repo`,
+`workflow`, C-4) are nulled under a foreign name key id like `workspace_id`. A keyless store opened
+with `adopt_key_ids=True` takes its `name_key_id` from the adopted bundle only, never from an earlier
+source (the SPEC §7.2 first-ingest rule stays for every other store) (review fixes). Latest-fetch-wins (addendum §7.1) applies to Copilot records (cost lines
 on `COPILOT_CHANNELS`, aggregates of Copilot source kinds or channels, `github.copilot_metrics`
 outcomes); other records keep "final, then latest" (pinned by `test_memory_store.py`).
 
@@ -212,7 +226,8 @@ applies only when the window holds no person row of that source: `seat_counts` a
 and snapshot day (they partition that entity's seats) and the largest sum wins; `activity_counts` give
 their largest `n_people`. `date_from` / `date_to` are inclusive dates. `assert_record_store_conforms`
 calls `factory(path)` or `factory(path, org_key)`; the store must accept `p_` values under
-`key_id(RECORD_STORE_ORG_KEY)`.
+`key_id(RECORD_STORE_ORG_KEY)` — a store that refuses them fails with that message (see
+CONTRACT-CHANGE-KIT-C-1 §3 for CP-STORE's factory).
 
 **KC-13 — additional conformance helpers** (additive, for STORE A-2 and REPLAY A-6):
 `assert_store_copilot_conforms(factory)` (factory also takes `adopt_key_ids`) and
