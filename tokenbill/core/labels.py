@@ -7,12 +7,12 @@ construction rules below are enforced in ``__post_init__`` (``ContractViolation`
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
 from tokenbill.core.errors import ContractViolation
-from tokenbill.core.money import EXACT_CTX, NANO_PER_USD
+from tokenbill.core.money import EXACT_CTX, NANO_PER_USD, nano_to_usd_str
 from tokenbill.core.records import TBEnum
 
 __all__ = [
@@ -23,8 +23,10 @@ __all__ = [
     "Figure",
     "Finality",
     "add",
+    "combine_weakest",
     "estimated",
     "exact",
+    "figure_json",
     "scale",
     "sub",
     "unpriced",
@@ -313,3 +315,105 @@ def unpriced(reason: str, basis: Basis = Basis.LIST) -> Figure:
 def zero(basis: Basis) -> Figure:
     """EXACT 0 on *basis*."""
     return exact(0, basis)
+
+
+# ---------------------------------------------------------------------------------------------
+# canonical MONEY encoding and bills across bases (GitHub Copilot, C-20)
+# ---------------------------------------------------------------------------------------------
+
+
+def figure_json(fig: Figure) -> dict[str, object]:
+    """The canonical ``MONEY`` object of SPEC §14.1 for *fig*: ``usd`` (exact decimal string, None
+    when unpriced), ``nano``, ``evidence``, ``basis``, ``finality``, ``range`` (low/high as usd and
+    nano, or None), ``ci_level_pct``, ``calibration``, ``upper_bound``, ``provenance``, ``note``.
+    No float anywhere; every renderer of money delegates here."""
+    if not isinstance(fig, Figure):
+        raise ContractViolation("figure_json: expects a Figure")
+    rng: dict[str, object] | None = None
+    if fig.low_nano is not None and fig.high_nano is not None:
+        rng = {
+            "low_usd": nano_to_usd_str(fig.low_nano),
+            "low_nano": fig.low_nano,
+            "high_usd": nano_to_usd_str(fig.high_nano),
+            "high_nano": fig.high_nano,
+        }
+    return {
+        "usd": nano_to_usd_str(fig.nano) if fig.nano is not None else None,
+        "nano": fig.nano,
+        "evidence": fig.evidence.value,
+        "basis": fig.basis.value,
+        "finality": fig.finality.value,
+        "range": rng,
+        "ci_level_pct": fig.ci_level_pct,
+        "calibration": fig.calibration.value,
+        "upper_bound": fig.upper_bound,
+        "provenance": list(fig.provenance),
+        "note": fig.note,
+    }
+
+
+def _combined_finality(figs: Sequence[Figure]) -> Finality:
+    values = {f.finality for f in figs}
+    if Finality.PROVISIONAL in values:
+        return Finality.PROVISIONAL
+    if values == {Finality.FINAL}:
+        return Finality.FINAL
+    return Finality.NA
+
+
+def combine_weakest(figs: Sequence[Figure], *, note: str) -> Figure:
+    """Sum figures on different dollar bases (a Copilot invoice total, addendum R16).
+
+    INVOICE iff every input is INVOICE; otherwise basis LIST, EXACT iff every input is EXACT
+    without a range, else ESTIMATED with the summed range (a point is its own range). The note is
+    *note* plus the non-invoice inputs by position (``input <i> (<basis>, <evidence>)``). Pool
+    credits (LIST_EQUIVALENT) are never added to dollars and provider estimates are never billed
+    numbers (R12): either basis raises ``ContractViolation``, as does an empty input. An unpriced
+    input makes the total unpriced.
+    """
+    figs = tuple(figs)
+    if not figs:
+        raise ContractViolation("combine_weakest: no figures")
+    if not isinstance(note, str):
+        raise ContractViolation("combine_weakest: note must be a str")
+    for f in figs:
+        if not isinstance(f, Figure):
+            raise ContractViolation("combine_weakest: inputs must be Figures")
+        if f.basis is Basis.LIST_EQUIVALENT:
+            raise ContractViolation("combine_weakest: list-equivalent credits are never dollars")
+        if f.basis is Basis.PROVIDER_ESTIMATE:
+            raise ContractViolation("combine_weakest: provider estimates are never billed")
+    basis = Basis.INVOICE if all(f.basis is Basis.INVOICE for f in figs) else Basis.LIST
+    non_invoice = [
+        f"input {i} ({f.basis.value}, {f.evidence.value})"
+        for i, f in enumerate(figs)
+        if f.basis is not Basis.INVOICE
+    ]
+    full_note = note if not non_invoice else _combine_notes(
+        note, "non-invoice: " + ", ".join(non_invoice))
+    provenance = tuple(sorted({p for f in figs for p in f.provenance}))
+    finality = _combined_finality(figs)
+    all_exact = all(f.evidence is Evidence.EXACT and f.low_nano is None for f in figs)
+    upper = any(f.upper_bound for f in figs)
+    calibration = Calibration.NA
+    for f in figs:
+        calibration = _combine_calibration(calibration, f.calibration)
+    if any(f.nano is None for f in figs):
+        reason = full_note or "component unpriced"
+        unpriced_note = reason if reason.startswith(_UNPRICED_PREFIX) else (
+            f"{_UNPRICED_PREFIX} {reason}")
+        if all_exact:
+            return Figure(nano=None, evidence=Evidence.EXACT, basis=basis, finality=finality,
+                          provenance=provenance, note=unpriced_note)
+        return Figure(nano=None, evidence=Evidence.ESTIMATED, basis=Basis.LIST, finality=finality,
+                      calibration=calibration, upper_bound=upper, provenance=provenance,
+                      note=unpriced_note)
+    total = sum(f.nano for f in figs)  # type: ignore[misc]
+    if all_exact:
+        return Figure(nano=total, evidence=Evidence.EXACT, basis=basis, finality=finality,
+                      provenance=provenance, note=full_note)
+    low = sum(_bounds(f)[0] for f in figs)
+    high = sum(_bounds(f)[1] for f in figs)
+    return Figure(nano=total, evidence=Evidence.ESTIMATED, basis=Basis.LIST, finality=finality,
+                  low_nano=low, high_nano=high, calibration=calibration, upper_bound=upper,
+                  provenance=provenance, note=full_note or "combined estimate")

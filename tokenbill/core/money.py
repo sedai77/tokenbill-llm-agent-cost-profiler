@@ -23,12 +23,17 @@ __all__ = [
     "EXACT_CTX",
     "MICRO_PER_USD",
     "MTOK",
+    "NANO_AIU_PER_CREDIT",
     "NANO_PER_USD",
+    "NANO_USD_PER_CREDIT",
     "RATIO_CTX",
     "cents_to_nano",
+    "credits_str_to_nano",
     "decimal_to_nano",
     "fmt_usd",
     "from_cents",
+    "nano_aiu_to_nano",
+    "nano_to_credits_str",
     "nano_to_micro",
     "nano_to_usd_str",
     "ratio",
@@ -48,6 +53,10 @@ RATIO_CTX = Context(
 NANO_PER_USD = 10**9
 MICRO_PER_USD = 10**6
 MTOK = 10**6
+#: GitHub Copilot: 1 AI credit = $0.01 = 10,000,000 nano-USD.
+NANO_USD_PER_CREDIT = 10_000_000
+#: GitHub Copilot runtime units: 1 AI credit = 10**9 nano-AIU (so 100 nano-AIU = 1 nano-USD).
+NANO_AIU_PER_CREDIT = 10**9
 
 #: Rounded amounts must stay below 10**_MAX_NANO_EXP nano-USD. Far beyond any real amount; the bound
 #: keeps hostile exponents in source strings (``"1E+999999999"``) from exhausting time and memory.
@@ -151,6 +160,34 @@ def usd_str_to_nano(value: str) -> tuple[int, Decimal]:
     """A USD decimal string (CUR, GCP export) → ``(nano, remainder_usd)``, like
     :func:`cents_to_nano`."""
     return _to_nano_with_remainder(usd(value))
+
+
+def credits_str_to_nano(value: str) -> tuple[int, Decimal]:
+    """GitHub AI credits (a decimal string, 1 credit = $0.01) → ``(nano, remainder_usd)``, like
+    :func:`usd_str_to_nano`: ``"42.726213"`` → ``(427262130, 0)``."""
+    _check_type(value, (str,), "credits_str_to_nano")
+    return _to_nano_with_remainder(_shift(_parse(value, "credits_str_to_nano"), -2))
+
+
+def nano_aiu_to_nano(n: int) -> tuple[int, Decimal]:
+    """Runtime nano-AIU → ``(nano-USD, remainder_usd)``: ÷ 100, rounded half-even once
+    (10**9 nano-AIU = 1 credit = 10**7 nano-USD); ``23_284_800_000`` → ``(232_848_000, 0)``. A
+    provider estimate (addendum R12), never a billed number."""
+    _check_type(n, (int,), "nano_aiu_to_nano")
+    per_nano = NANO_AIU_PER_CREDIT // NANO_USD_PER_CREDIT
+    nano = _div_half_even(n, per_nano)
+    return nano, _shift(Decimal(n - nano * per_nano), -11)
+
+
+def nano_to_credits_str(nano: int) -> str:
+    """Nano-USD → an exact AI-credit decimal string: ``427262130`` → ``"42.726213"``,
+    ``10_000_000`` → ``"1"``."""
+    _check_type(nano, (int,), "nano_to_credits_str")
+    sign = "-" if nano < 0 else ""
+    whole, frac = divmod(abs(nano), NANO_USD_PER_CREDIT)
+    if frac == 0:
+        return f"{sign}{whole}"
+    return f"{sign}{whole}.{str(frac).rjust(7, '0').rstrip('0')}"
 
 
 def decimal_to_nano(amount_usd: Decimal) -> int:

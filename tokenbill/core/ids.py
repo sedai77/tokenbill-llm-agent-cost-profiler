@@ -6,7 +6,17 @@ import hashlib
 import hmac
 import re
 
-__all__ = ["hmac_hex", "is_opaque_ref", "key_id", "pseudonym", "request_id_for", "stable_id"]
+__all__ = [
+    "copilot_lane_key",
+    "copilot_session_key",
+    "hmac_hex",
+    "is_opaque_ref",
+    "key_id",
+    "natural_id",
+    "pseudonym",
+    "request_id_for",
+    "stable_id",
+]
 
 _OPAQUE_REF_RE = re.compile(r"[A-Za-z0-9._-]{1,64}\Z")
 
@@ -49,3 +59,22 @@ def request_id_for(
 def is_opaque_ref(value: str) -> bool:
     """``[A-Za-z0-9._-]{1,64}`` and no ``@`` (central identity mode: never an email)."""
     return isinstance(value, str) and _OPAQUE_REF_RE.match(value) is not None
+
+
+def natural_id(prefix: str, source_kind: str, *parts: str | int | None) -> str:
+    """``stable_id(prefix, source_kind, *parts)`` with ``""`` for None parts: the natural-key id
+    of provider rows, so overlapping exports of one row produce the same id (latest fetch wins)."""
+    return stable_id(prefix, source_kind, *("" if p is None else p for p in parts))
+
+
+def copilot_session_key(raw_session_id: str) -> str:
+    """The session key of one GitHub Copilot conversation, shared by every Copilot source (CLI
+    events, OTel ``gen_ai.conversation.id``, VS Code traces) so one conversation merges:
+    ``stable_id("ses", "github_copilot", raw_session_id)``."""
+    return stable_id("ses", "github_copilot", raw_session_id)
+
+
+def copilot_lane_key(session_key: str, lane_kind: str, agent_id: str | None) -> str:
+    """The lane key of a Copilot lane:
+    ``stable_id("ln", session_key, lane_kind, agent_id or "")``."""
+    return stable_id("ln", session_key, lane_kind, agent_id or "")
