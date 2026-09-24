@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from pathlib import Path
 
 import pytest
 
-from tokenbill.adapters.anthropic_admin import EnterpriseAnalyticsAdapter, ts_ms
-from tokenbill.core.builders import CANARY
+from tokenbill.adapters.anthropic_admin import EnterpriseAnalyticsAdapter, date_of, ts_ms
+from tokenbill.core.builders import CANARY, make_ctx
+from tokenbill.core.testing import FakePricer
 
 from .helpers import (
     DAY_MS,
@@ -62,6 +64,29 @@ def test_cost_report_amount_and_list_amount_exact() -> None:
     code = [c for c in result.cost_lines if c.cost_type == "code_execution"]
     assert {c.amount_nano for c in code} == {412_800_000_000}  # "41280.000000" cents = $412.80
     assert result.stats["rounding_remainder_e18"] == 0
+
+
+def test_cost_report_is_usage_at_list_less_20_percent() -> None:
+    """Enterprise ``list_amount`` equals the usage report priced at list (FakePricer, facts.json);
+    ``amount`` is 80% of it (a uniform 20% discount RECON can derive)."""
+    usage = read("anthropic-enterprise-analytics", fixture(f"{ENT}usage_report.json"))
+    cost = read("anthropic-enterprise-analytics", fixture(f"{ENT}cost_report.json"))
+    pricer = FakePricer()
+    names = {"uncached_input": "uncached_input_tokens", "output": "output_tokens",
+             "cache_read": "cache_read_input_tokens",
+             "cache_write_5m": "cache_creation.ephemeral_5m_input_tokens"}
+    priced: dict[tuple, int] = defaultdict(int)
+    for agg in usage.aggregates:
+        d = dims(agg)
+        result = pricer.price_usage(agg.usage, make_ctx(d["model"], inference_geo="global"),
+                                    ts_ms=agg.bucket_start_ms)
+        for line in result.lines:
+            priced[(date_of(agg.bucket_start_ms), d["model"], names[line.bucket])] += (
+                line.amount_nano)
+    tokens_lines = [c for c in cost.cost_lines if c.cost_type == "tokens"]
+    assert {(c.date_utc, c.model, c.token_type): c.list_amount_nano
+            for c in tokens_lines} == dict(priced)
+    assert all(c.amount_nano * 10 == c.list_amount_nano * 8 for c in tokens_lines)
 
 
 @pytest.mark.parametrize("now, expected", [("2026-09-02", "provisional"),

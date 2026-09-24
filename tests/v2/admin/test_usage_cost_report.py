@@ -287,9 +287,34 @@ def test_cost_report_edge_fixture() -> None:
     expect = manifest_entry(rel)["expect"]
     assert len(result.cost_lines) == expect["cost_lines"]
     assert sum(c.amount_nano for c in result.cost_lines) == expect["amount_nano"]
-    assert result.stats["rounding_remainder_e18"] == expect["rounding_remainder_e18"]
+    assert result.stats["rounding_remainder_e18"] == expect["rounding_remainder_e18"] == 4500
     types = {c.cost_type for c in result.cost_lines}
-    assert {"code_execution", "session_usage", "tokens"} <= types
+    assert {"code_execution", "session_usage", "tokens", "web_search"} <= types
+    folded = [c for c in result.cost_lines if c.description.endswith("Output Tokens (Fast)")]
+    assert [c.amount_nano for c in folded] == [250_000_000]  # two context windows, exact sum
+
+
+def test_edge_pair_token_lines_at_list_with_modifiers() -> None:
+    """US-geo (1.1×) and fast-mode (Opus 5 $10/$50) lines equal FakePricer on the usage rows;
+    the Priority Tier usage has no cost line (the cost report excludes it)."""
+    usage = read("anthropic-usage-report", fixture("anthropic/edge/usage_report_edge.json"))
+    cost = read("anthropic-cost-report", fixture("anthropic/edge/cost_report_edge.json"))
+    pricer = FakePricer()
+    priced: dict[tuple, int] = defaultdict(int)
+    for agg in usage.aggregates:
+        d = dims(agg)
+        if d["service_tier"] == "priority":
+            continue
+        ctx = make_ctx(d["model"], inference_geo=d.get("inference_geo"),
+                       speed=d.get("speed", "standard"))
+        for line in pricer.price_usage(agg.usage, ctx, ts_ms=agg.bucket_start_ms).lines:
+            if line.bucket in _TOKEN_TYPE:
+                priced[(d["model"], _TOKEN_TYPE[line.bucket])] += line.amount_nano
+            elif line.bucket == "web_search":
+                priced[(None, "web_search")] += line.amount_nano
+    invoiced = {(c.model, c.token_type or c.cost_type): c.amount_nano for c in cost.cost_lines
+                if c.cost_type in ("tokens", "web_search")}
+    assert invoiced == {k: v for k, v in priced.items() if v}
 
 
 def test_cost_rows_rejected(tmp_path: Path) -> None:

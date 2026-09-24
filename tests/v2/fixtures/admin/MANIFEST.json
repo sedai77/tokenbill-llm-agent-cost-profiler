@@ -47,9 +47,9 @@
     {
       "adapter": "anthropic-cost-report",
       "expect": {
-        "amount_nano": 13774567890,
-        "cost_lines": 4,
-        "rounding_remainder_e18": 128456789
+        "amount_nano": 16955000000,
+        "cost_lines": 7,
+        "rounding_remainder_e18": 4500
       },
       "path": "anthropic/edge/cost_report_edge.json",
       "provenance": "synthetic; shape from https://platform.claude.com/docs/en/api/admin-api/usage-cost/get-cost-report (retrieved 2026-09-23)",
@@ -120,9 +120,9 @@
     {
       "adapter": "anthropic-enterprise-analytics",
       "expect": {
-        "amount_nano": 3392784336000,
-        "cost_lines": 6,
-        "list_amount_nano": 4240980420000
+        "amount_nano": 837584215800,
+        "cost_lines": 18,
+        "list_amount_nano": 1046980269750
       },
       "path": "anthropic/enterprise/cost_report.json",
       "provenance": "synthetic; shape from https://platform.claude.com/docs/en/api/admin/analytics (retrieved 2026-09-23)",
@@ -153,7 +153,7 @@
       "adapter": "openai-usage-buckets",
       "expect": {
         "aggregates": 6,
-        "usage_tokens": 3852924
+        "usage_tokens": 1048602
       },
       "path": "openai/usage_completions_2026-09.json",
       "provenance": "synthetic; shape from https://github.com/openai/openai-openapi (UsageCompletionsResult, CostsResult) (retrieved 2026-09-23)",
@@ -162,8 +162,8 @@
     {
       "adapter": "openai-costs",
       "expect": {
-        "amount_nano": 53548415900,
-        "cost_lines": 12
+        "amount_nano": 10361719200,
+        "cost_lines": 20
       },
       "path": "openai/costs_2026-09.json",
       "provenance": "synthetic; shape from https://github.com/openai/openai-openapi (UsageCompletionsResult, CostsResult) (retrieved 2026-09-23)",

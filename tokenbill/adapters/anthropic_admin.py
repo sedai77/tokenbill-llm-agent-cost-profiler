@@ -723,17 +723,20 @@ class ReadContext:
         digest = hashlib.sha256()
         total = 0
         for f in self.files:
+            file_digest = hashlib.sha256()
             try:
-                data = f.read_bytes()
+                with open(f, "rb") as fh:
+                    for chunk in iter(lambda fh=fh: fh.read(1 << 20), b""):
+                        file_digest.update(chunk)
+                        total += len(chunk)
             except OSError as exc:
                 raise SourceError(f"{f.name}: unreadable ({type(exc).__name__})") from None
-            total += len(data)
             if len(self.files) > 1:
                 digest.update(f.relative_to(self.path).as_posix().encode("utf-8", "replace"))
                 digest.update(b"\0")
-                digest.update(hashlib.sha256(data).digest())
+                digest.update(file_digest.digest())
             else:
-                digest.update(data)
+                digest = file_digest
         return SourceInfo(
             source_id=self.source_id, adapter=self.adapter, name_hmac=self._name_hmac,
             sha256=digest.hexdigest(), bytes=total, name_key_id=self.opts.name_key_id,

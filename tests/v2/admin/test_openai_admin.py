@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from tokenbill.adapters.anthropic_admin import ts_ms
 from tokenbill.adapters.openai_admin import OPENAI_WRITE_TTL_S
 from tokenbill.core.builders import make_ctx
 from tokenbill.core.testing import FakePricer
@@ -44,9 +45,8 @@ def test_usage_fixture() -> None:
         assert dims(agg)["channel"] == "openai_api"
         assert dims(agg)["model"] == "gpt-5.6-sol"
     tiers = {dims(a).get("workspace_id"): dims(a).get("service_tier") for a in result.aggregates}
-    assert tiers[h("proj_02Support")] == "batch"
-    assert tiers[h("proj_03Lab")] == "standard"
-    assert h("proj_01Search") in tiers and tiers[h("proj_01Search")] is None
+    assert tiers[h("proj_03Lab")] == "standard"                 # "default" → standard
+    assert tiers[h("proj_01Search")] is None and tiers[h("proj_02Support")] is None
     lab = [a for a in result.aggregates if dims(a).get("workspace_id") == h("proj_03Lab")]
     assert all(a.usage.uncached_input == 2000 and "api_key_id" not in dims(a) for a in lab)
     assert "user_01Ann" not in json.dumps([a.dims for a in result.aggregates])
@@ -118,8 +118,28 @@ def test_costs_fixture_exact() -> None:
         assert line.channel == "openai_api" and line.source_kind == "openai.costs"
         assert line.description.startswith("gpt-5.6-sol, ")
         assert line.model is None and line.token_type is None  # never guessed from line items
-        assert line.workspace_id in (h("proj_01Search"), h("proj_02Support"))
+        assert line.workspace_id in (h("proj_01Search"), h("proj_02Support"), h("proj_03Lab"))
     assert result.capabilities == frozenset({"cost"})
+
+
+def test_fixture_costs_equal_usage_at_list() -> None:
+    """The costs page is the usage page priced at the facts.json list rates (FakePricer)."""
+    usage = read("openai-usage-buckets", fixture(USAGE))
+    costs = read("openai-costs", fixture(COSTS))
+    pricer = FakePricer()
+    priced: dict[tuple, int] = {}
+    for agg in usage.aggregates:
+        assert agg.usage.total_input < 272_000          # below the long-context band
+        result = pricer.price_usage(agg.usage, make_ctx("gpt-5.6-sol"),
+                                    ts_ms=agg.bucket_start_ms)
+        assert result.unpriced_reason is None and result.estimated is None
+        key = (agg.bucket_start_ms, dims(agg)["workspace_id"])
+        priced[key] = priced.get(key, 0) + result.exact_nano
+    invoiced: dict[tuple, int] = {}
+    for line in costs.cost_lines:
+        key = (ts_ms(line.date_utc, "d"), line.workspace_id)
+        invoiced[key] = invoiced.get(key, 0) + line.amount_nano
+    assert invoiced == priced
 
 
 def test_costs_json_numbers_exact_and_currency(tmp_path: Path) -> None:

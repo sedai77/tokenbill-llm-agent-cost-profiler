@@ -263,39 +263,46 @@ def build_edge_pair() -> tuple[dict, dict, dict]:
     usage = {"data": [{"starting_at": iso(day), "ending_at": iso(next_day(day)),
                        "results": results}], "has_more": False, "next_page": None}
     tokens_total = sum(usage_tokens(x) for x in results)
-    many = "123.456789012345678901234567"   # cents: $1.23456789012345678901234567
+    ws = "wrkspc_03Research"
+
+    def row(amount: str, cost_type: str, description: str, model: str | None = None,
+            token_type: str | None = None, geo: str | None = None,
+            context_window: str | None = None, workspace: str | None = ws) -> dict:
+        return {"amount": amount, "context_window": context_window, "cost_type": cost_type,
+                "currency": "USD", "description": description, "inference_geo": geo,
+                "model": model, "service_tier": "standard" if model else None,
+                "token_type": token_type, "workspace_id": workspace}
+
+    # list prices: Sonnet 5 at the US-geo 1.1x ($2.20 / $11.00 per MTok) on 600k in / 40k out;
+    # Opus 5 fast mode ($10 / $50 base) on 250k in / 5k out; 3 web searches at $0.01.
+    # The Sonnet input string carries 4.5e-15 USD beyond the nano (the remainder under test);
+    # the fast-mode output is split over two context windows whose strings sum exactly to 25 c.
     cost_rows = [
-        {"amount": "1234.5", "context_window": None, "cost_type": "code_execution",
-         "currency": "USD", "description": "Code Execution Usage", "inference_geo": None,
-         "model": None, "service_tier": None, "token_type": None,
-         "workspace_id": "wrkspc_03Research"},
-        {"amount": many, "context_window": "0-200k", "cost_type": "tokens", "currency": "USD",
-         "description": "Claude Sonnet 5 Usage - Input Tokens", "inference_geo": "us",
-         "model": "claude-sonnet-5", "service_tier": "standard",
-         "token_type": "uncached_input_tokens", "workspace_id": "wrkspc_03Research"},
-        # two context windows, same description: one cost line (summed exactly)
-        {"amount": "0.0000000001", "context_window": "0-200k", "cost_type": "tokens",
-         "currency": "USD", "description": "Claude Opus 5 Usage - Output Tokens",
-         "inference_geo": "global", "model": "claude-opus-5", "service_tier": "standard",
-         "token_type": "output_tokens", "workspace_id": "wrkspc_03Research"},
-        {"amount": "12.5000000004", "context_window": "200k-1M", "cost_type": "tokens",
-         "currency": "USD", "description": "Claude Opus 5 Usage - Output Tokens",
-         "inference_geo": "global", "model": "claude-opus-5", "service_tier": "standard",
-         "token_type": "output_tokens", "workspace_id": "wrkspc_03Research"},
-        {"amount": "7", "context_window": None, "cost_type": "session_usage", "currency": "USD",
-         "description": "Session Usage", "inference_geo": None, "model": None,
-         "service_tier": None, "token_type": None, "workspace_id": None},
+        row("1234.5", "code_execution", "Code Execution Usage"),
+        row("132.00000000000045", "tokens", "Claude Sonnet 5 Usage - Input Tokens",
+            "claude-sonnet-5", "uncached_input_tokens", "us", "0-200k"),
+        row("44", "tokens", "Claude Sonnet 5 Usage - Output Tokens", "claude-sonnet-5",
+            "output_tokens", "us", "0-200k"),
+        row("250", "tokens", "Claude Opus 5 Usage - Input Tokens (Fast)", "claude-opus-5",
+            "uncached_input_tokens", "global", "200k-1M"),
+        row("12.5000000004", "tokens", "Claude Opus 5 Usage - Output Tokens (Fast)",
+            "claude-opus-5", "output_tokens", "global", "0-200k"),
+        row("12.4999999996", "tokens", "Claude Opus 5 Usage - Output Tokens (Fast)",
+            "claude-opus-5", "output_tokens", "global", "200k-1M"),
+        row("3", "web_search", "Web Search Usage"),
+        row("7", "session_usage", "Session Usage", workspace=None),
     ]
     cost = {"data": [{"starting_at": iso(day), "ending_at": iso(next_day(day)),
                       "results": cost_rows}], "has_more": False, "next_page": None}
-    # closed-form expectations: lines keyed without context_window
-    line_usd = [Decimal("1234.5") / 100, Decimal(many) / 100,
-                (Decimal("0.0000000001") + Decimal("12.5000000004")) / 100, Decimal("7") / 100]
+    # closed-form expectations: one line per row except the folded fast-mode output
+    line_cents = [Decimal("1234.5"), Decimal("132.00000000000045"), Decimal(44), Decimal(250),
+                  Decimal("12.5000000004") + Decimal("12.4999999996"), Decimal(3), Decimal(7)]
+    line_usd = [c / 100 for c in line_cents]
     amount_nano = sum(nano(x) for x in line_usd)
     rem_e18 = sum(int(((x * 10**9 - nano(x)) * 10**9).quantize(Decimal(1),
                                                                rounding=ROUND_HALF_EVEN))
                   for x in line_usd)
-    expect = {"usage_aggregates": 3, "usage_tokens": tokens_total, "cost_lines": 4,
+    expect = {"usage_aggregates": 3, "usage_tokens": tokens_total, "cost_lines": len(line_usd),
               "amount_nano": amount_nano, "rounding_remainder_e18": rem_e18}
     return usage, cost, expect
 
@@ -412,7 +419,8 @@ def build_cc() -> tuple[dict, list[dict], dict, dict, dict[str, str]]:
 # Enterprise Analytics
 # ---------------------------------------------------------------------------------------------
 
-def build_enterprise(teams_of: dict[str, str]) -> dict[str, tuple[dict, dict]]:
+def build_enterprise(teams_of: dict[str, str], rate_table: dict
+                     ) -> dict[str, tuple[dict, dict]]:
     org = {"organization_id": "org_01EnterpriseExample"}
     days = ("2026-08-01", "2026-09-01")   # final and provisional relative to 2026-09-23
     usage = {"data": [], "has_more": False, "next_page": None,
@@ -439,34 +447,42 @@ def build_enterprise(teams_of: dict[str, str]) -> dict[str, tuple[dict, dict]]:
     cost = {"data": [], "has_more": False, "next_page": None,
             "data_refreshed_at": "2026-09-22T12:00:00Z", **org}
     amount_nano = list_nano = lines = 0
-    for day in days:
+    token_fields = (("uncached_input_tokens", lambda r: r["uncached_input_tokens"]),
+                    ("output_tokens", lambda r: r["output_tokens"]),
+                    ("cache_read_input_tokens", lambda r: r["cache_read_input_tokens"]),
+                    ("cache_creation.ephemeral_5m_input_tokens",
+                     lambda r: r["cache_creation"]["ephemeral_5m_input_tokens"]))
+    acc: dict[tuple, list[Decimal]] = defaultdict(lambda: [Decimal(0), Decimal(0)])
+    for bucket in usage["data"]:
+        day = bucket["starting_at"][:10]
         results = []
-        for product in ("chat", "claude_code"):
-            for tt in ("uncached_input_tokens", "output_tokens"):
-                listed = Decimal(num(f"entc{day}{product}{tt}", 1_000, 90_000_000)) / 1000
-                amount = listed * Decimal("0.8")          # 20% contract discount
+        for u in bucket["results"]:
+            for tt, get in token_fields:
+                n = get(u)
+                if not n:
+                    continue
+                listed = Decimal(n) * rate_table[u["model"]][tt] / MTOK * 100    # cents
+                amount = listed * Decimal("0.8")                               # 20% discount
                 results.append({"amount": f"{amount:.6f}", "list_amount": f"{listed:.6f}",
                                 "currency": "USD", "cost_type": "tokens", "token_type": tt,
-                                "model": "claude-opus-5", "product": product,
+                                "model": u["model"], "product": u["product"],
                                 "requests": None, "speed": "standard",
                                 "inference_geo": "global", "context_window": "0-200k",
                                 "rbac_group_id": None, "slack_channel_id": None,
                                 "claude_tag_category": None, "claude_tag_user_id": None})
+                key = (day, u["model"], tt)                    # product folds into one line
+                acc[key][0] += amount / 100
+                acc[key][1] += listed / 100
         results.append({"amount": "41280.000000", "list_amount": "51600.000000",
                         "currency": "USD", "cost_type": "code_execution", "token_type": None,
                         "model": None, "product": "claude_code", "requests": 0, "speed": None,
                         "inference_geo": None, "context_window": None, "rbac_group_id": None,
                         "slack_channel_id": None, "claude_tag_category": None,
                         "claude_tag_user_id": None})
-        cost["data"].append({"starting_at": iso(day), "ending_at": iso(next_day(day)),
-                             "results": results})
-    # closed form: lines per (day, model, cost_type, token_type) — product folds
-    acc: dict[tuple, list[Decimal]] = defaultdict(lambda: [Decimal(0), Decimal(0)])
-    for bucket in cost["data"]:
-        for r in bucket["results"]:
-            key = (bucket["starting_at"][:10], r["model"], r["cost_type"], r["token_type"])
-            acc[key][0] += Decimal(r["amount"]) / 100
-            acc[key][1] += Decimal(r["list_amount"]) / 100
+        acc[(day, None, "code_execution")][0] += Decimal("412.8")
+        acc[(day, None, "code_execution")][1] += Decimal("516")
+        cost["data"].append({"starting_at": bucket["starting_at"],
+                             "ending_at": bucket["ending_at"], "results": results})
     for a, lst in acc.values():
         amount_nano += nano(a)
         list_nano += nano(lst)
@@ -531,28 +547,38 @@ def build_enterprise(teams_of: dict[str, str]) -> dict[str, tuple[dict, dict]]:
 # OpenAI
 # ---------------------------------------------------------------------------------------------
 
+OPENAI_RATES = {  # gpt-5.6-sol from 2026-08-21 (facts.json): $4 in, 0.1x read, 1.25x write, $20
+    "input": Decimal("4.00"), "cached input": Decimal("0.40"), "cache write": Decimal("5.00"),
+    "output": Decimal("20.00")}
+
+
 def build_openai() -> tuple[dict, dict, dict, dict]:
+    """Usage buckets and costs for gpt-5.6-sol; every aggregate stays below the 272K long-context
+    threshold (an aggregate is not a request), costs = usage priced at list per line item."""
     days = ("2026-09-01", "2026-09-02")
     usage = {"object": "page", "data": [], "has_more": False, "next_page": None}
     toks = 0
+    per: dict[tuple, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for day in days:
         results = []
-        for project, key, model, batch in (("proj_01Search", "key_01Search", "gpt-5.6-sol", False),
-                                           ("proj_02Support", "key_02Support", "gpt-5.6-sol",
-                                            True)):
+        for project, key in (("proj_01Search", "key_01Search"),
+                             ("proj_02Support", "key_02Support")):
             tag = f"oai{day}{project}"
-            cached = num(tag + "c", 0, 800_000)
-            write = num(tag + "w", 0, 90_000)
-            uncached = num(tag + "u", 1_000, 900_000)
+            cached = num(tag + "c", 0, 150_000)
+            write = num(tag + "w", 0, 20_000)
+            uncached = num(tag + "u", 1_000, 90_000)
             out = num(tag + "o", 1_000, 200_000)
             toks += cached + write + uncached + out
+            for item, n in (("input", uncached), ("cached input", cached),
+                            ("cache write", write), ("output", out)):
+                per[(day, project)][item] += n
             results.append({"object": "organization.usage.completions.result",
                             "input_tokens": cached + write + uncached, "output_tokens": out,
                             "input_cached_tokens": cached, "input_cache_write_tokens": write,
                             "input_uncached_tokens": uncached, "input_audio_tokens": 0,
                             "output_audio_tokens": 0, "num_model_requests": num(tag, 1, 500),
                             "project_id": project, "user_id": None, "api_key_id": key,
-                            "model": model, "batch": batch, "service_tier": None})
+                            "model": "gpt-5.6-sol", "batch": False, "service_tier": None})
         # a user-grouped pair (person dim dropped, rows summed) and a non-completions result
         for uid in ("user_01Ann", "user_02Ben"):
             results.append({"object": "organization.usage.completions.result",
@@ -561,6 +587,8 @@ def build_openai() -> tuple[dict, dict, dict, dict]:
                             "input_uncached_tokens": 1_000, "num_model_requests": 1,
                             "project_id": "proj_03Lab", "user_id": uid, "api_key_id": None,
                             "model": "gpt-5.6-sol", "batch": False, "service_tier": "default"})
+            per[(day, "proj_03Lab")]["input"] += 1_000
+            per[(day, "proj_03Lab")]["output"] += 100
             toks += 1_100
         results.append({"object": "organization.usage.embeddings.result", "input_tokens": 999,
                         "num_model_requests": 3, "project_id": None, "user_id": None,
@@ -571,13 +599,17 @@ def build_openai() -> tuple[dict, dict, dict, dict]:
     amount_nano = lines = 0
     for day in days:
         results = []
-        for project in ("proj_01Search", "proj_02Support"):
-            for item in ("gpt-5.6-sol, input", "gpt-5.6-sol, cached input", "gpt-5.6-sol, output"):
-                value = Decimal(num(f"oaic{day}{project}{item}", 1, 99_999_999)) / 10**7
+        for (d, project), items in sorted(per.items()):
+            if d != day:
+                continue
+            for item, n in sorted(items.items()):
+                if not n:
+                    continue
+                value = Decimal(n) * OPENAI_RATES[item] / MTOK
                 results.append({"object": "organization.costs.result",
                                 "amount": {"value": value, "currency": "usd"},
-                                "line_item": item, "project_id": project, "api_key_id": None,
-                                "quantity": None, "quantity_unit": None})
+                                "line_item": f"gpt-5.6-sol, {item}", "project_id": project,
+                                "api_key_id": None, "quantity": None, "quantity_unit": None})
                 amount_nano += nano(value)
                 lines += 1
         costs["data"].append({"object": "bucket", "start_time": unix(day),
@@ -837,7 +869,7 @@ def main() -> None:
            "usage_tokens": cc2["tokens"], "reported_cost_nano": cc2["cost_nano"],
            "dropped_groups": cc2["dropped_groups"]})
 
-    ent = build_enterprise(teams_of)
+    ent = build_enterprise(teams_of, r)
     for name, (page, exp_e) in ent.items():
         rel = f"anthropic/enterprise/{name}_report.json"
         dump_json(HERE / rel, page)
