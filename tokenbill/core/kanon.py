@@ -654,8 +654,7 @@ def rescope_findings(findings: Sequence[Finding], *, k: int = 5,
         if not isinstance(f, Finding):
             raise ContractViolation("rescope_findings expects Findings")
         product = _is_product_scoped(f)
-        if product:
-            _check_budget_privacy(f)
+        _check_budget_privacy(f)
         if f.audience != "org" or _exempt(f):
             out.append(f)
         elif product:
