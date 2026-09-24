@@ -41,7 +41,8 @@ def test_rtk_like_campaign_is_costlier_and_verified_at_lab_scope() -> None:
         assert fig.basis is Basis.LIST
     assert res.paired_difference.low_nano > 0
     m = res.measurement
-    assert m.design == "ab" and m.unit == "cost per success" and m.scope_label == res.scope_label
+    assert m.design == "ab" and m.unit == "cost per task" and m.scope_label == res.scope_label
+    assert m.estimate.nano == -res.paired_difference.nano
     assert m.estimate.nano < 0 and m.estimate.high_nano < 0          # a negative saving
     assert not m.signable and m.projected is None and m.rate_variance is None
     assert m.rate_card_sha256 == "flat" and dict(m.scope)["tasks"] == 20

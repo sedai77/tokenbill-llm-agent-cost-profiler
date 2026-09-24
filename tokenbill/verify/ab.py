@@ -6,11 +6,13 @@ requests carry ``Attribution.extra["task_id"]``, and an outcomes table with one 
 (bool or 0/1) and ``order`` (int: the run's position within its trial, 0 = ran first; optional).
 
 Per task and arm the cost of all its requests (priced with *pricer*, point values) is divided by
-the arm's trial count; the per-task paired difference is ``candidate − baseline`` per trial. Cost
-per success is ``Σ cost / Σ successes`` per arm (failures stay in the numerator). The
-task-clustered bootstrap (B = 10,000, seeded) resamples tasks with both arms together; the verdict
-comes from the 95% CI of the difference in cost per success: ``costlier`` (CI above 0),
-``cheaper`` (below 0) or ``no-difference``.
+the arm's trial count; the per-task paired difference is ``candidate − baseline`` per trial run,
+averaged over tasks. Cost per success is ``Σ cost / Σ successes`` per arm (failures stay in the
+numerator), reported with its own interval. The task-clustered bootstrap (B = 10,000, seeded)
+resamples tasks with both arms together; the verdict comes from the 95% CI of the mean paired
+difference: ``costlier`` (CI above 0), ``cheaper`` (below 0) or ``no-difference``. The
+measurement's estimate is the saving per task run (``baseline − candidate``, unit
+``"cost per task"``).
 
 Label: VERIFIED only at the lab scope ``lab:<sha256 of the sorted task ids>[:12]``, when arm order
 was randomized per task (every trial has one run per arm with distinct ``order`` values, and each
@@ -189,28 +191,23 @@ def paired_ab(baseline: Sequence[Request], candidate: Sequence[Request],
     cps_b, cps_c = cps(b, ones), cps(c, ones)
     if cps_b is None or cps_c is None:
         raise UsageError("an arm has no successes: cost per success is undefined")
-    point_pd = paired(ones)
     rnd = rng(seed, "verify.ab", lab_scope_label(tasks))
-    d_b, d_c, d_diff, d_pd = [], [], [], []
+    d_b, d_c, d_pd = [], [], []
     n = len(tasks)
     for _ in range(boot):
         counts = [0] * n
         for _ in range(n):
             counts[rnd.randrange(n)] += 1
-        xb, xc = cps(b, counts), cps(c, counts)
         d_pd.append(paired(counts))
-        if xb is None or xc is None:
-            continue
-        d_b.append(xb)
-        d_c.append(xc)
-        d_diff.append(xc - xb)
-    if not d_diff:
-        raise UsageError("no bootstrap replicate has successes in both arms")
+        xb, xc = cps(b, counts), cps(c, counts)
+        if xb is not None and xc is not None:   # a replicate may draw only failures
+            d_b.append(xb)
+            d_c.append(xc)
 
     def ci(draws: Sequence[float]) -> tuple[float, float]:
         return percentile(draws, 0.025), percentile(draws, 0.975)
 
-    diff, lo, hi = to_nano_triple(cps_c - cps_b, *ci(d_diff))
+    diff, lo, hi = to_nano_triple(paired(ones), *ci(d_pd))
     verdict = "costlier" if lo > 0 else "cheaper" if hi < 0 else "no-difference"
     randomized = _randomized(orders, has_order)
     trials = (min(a.trials for a in b), min(a.trials for a in c))
@@ -221,8 +218,6 @@ def paired_ab(baseline: Sequence[Request], candidate: Sequence[Request],
         GuardResult("trials_per_task_arm", min(trials) >= MIN_TRIALS,
                     f"min {min(trials)} (baseline {trials[0]}, candidate {trials[1]})",
                     f"≥ {MIN_TRIALS}"),
-        GuardResult("bootstrap_replicates", len(d_diff) == boot, f"{len(d_diff)} of {boot}",
-                    "every replicate has successes in both arms"),
     )
     label = decide(design="ab", randomized=randomized, assignment_hash_matches=True,
                    guards=guard_list, ci=(lo, hi))
@@ -233,11 +228,10 @@ def paired_ab(baseline: Sequence[Request], candidate: Sequence[Request],
                       ci_level_pct=95)
 
     scope = lab_scope_label(tasks)
-    saving, s_lo, s_hi = -diff, -hi, -lo
     measurement = MeasurementResult(
-        lever_id="unspecified", design="ab", unit="cost per success",
-        estimate=Figure(nano=saving, evidence=label, basis=basis, low_nano=s_lo, high_nano=s_hi,
-                        ci_level_pct=95, note="saving per success: baseline − candidate"),
+        lever_id="unspecified", design="ab", unit="cost per task",
+        estimate=Figure(nano=-diff, evidence=label, basis=basis, low_nano=-hi, high_nano=-lo,
+                        ci_level_pct=95, note="saving per task run: baseline − candidate"),
         projected=None, realization_rate=None, guards=guard_list,
         scope=(("tasks", n), ("trials", sum(a.trials for a in b) + sum(a.trials for a in c))),
         scope_label=scope,
@@ -258,7 +252,8 @@ def paired_ab(baseline: Sequence[Request], candidate: Sequence[Request],
         verdict=verdict, scope_label=scope, n_tasks=n, trials_per_arm=trials,
         randomized_order=randomized,
         cost_per_success=(fig(cps_b, d_b), fig(cps_c, d_c)),
-        paired_difference=fig(point_pd, d_pd),
+        paired_difference=Figure(nano=diff, evidence=label, basis=basis, low_nano=lo,
+                                 high_nano=hi, ci_level_pct=95),
         token_delta_pct=_pct(totals(c, "tokens"), totals(b, "tokens")),
         turn_delta_pct=_pct(totals(c, "turns"), totals(b, "turns")),
         read_delta_pct=_pct(totals(c, "reads"), totals(b, "reads")),

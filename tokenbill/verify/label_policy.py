@@ -357,7 +357,11 @@ def decide(*, design: str, randomized: bool, assignment_hash_matches: bool,
 def signable(label: Evidence, *, reconciled: bool, projection: Figure | None) -> bool:
     """``label ∈ {MEASURED, VERIFIED}`` and reconciliation passed and (no projection or the
     projection is CALIBRATED)."""
-    return (Evidence(label) in _LABELS and bool(reconciled)
+    try:
+        ev = Evidence(label)
+    except ValueError:
+        return False
+    return (ev in _LABELS and bool(reconciled)
             and (projection is None or projection.calibration is Calibration.CALIBRATED))
 
 

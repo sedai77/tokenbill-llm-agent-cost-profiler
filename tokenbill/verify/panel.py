@@ -19,9 +19,10 @@ Conventions (documented contract of this module):
   On the allowance class the list-equivalent point counts.
 * ``arms`` maps a cluster to its assigned arm (intention-to-treat) as ``"<arm>"`` or
   ``"<arm>@YYYY-MM-DD"`` (the adoption date). Arms named in :data:`CONTROL_ARMS` are never
-  treated. Without a date a cluster is treated from the first day its requests carry a non-control
-  ``tokenbill.arm`` tag (the tag ships with the wave's MDM payload). Without an ``arms`` entry the
-  arm is the one the telemetry reports. Treatment is absorbing.
+  treated. Without a date a cluster is treated from the first day its requests carry its assigned
+  arm as ``tokenbill.arm`` tag (the tag ships with the wave's MDM payload). Without an ``arms``
+  entry the arm is the one the telemetry reports and any non-control tag starts treatment.
+  Treatment is absorbing.
 * ``outcome_prs`` is filled from team-level ``OutcomeAggregate`` rows when the cluster kind is
   ``team`` (the largest ``pull_requests`` per team-day across outcome sources).
 """
@@ -183,11 +184,15 @@ def build_panel(store: LedgerStore, *, cluster_kind: str, since: str, until: str
             if a.arm is not None and (arm is None or arm in CONTROL_ARMS):
                 arm = a.arm
             tags[key] = (arm, prev[1] if prev[1] is not None else a.wave)
-    # adoption per cluster: explicit date, else the first day with a non-control arm tag
+    # adoption per cluster: explicit date, else the first day with a non-control arm tag (the
+    # assigned arm's own tag when the cluster has an ``arms`` entry)
     first_tag: dict[str, str] = {}
     for (cluster, date), (arm, _) in sorted(tags.items()):
-        if arm is not None and arm not in CONTROL_ARMS:
-            first_tag.setdefault(cluster, date)
+        if arm is None or arm in CONTROL_ARMS:
+            continue
+        if cluster in assigned and assigned[cluster][0] != arm:
+            continue
+        first_tag.setdefault(cluster, date)
     outcomes: dict[tuple[str, str], int] = {}
     if cluster_kind == "team":
         for o in store.outcomes(since_ms=lo, until_ms=hi):

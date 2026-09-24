@@ -394,6 +394,7 @@ def test_signable() -> None:
     assert not L.signable(Evidence.ESTIMATED, reconciled=True, projection=None)
     assert not L.signable(Evidence.EXACT, reconciled=True, projection=None)
     assert L.signable("measured", reconciled=True, projection=None)  # type: ignore[arg-type]
+    assert not L.signable("bogus", reconciled=True, projection=None)  # type: ignore[arg-type]
 
 
 def test_measure_validation() -> None:

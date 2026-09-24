@@ -73,6 +73,9 @@ def test_arms_mapping_overrides_tags_itt() -> None:
     # a treatment arm with no tag and no date: never observed adopting
     rows = P.build_panel(store, arms={"alpha": LEVER}, **kw)
     assert not any(r.treated for r in rows if r.cluster_id == "alpha")
+    # another experiment's tag does not start this arm's treatment
+    rows = P.build_panel(store, arms={"beta": "other.lever"}, **kw)
+    assert not any(r.treated for r in rows if r.cluster_id == "beta")
     with pytest.raises(UsageError):
         P.build_panel(store, arms={"beta": "@2026-09-02"}, **kw)
     with pytest.raises(UsageError):
