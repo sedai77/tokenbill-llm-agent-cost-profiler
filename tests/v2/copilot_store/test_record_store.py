@@ -11,12 +11,6 @@ from pathlib import Path
 
 import pytest
 
-from tokenbill.core import extensions
-from tokenbill.core import testing as kit
-from tokenbill.core.builders import make_activity, make_config, make_license
-from tokenbill.core.errors import ContractViolation, PrivacyError, UsageError
-from tokenbill.core.ids import key_id
-from tokenbill.core.protocols import ExtRecordStore
 from tokenbill.copilot.record_store import (
     COPILOT_TABLES,
     DQ_PRINCIPAL_KEY_MISMATCH,
@@ -24,6 +18,12 @@ from tokenbill.copilot.record_store import (
     STORE_NAME,
     CopilotRecordStore,
 )
+from tokenbill.core import extensions
+from tokenbill.core import testing as kit
+from tokenbill.core.builders import make_activity, make_config, make_license
+from tokenbill.core.errors import ContractViolation, PrivacyError, UsageError
+from tokenbill.core.ids import key_id
+from tokenbill.core.protocols import ExtRecordStore
 
 from .support import (
     KEY_A,
