@@ -126,6 +126,8 @@ _EFFORT_BAND = Fraction(1, 4)
 _EFFORT_RANK = {level: i for i, level in enumerate(EFFORT_LEVELS)}
 _SUMMARY_DEFAULT: int = COMPACTION_SUMMARY_TOKENS_DEFAULT.value  # type: ignore[assignment]
 _PROBE_HUGE = 2**50
+#: Note of an unpriced total (no per-call counts: shard replays merge to the same text).
+_UNPRICED_NOTE = "unpriced: some billable inferences have no priced rate row"
 _PROBE_SMALL = 5_000
 _PROBE_EACH = 1_000
 
@@ -700,7 +702,6 @@ class _Run:
         # counters
         self.added_calls = 0
         self.pings = 0
-        self.hindsight_pings = 0
         self.skipped: list[tuple[str, str]] = []
         self.summary_tokens, self.summary_source = self._summary_tokens()
         self.stagger = self._stagger_map() if "stagger_fanout" in self.c.repairs else {}
@@ -1361,8 +1362,6 @@ class _Run:
                                      stable_id("replay", "keepalive", st.req.request_id, k)))
             if point:
                 self.pings += n_p
-        if point and gap > _FIVE_MIN_MS:
-            self.hindsight_pings += min(-(-(gap - _FIVE_MIN_MS) // kappa), max_idle // kappa)
 
     @staticmethod
     def _gate(t: tuple, min_cacheable: int, pref: tuple[int, int | None]) -> tuple:
@@ -1536,30 +1535,24 @@ class _Run:
         rows = tuple(sorted(self.base_rows))
         baseline = self._figure(base_point, base_low, base_high, base_ranged, base_unpriced,
                                 rows, estimated_label=False)
-        assumptions = self._assumptions(n_changed, sav_excluded)
-        if self.observed or n_changed == 0:
+        assumptions = self._assumptions(sav_excluded)
+        if self.observed:
             cost_fig = baseline
             saving = zero(basis)
         else:
             replay_id = stable_id("replay", self.policy_key(), self.mode)
-            prov = tuple(sorted(self.base_rows | self.policy_rows)) + (replay_id,)
+            prov = tuple(sorted(self.base_rows | self.policy_rows | {replay_id}))
             cost_fig = self._figure(cost_point, cost_low, cost_high, cost_ranged, cost_unpriced,
                                     prov, estimated_label=True)
-            if sav_excluded and sav_excluded == n_changed:
-                saving = Figure(nano=None, evidence=Evidence.ESTIMATED, basis=basis,
-                                calibration=self.calibration_label, upper_bound=c.upper_bound,
-                                provenance=prov,
-                                note="unpriced: every changed request is unpriced")
-            else:
-                note = "usage-level replay (documented rules)" if self.mode == "documented" \
-                    else "usage-level replay (calibrated ρ)"
-                if sav_excluded:
-                    note += f"; excludes {sav_excluded} unpriced changed requests"
-                saving = Figure(nano=sav_point, evidence=Evidence.ESTIMATED, basis=basis,
-                                low_nano=min(sav_low, sav_point) if sav_ranged else None,
-                                high_nano=max(sav_high, sav_point) if sav_ranged else None,
-                                calibration=self.calibration_label, upper_bound=c.upper_bound,
-                                provenance=prov, note=note)
+            note = "usage-level replay (documented rules)" if self.mode == "documented" \
+                else "usage-level replay (calibrated rho)"
+            if sav_excluded:
+                note += "; excludes unpriced changed requests"
+            saving = Figure(nano=sav_point, evidence=Evidence.ESTIMATED, basis=basis,
+                            low_nano=min(sav_low, sav_point) if sav_ranged else None,
+                            high_nano=max(sav_high, sav_point) if sav_ranged else None,
+                            calibration=self.calibration_label, upper_bound=c.upper_bound,
+                            provenance=prov, note=note)
         return ReplayResult(
             policy=self.policy,
             mode=self.mode,
@@ -1599,16 +1592,12 @@ class _Run:
     def _figure(self, point: int, low: int, high: int, ranged: bool, unpriced_n: int,
                 provenance: tuple[str, ...], *, estimated_label: bool) -> Figure:
         basis = self.basis
-        reasons = sorted(self.book.unpriced_reasons)
         if unpriced_n:
-            note = f"unpriced: {unpriced_n} requests unpriced"
-            if reasons:
-                note += " (" + ", ".join(reasons) + ")"
             evidence = Evidence.ESTIMATED if (ranged or estimated_label) else Evidence.EXACT
             return Figure(nano=None, evidence=evidence, basis=basis,
                           calibration=self.calibration_label if estimated_label
                           else Calibration.NA,
-                          provenance=provenance, note=note)
+                          provenance=provenance, note=_UNPRICED_NOTE)
         if estimated_label:
             return Figure(nano=point, evidence=Evidence.ESTIMATED, basis=basis,
                           low_nano=low if ranged else None, high_nano=high if ranged else None,
@@ -1640,7 +1629,9 @@ class _Run:
                                     cost_nano=cost[0], low_nano=cost[1] if ranged else None,
                                     high_nano=cost[2] if ranged else None, changed=changed)
 
-    def _assumptions(self, n_changed: int, sav_excluded: int) -> tuple[str, ...]:
+    def _assumptions(self, sav_excluded: int) -> tuple[str, ...]:
+        """Content-free assumption strings; they carry no per-call counts, so merging the replays
+        of shards (``core.shards.merge_replay`` de-duplicates them) equals one replay."""
         c = self.c
         out = ["usage-level replay: documented cache rules (SPEC §9.2–§9.3); unaffected requests "
                "keep their billed usage"]
@@ -1654,9 +1645,12 @@ class _Run:
             if not self.floor:
                 out.append("static prefix floor not supplied: hit→miss flips read 0 tokens")
         if c.keepalive is not None:
-            out.append(f"keepalive: κ = {c.keepalive[1] // 1000} s, max idle "
-                       f"{c.keepalive[2] // 1000} s; {self.pings} pings (non-clairvoyant daemon); "
-                       f"hindsight minimum {self.hindsight_pings} pings (lower bound only)")
+            kappa = c.keepalive[1] // 1000
+            out.append(f"keepalive: kappa = {kappa} s, max idle {c.keepalive[2] // 1000} s; "
+                       "a non-clairvoyant daemon sends min(ceil(gap/kappa) - 1, "
+                       "floor(max/kappa)) pings per gap")
+            out.append(f"keepalive: the hindsight minimum ceil((gap - 300)/{kappa}) pings per "
+                       "gap is a lower bound only")
         if c.cw is not None or c.cr is not None:
             source = {"policy": "from the policy", "median": "org median of compaction events",
                       "default": "COMPACTION_SUMMARY_TOKENS_DEFAULT"}[self.summary_source]
@@ -1684,6 +1678,7 @@ class _Run:
         if c.needs_eval:
             out.append("needs_eval: quality effects are not modeled")
         if sav_excluded:
-            out.append(f"{sav_excluded} of {n_changed} changed requests unpriced: excluded "
-                       "from the saving")
+            out.append("unpriced changed requests are excluded from the saving")
+        for reason in sorted(self.book.unpriced_reasons):
+            out.append(f"unpriced inferences: {reason}")
         return tuple(dict.fromkeys(out))
