@@ -69,6 +69,7 @@ from tokenbill.detect.context import (
     event_attr,
     evidence_item,
     int_threshold,
+    kind_enabled,
     replay,
     saving_figure,
     share_threshold,
@@ -125,11 +126,13 @@ class FailurePath:
             return capability_notes(self, ctx, self.kind_requires)
         prices = Prices(ctx.pricer)
         out: list[Finding] = []
+        storms = kind_enabled(ctx, self.kind_requires, "retry-storm")
+        loops = kind_enabled(ctx, self.kind_requires, "tool-error-loop")
         for cohort in cohorts(lanes, ctx):
             for found in (self._cold_retry(ctx, prices, cohort),
-                          self._storm(ctx, prices, cohort),
+                          self._storm(ctx, prices, cohort) if storms else None,
                           self._never(ctx, prices, cohort),
-                          self._loop(ctx, prices, cohort),
+                          self._loop(ctx, prices, cohort) if loops else None,
                           self._truncation(ctx, prices, cohort)):
                 if found is not None:
                     out.append(found)

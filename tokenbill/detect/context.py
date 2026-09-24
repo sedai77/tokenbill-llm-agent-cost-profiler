@@ -889,6 +889,12 @@ def sort_findings(findings: list[Finding]) -> list[Finding]:
     return sorted(findings, key=key)
 
 
+def kind_enabled(ctx: AnalysisContext, needs: Mapping[str, frozenset[str]], kind: str) -> bool:
+    """Whether *kind*'s extra capabilities (``needs[kind]``, R-E32) are all in
+    ``ctx.capabilities``."""
+    return needs.get(kind, frozenset()) <= frozenset(ctx.capabilities)
+
+
 def capability_notes(detector: Detector, ctx: AnalysisContext,
                      needs: Mapping[str, frozenset[str]]) -> list[Finding]:
     """One data-quality ``missing-capabilities`` finding per kind of *needs* whose extra
@@ -1208,9 +1214,10 @@ class StaticPrefix:
         for cohort in cohorts(lanes, ctx):
             if ctx.static_prefix_floor:
                 out.extend(self._static(ctx, prices, cohort))
-            found = self._bloat(ctx, prices, cohort, limit)
-            if found is not None:
-                out.append(found)
+            if kind_enabled(ctx, self.kind_requires, "tool-defs-bloat"):
+                found = self._bloat(ctx, prices, cohort, limit)
+                if found is not None:
+                    out.append(found)
         return sort_findings(out)
 
     # ---------- static-prefix ----------
@@ -1411,6 +1418,8 @@ class Carry:
         for cohort in cohorts(lanes, ctx):
             cpts = self._cpts(ctx, cohort)
             for kind in ("tool-output-carry", "config-tax"):
+                if not kind_enabled(ctx, self.kind_requires, kind):
+                    continue
                 found = self._carry(ctx, prices, cohort, cpts, kind)
                 if found is not None:
                     out.append(found)

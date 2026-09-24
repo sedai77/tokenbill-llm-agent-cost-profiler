@@ -40,6 +40,7 @@ from tokenbill.detect.context import (
     emit,
     evidence_item,
     int_threshold,
+    kind_enabled,
     nearest_rank,
     positive_threshold,
     round_fraction,
@@ -134,7 +135,7 @@ class Runaway:
         multiple = Fraction(positive_threshold(ctx, f"{self.id}.p99_multiple", "5"))
         idle_n = int_threshold(ctx, f"{self.id}.idle_min_requests", 50)
         idle_ms = int_threshold(ctx, f"{self.id}.idle_min_s", 3600) * 1000
-        idle_on = "human_prompts" in ctx.capabilities
+        idle_on = kind_enabled(ctx, self.kind_requires, "idle-loop")
         out: list[Finding] = []
         for cohort in cohorts(lanes, ctx):
             sessions = self._sessions(prices, cohort, idle_on)

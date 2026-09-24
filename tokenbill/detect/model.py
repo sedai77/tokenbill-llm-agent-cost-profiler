@@ -60,6 +60,7 @@ from tokenbill.detect.context import (
     evidence_item,
     int_threshold,
     is_claude_code,
+    kind_enabled,
     lane_model,
     lever_spec,
     model_family,
@@ -164,10 +165,13 @@ class Routing:
             if cohort.lane_kind in _DELEGATION_KINDS:
                 found.append(self._delegation(ctx, prices, cohort))
             found.extend(self._same_tier(ctx, prices, cohort))
+            params = kind_enabled(ctx, self.kind_requires, "default-effort")
             if cohort.lane_kind == LaneKind.MAIN.value:
                 found.append(self._default_model(ctx, prices, cohort))
-                found.append(self._default_effort(ctx, prices, cohort))
-            found.append(self._effort_mix(ctx, prices, cohort))
+                if params:
+                    found.append(self._default_effort(ctx, prices, cohort))
+            if kind_enabled(ctx, self.kind_requires, "effort-mix"):
+                found.append(self._effort_mix(ctx, prices, cohort))
             found.append(self._rebaseline(ctx, prices, cohort))
             out.extend(f for f in found if f is not None)
         return sort_findings(out)
