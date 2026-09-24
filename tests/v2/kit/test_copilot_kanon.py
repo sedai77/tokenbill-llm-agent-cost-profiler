@@ -215,6 +215,47 @@ def test_team_scoped_aggregate_findings_are_rescoped_whatever_their_category() -
     assert kanon.rescope_findings([plain], k=K) == [plain]
 
 
+def test_entity_source_findings_are_exempt_once_rescoped_to_an_entity_scope() -> None:
+    """R-E16 holds for the re-scoped finding too: a team-scoped finding with count source
+    ``entity`` climbs the chain and is published at the entity root even when nobody can be
+    counted there (e.g. direct, username-less usage)."""
+    small = finding(ORGSCAN, "agentic-workflow-cost", copilot(team="a"), 2, cost=100)
+    (out,) = kanon.rescope_findings([small], k=K, count_users=lambda f, s: 0)
+    assert dict(out.scope.dims) == copilot() and out.n_users == 0  # the count's (unknown)
+    assert out.cost_observed.nano == 100 and out.summary.startswith("[re-scoped")
+    (kept,) = kanon.rescope_findings([small], k=K)  # without a counter: the child's lower bound
+    assert dict(kept.scope.dims) == copilot() and kept.n_users == 2
+    # a model-level parent is entity-level too (model ∈ the R-E16 set): published there
+    migr = finding(ORGSCAN, "forced-migration", copilot(team="a", model="gpt-5.5"), 1)
+    (out2,) = kanon.rescope_findings([migr], k=K, count_users=lambda f, s: 0)
+    assert dict(out2.scope.dims) == copilot(model="gpt-5.5")
+    # count source cost_lines is never exempt: still suppressed below k
+    assert kanon.rescope_findings([finding(ORGSCAN, "fast-mode", copilot(team="a"), 2)], k=K,
+                                  count_users=lambda f, s: 0) == []
+
+
+def test_a_rescoped_finding_absorbs_the_exempt_finding_at_its_scope() -> None:
+    """No two published findings share a finding id: the entity-level finding of the same kind
+    absorbs the re-scoped team findings."""
+    entity = finding(ORGSCAN, "agentic-workflow-cost", copilot(), 0, cost=500)
+    team = finding(ORGSCAN, "agentic-workflow-cost", copilot(team="a"), 2, cost=100)
+    out = kanon.rescope_findings([entity, team], k=K, count_users=_team_small)
+    assert len(out) == 1 and out[0].finding_id == entity.finding_id
+    assert out[0].cost_observed.nano == 600 and out[0].n_users == 9
+    ids = [f.finding_id for f in kanon.rescope_findings(
+        [entity, team, finding(ORGSCAN, "agentic-workflow-cost", copilot(team="b"), 1)],
+        k=K, count_users=lambda f, s: 0)]
+    assert ids == [entity.finding_id]
+
+
+def test_the_exemption_set_is_exactly_r_e16() -> None:
+    assert kanon.ENTITY_EXEMPT_DIMS == {"product", "entity", "org", "model", "sku",
+                                        "plan_scenario"}
+    pooled = finding(SEATS, "pool-regime", copilot(billing_class="pool"), 1)
+    assert not kanon._exempt(pooled)
+    assert kanon._exempt(finding(SEATS, "pool-regime", copilot(org="acme", sku="x"), 1))
+
+
 def test_plan_scenario_survives_every_rescoping_level() -> None:
     dims = copilot(team="t", bucket="none_90d", plan="business", model="m",
                    cost_center="cc1", plan_scenario="enterprise", surface="vscode")
@@ -466,6 +507,23 @@ def test_labels_alone_too_long_are_cut_at_a_word_boundary() -> None:
     assert len(out) <= 400 and out.endswith("…")
     assert out[:-1].rstrip().split(" ")[-1] in label.split(" ")
     assert kanon._cut_words("short", 10) == "short"
+
+
+def test_a_long_sentence_is_cut_at_a_word_boundary_not_dropped() -> None:
+    """R-E31: a summary that is one long sentence keeps its words up to the limit (it is never
+    replaced by an ellipsis), and a long detail sentence beside a label is cut, not dropped."""
+    prefix = "[re-scoped for k-anonymity (k=5); 3 finding(s) merged] "
+    one = " ".join(f"w{i}" for i in range(130))  # 389 chars, no sentence boundary
+    out = kanon._fit_summary(prefix, one)
+    body = out[len("[re-scoped] "):]
+    assert len(out) <= 400 and body.endswith("…") and len(body) > 300
+    assert one.startswith(body[:-1]) and one[len(body) - 1] == " "  # cut between words
+    mixed = "Short one. " + " ".join(["longword"] * 36) + ". " + LABEL
+    out2 = kanon._fit_summary(prefix, mixed)
+    assert len(out2) <= 400 and out2.endswith(LABEL)
+    assert out2.startswith("[re-scoped] Short one. longword") and "… " + LABEL in out2
+    assert kanon._cut_at_word("abcdef", 4) is None  # not even one word fits
+    assert kanon._cut_at_word("ab cd", 10) == "ab cd …"
 
 
 @settings(max_examples=200, deadline=None)

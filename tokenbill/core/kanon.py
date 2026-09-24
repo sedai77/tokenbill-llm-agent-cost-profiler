@@ -125,9 +125,8 @@ COPILOT_RESCOPE_LEVELS: tuple[frozenset[str], ...] = (
     COPILOT_ROOT_DIMS,
 )
 #: R-E16: a ``product``-scoped finding with count source ``entity`` is exempt from k iff its scope
-#: dims are within this set (``billing_class`` names no people and is allowed as well).
-ENTITY_EXEMPT_DIMS = frozenset({"product", "entity", "org", "model", "sku", "plan_scenario",
-                                "billing_class"})
+#: dims are within this set (exactly the ruling's set).
+ENTITY_EXEMPT_DIMS = frozenset({"product", "entity", "org", "model", "sku", "plan_scenario"})
 _P_RE = re.compile(r"p_[0-9a-f]{20}\Z")
 
 
@@ -366,9 +365,15 @@ def _exempt(f: Finding) -> bool:
     R-E16: a finding whose scope has a ``product`` dim is exempt iff its count source is
     ``entity`` and its scope dims are within :data:`ENTITY_EXEMPT_DIMS` — its category never
     exempts it."""
+    return _exempt_at(f, f.scope)
+
+
+def _exempt_at(f: Finding, scope: Scope) -> bool:
+    """:func:`_exempt` for *f* re-scoped to *scope* (a re-scoped Copilot finding that reaches an
+    entity-level scope is exempt there, R-E16)."""
     if f.category == "data-quality" or f.kind.startswith("dq."):
         return True
-    names = {name for name, _ in f.scope.dims}
+    names = {name for name, _ in scope.dims}
     if "product" in names:
         return _count_source(f) == "entity" and names <= ENTITY_EXEMPT_DIMS
     return f.category == "aggregate" and not (names & (PERSON_DIMS | _KEY_DIMS))
@@ -458,15 +463,29 @@ def _cut_words(text: str, limit: int) -> str:
     return head.rstrip(" ,;:") + "…"
 
 
+def _cut_at_word(text: str, limit: int) -> str | None:
+    """*text* within *limit* chars ending in "…", cut between words (never inside one); None when
+    not even its first word fits."""
+    if len(text) + 2 <= limit:
+        return text + " …"
+    head = text[:max(limit - 1, 0)]
+    if len(text) > len(head) and text[len(head)] != " ":
+        head = head[:head.rindex(" ")] if " " in head else ""
+    head = head.rstrip(" ,;:.")
+    return head + "…" if head else None
+
+
 _SHORT_PREFIXES = ("[re-scoped for k-anonymity] ", "[re-scoped] ")
 
 
 def _fit_summary(prefix: str, summary: str, limit: int = _SUMMARY_MAX) -> str:
     """``prefix + summary`` within *limit* chars without cutting mid-summary (R-E31). The full
     summary is kept whenever it fits beside the re-scoping prefix (shortened if need be); otherwise
-    whole sentences are dropped from the end — labelling statements (:data:`_LABEL_MARKERS`, e.g.
-    the D26 "list-equivalent, not invoice dollars" sentence) never — and the text ends with "…";
-    only when the labelling statements alone do not fit is the text cut at a word boundary."""
+    the labelling statements (:data:`_LABEL_MARKERS`, e.g. the D26 "list-equivalent, not invoice
+    dollars" sentence) are always kept, the other sentences are kept whole in order while they
+    fit, and the room left goes to the first sentence that did not fit, cut at a word boundary and
+    ended with "…"; only when the labelling statements alone do not fit is their text cut at a
+    word boundary."""
     prefixes = (prefix, *_SHORT_PREFIXES)
     for pre in prefixes:
         if len(pre) + len(summary) <= limit:
@@ -487,7 +506,16 @@ def _fit_summary(prefix: str, summary: str, limit: int = _SUMMARY_MAX) -> str:
             trial = [*chosen[:i], True, *chosen[i + 1:]]
             if len(text(trial)) <= budget:
                 chosen = trial
-    return pre + text(chosen)
+    if all(chosen):  # pragma: no cover - the whole summary did not fit above
+        return pre + text(chosen)
+    first = chosen.index(False)
+    kept = len(" ".join(p for p, keep in zip(parts, chosen, strict=True) if keep))
+    partial = _cut_at_word(parts[first], budget - kept - (1 if kept else 0))
+    if partial is None:
+        return pre + text(chosen)
+    pieces = [partial if i == first else p for i, (p, keep)
+              in enumerate(zip(parts, chosen, strict=True)) if keep or i == first]
+    return pre + " ".join(pieces)
 
 
 def _merge_findings(children: Sequence[Finding], scope: Scope, n_users: int, k: int) -> Finding:
@@ -571,7 +599,13 @@ def _rescope_pending(pending: list[Finding], out: list[Finding], *, k: int,
                      levels: tuple[frozenset[str], ...], copilot: bool,
                      count: Callable[[Finding, Scope], int] | None) -> list[Finding]:
     """Walk *pending* up *levels*, merging per (detector, kind, parent) with complementary
-    suppression against the published findings of the same chain; returns the new *out*."""
+    suppression against the published findings of the same chain; returns the new *out*.
+
+    Copilot chain (R-E16): a merged finding whose parent scope is exempt (count source
+    ``entity``, entity-level dims) is published there whatever its count — ``n_users`` is then
+    the larger of the scope count and the largest child count, both lower bounds — and it
+    absorbs an exempt finding already published at that scope (the two would share a finding
+    id)."""
     for keep in levels:
         if not pending:
             break
@@ -589,6 +623,10 @@ def _rescope_pending(pending: list[Finding], out: list[Finding], *, k: int,
                      and _is_product_scoped(f) is copilot
                      and _parent_scope(f.scope, keep) == parent]
             same_scope = [f for f in peers if f.scope == parent]
+            if copilot and not same_scope:
+                same_scope = [f for f in out if f.detector_id == detector_id and f.kind == kind
+                              and f.audience == "org" and _is_product_scoped(f)
+                              and f.scope == parent]
             # Complementary suppression: the re-scoped finding must not carry the small children
             # alone next to published siblings under the same parent (their data would be
             # isolated under the parent's larger user count), so it absorbs the finding at the
@@ -601,8 +639,11 @@ def _rescope_pending(pending: list[Finding], out: list[Finding], *, k: int,
                 n = int(count(children[0], parent))
             else:
                 n = max(c.n_users for c in children)
+            exempt_here = copilot and _exempt_at(children[0], parent)
+            if exempt_here:
+                n = max(n, *(c.n_users for c in children))
             merged = _merge_findings(children, parent, n, k)
-            if n >= k:
+            if n >= k or exempt_here:
                 out.append(merged)
             else:
                 pending.append(merged)
