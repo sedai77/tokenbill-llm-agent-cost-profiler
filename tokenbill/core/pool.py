@@ -15,15 +15,21 @@ becomes a zero-money cell of cost type ``other``.
 
 **Entities.** ``enterprise`` (entity mode ``enterprise``) or ``org:<login>`` (mode ``org``); a
 capped cost center (``capped_cost_centers``) is its own entity ``cc:<name>`` whose pool is its cap.
-The parent entity keeps the other seats and usage (partition); :func:`overage_total` applies the
-binding shared-pool formula (the parent's pool plus the caps is the one pool GitHub forms).
+The parent entity keeps the other seats and usage (partition: its ``pool_credits`` are its own
+seats' allowance, minus the caps of cost centers whose seats its seat source does not attribute to
+them, so Σ pools is the one pool GitHub forms); :func:`overage_total` applies the binding
+shared-pool formula. In enterprise mode the enterprise's regime, scenario overage and overage
+forecast also count the caps' unused part at each consumption level (a cost center under its cap
+leaves the rest to everyone), consistent with :func:`overage_total`.
 
 **Plans (R17).** :func:`detect_plans` counts seats per entity × month (:func:`seat_months`
 precedence) and places them on plans from the first evidence source in the order seat SKU lines >
 seats API ``plan_type`` > org billing ``plan_type`` > report quota (``plan_quota`` rows) > admin
-statement. Only that source places seats; seats it cannot place stay ``unknown``. Another source
-*conflicts* when one of the two speaks for every seat of the entity and the other claims a plan
-outside it (``dq.copilot_plan_conflict``). While any seat is unknown :func:`pool_months` emits one
+statement (``plan.<entity>``, per-org ``plan.org:<o>`` applied to each org's seats, or stated
+``pool_seats``). Only that source places seats; seats it cannot place stay ``unknown``. Another
+source *conflicts* (``dq.copilot_plan_conflict``) when one of the two speaks for every seat of the
+entity and the other claims a plan outside it, or when no assignment of the seats satisfies both
+claims' counts. While any seat is unknown :func:`pool_months` emits one
 ``PoolMonth`` per scenario (``business`` / ``enterprise``; unknown seats counted under the
 scenario's plan, the ``unknown`` key kept in ``seats``) and never a merged figure. In a scenario
 ``overage_observed_nano`` is the scenario's overage ``max(0, consumed − pool)``; with a known plan
@@ -33,8 +39,11 @@ Additive keyword arguments beyond the addendum signatures (defaults keep the doc
 ``seat_months(…, *, entity_mode)``, ``pool_months(…, *, entity_mode=None)`` (None: inferred from the
 cells' and plans' entity ids) and ``gross_is_list`` also accepting a mapping
 ``"<entity>:<YYYY-MM>"`` → ``True`` / ``False`` / ``None`` (or the CP-RECON decision strings
-``true`` / ``false`` / ``unknown``). :func:`forecast` returns ``None`` when no day of the month is
-observed yet.
+``true`` / ``false`` / ``unknown``), or CP-RECON's decision pairs as
+``AnalysisContext.recon_decisions`` carries them. :func:`forecast` returns ``None`` when no day of
+the month is observed yet. Every decimal read from records or callers is bounded (at most 10**15
+credits or seats per value), so exact sums never overflow ``EXACT_CTX`` and only ``TokenbillError``
+escapes.
 """
 
 from __future__ import annotations
@@ -104,7 +113,9 @@ _CAP_POLICIES = ("block", "continue")
 _BILLING_MODES = ("metered", "volume", "azure", "unknown")
 _MONTH_RE = re.compile(r"\d{4}-(?:0[1-9]|1[0-2])\Z")
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
-_DECIMAL_STR_RE = re.compile(r"-?[0-9]{1,40}(?:\.[0-9]{1,40})?\Z")
+#: ``Cell.credits``: at most 30 integer and 20 fractional digits, so exact sums of up to 10**9 cells
+#: stay within EXACT_CTX's 60 digits.
+_DECIMAL_STR_RE = re.compile(r"-?[0-9]{1,30}(?:\.[0-9]{1,20})?\Z")
 _ENTITY_RE = re.compile(r"(?:enterprise|(?:org|cc):[^\x00-\x1f]+)\Z")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 _ZERO = Decimal(0)
@@ -116,6 +127,8 @@ _MAX_DATE_MS = 253_402_300_799_999      # 9999-12-31T23:59:59.999Z
 #: anything else is ignored, so sums stay exact under EXACT_CTX's 60 digits.
 _MAX_ADJ = 15
 _MIN_EXP = -20
+#: Largest seat count or seat change accepted from callers (keeps Decimal products exact).
+_MAX_COUNT = 10**15
 _EMPTY: Mapping[str, Decimal] = types.MappingProxyType({})
 _FORECAST_NOTE = ("forecast: month-end pooled consumption; observed days plus nearest-rank "
                   "p10/p50/p90 of the last 10 business and 4 weekend days")
@@ -215,7 +228,7 @@ def _credits_to_nano(credits: Decimal) -> int:
 
 
 def _credits_of_nano(nano: int) -> Decimal:
-    return EXACT_CTX.scaleb(Decimal(nano), -7)
+    return Decimal(f"{nano}E-7")          # exact: the constructor never rounds
 
 
 def _clean(name: str | None) -> str | None:
@@ -447,8 +460,14 @@ def _key_order(key: tuple) -> tuple:
 
 
 def _line_credits(line: CostLine, gross: int) -> Decimal:
+    """The line's credits: its ``quantity``, else gross ÷ $0.01; bounded like every decimal read
+    from records (a line beyond 10**15 credits raises ``UsageError``)."""
     q = _as_decimal(line.quantity) if line.quantity is not None else None
-    return q if q is not None else _credits_of_nano(gross)
+    if q is None:
+        q = _as_decimal(_credits_of_nano(gross))
+    if q is None:
+        raise UsageError("build_cells: cost line credits out of range")
+    return q
 
 
 def _to_incl(u: UsageBuckets) -> tuple[UsageBuckets, bool]:
@@ -638,8 +657,14 @@ def _seat_line_splits(cost_lines: Sequence[CostLine], month: str, capped: Mappin
     return {e: s.cleaned() for e, s in splits.items()}, by_sku
 
 
-def _flag_seat_splits(flags: Mapping[str, str | int | bool]) -> dict[str, _Split]:
-    splits: dict[str, _Split] = {}
+def _flag_seat_splits(flags: Mapping[str, str | int | bool], capped: Mapping[str, Decimal],
+                      mode: str) -> dict[str, _Split]:
+    """Stated seats (``pool_seats.<entity>.<plan>``) per pool entity: a statement naming a pool
+    entity of this entity mode counts as is; statements naming a smaller scope (``org:<o>`` in
+    enterprise mode, an uncapped ``cc:<n>``) add up into their pool entity unless that entity has
+    its own statement."""
+    direct: dict[str, _Split] = {}
+    parts: dict[str, _Split] = {}
     for key, value in flags.items():
         if not key.startswith("pool_seats."):
             continue
@@ -650,8 +675,10 @@ def _flag_seat_splits(flags: Mapping[str, str | int | bool]) -> dict[str, _Split
         if n is None or n < 0:
             continue
         org = entity[4:] if entity.startswith("org:") else None
-        splits.setdefault(entity, _Split()).add(plan, org, n)
-    return {e: s.cleaned() for e, s in splits.items()}
+        target = _config_entity(entity, capped, mode)
+        (direct if target == entity else parts).setdefault(target, _Split()).add(plan, org, n)
+    splits = {**parts, **direct}
+    return {e: s.cleaned() for e, s in sorted(splits.items())}
 
 
 def _license_splits(licenses: Sequence[LicenseSnapshot], month: str,
@@ -754,10 +781,13 @@ class _Inputs:
     quota: dict[str, tuple[dict[str, Decimal], list[str], list[str]]]
     org_plans: dict[str, str]
 
+    def layers(self) -> tuple[tuple[str, dict[str, _Split]], ...]:
+        return (("seat_lines", self.seat_lines), ("run_flags", self.flag_seats),
+                ("licenses", self.licenses), ("seat_counts", self.seat_counts),
+                ("report_users", self.report_users))
+
     def census(self) -> dict[str, _Census]:
-        layers = (("seat_lines", self.seat_lines), ("run_flags", self.flag_seats),
-                  ("licenses", self.licenses), ("seat_counts", self.seat_counts),
-                  ("report_users", self.report_users))
+        layers = self.layers()
         entities = set().union(*(layer for _, layer in layers))
         out: dict[str, _Census] = {}
         for entity in sorted(entities):
@@ -863,7 +893,7 @@ def _inputs(cost_lines: Sequence[CostLine], licenses: Sequence[LicenseSnapshot],
     flags = run_flags(config)
     seat_lines, skus = _seat_line_splits(cost_lines, month, capped, mode)
     return _Inputs(month=month, capped=capped, mode=mode, flags=flags, seat_lines=seat_lines,
-                   seat_line_skus=skus, flag_seats=_flag_seat_splits(flags),
+                   seat_line_skus=skus, flag_seats=_flag_seat_splits(flags, capped, mode),
                    licenses=_license_splits(licenses, month, capped, mode),
                    seat_counts=_seat_count_splits(_seat_count_rows(config, month, capped, mode)),
                    report_users=_report_user_splits(cost_lines, month, capped, mode),
@@ -966,8 +996,12 @@ def _seats_api_claim(inp: _Inputs, entity: str, total: Decimal) -> _Claim | None
                         [_counts_line("seats_api (seat_counts): ", known)])
 
 
-def _org_settings_claim(org_plans: Mapping[str, str], census: _Census | None, entity: str,
-                        total: Decimal) -> _Claim | None:
+def _org_claim(source: str, org_plans: Mapping[str, str], census: _Census | None, entity: str,
+               total: Decimal, line: str) -> _Claim | None:
+    """A per-org plan claim (org billing ``plan_type`` or per-org admin statements): each org's
+    seats of the census take its org's plan (``mixed`` claims both plans and places none). Without
+    an org split of the census the entity's own org applies (org mode), or — for the enterprise — a
+    unanimous plan of every org. *line* formats one evidence line from ``org`` and ``plan``."""
     if not org_plans:
         return None
     orgs = census.split.orgs if census is not None else {}
@@ -977,36 +1011,32 @@ def _org_settings_claim(org_plans: Mapping[str, str], census: _Census | None, en
         if org is not None and org in org_plans:
             relevant.append(org)
             plan = org_plans[org]
-            counts[plan] = EXACT_CTX.add(counts.get(plan, _ZERO), n)
+            if plan in _KNOWN_PLANS:
+                counts[plan] = EXACT_CTX.add(counts.get(plan, _ZERO), n)
     if not relevant and not any(o is not None for o in orgs):
         if entity.startswith("org:") and entity[4:] in org_plans:
             relevant = [entity[4:]]
-            counts = {org_plans[entity[4:]]: total}
         elif entity == "enterprise":
             relevant = sorted(org_plans)
-            plans = {org_plans[o] for o in relevant}
-            counts = {plans.pop(): total} if len(plans) == 1 else {}
+        stated = {org_plans[o] for o in relevant}
+        if len(stated) == 1 and stated <= set(_KNOWN_PLANS):
+            counts = {stated.pop(): total}
     if not relevant:
         return None
-    lines = [f"org_settings: org:{o} plan_type={org_plans[o]}" for o in relevant]
-    plans_claimed = frozenset(org_plans[o] for o in relevant)
+    lines = [line.format(org=o, plan=org_plans[o]) for o in relevant]
+    plans_claimed = frozenset(
+        p for o in relevant for p in (_KNOWN_PLANS if org_plans[o] == "mixed" else (org_plans[o],)))
     placed = {p: n for p, n in counts.items() if n > 0}
-    return _Claim("org_settings", placed, plans_claimed, _dsum(placed.values()) >= total > 0,
-                  lines)
+    return _Claim(source, placed, plans_claimed, _dsum(placed.values()) >= total > 0, lines)
 
 
-def _statement_claim(inp: _Inputs, entity: str, total: Decimal) -> _Claim | None:
-    split = inp.flag_seats.get(entity)
-    if split is not None:
-        claim = _count_claim("admin_statement", split.plans, total,
-                             [f"admin_statement: pool_seats.{entity}.{p}={_dec_str(n)}"
-                              for p, n in sorted(split.plans.items())])
-        if claim is not None:
-            return claim
-    key = f"plan.{entity}"
-    value = inp.flags.get(key)
-    if value is None and entity != "enterprise":
-        key, value = "plan.enterprise", inp.flags.get("plan.enterprise")
+def _org_settings_claim(org_plans: Mapping[str, str], census: _Census | None, entity: str,
+                        total: Decimal) -> _Claim | None:
+    return _org_claim("org_settings", org_plans, census, entity, total,
+                      "org_settings: org:{org} plan_type={plan}")
+
+
+def _plan_statement(key: str, value: object, total: Decimal) -> _Claim | None:
     line = [f"admin_statement: {key}={value}"]
     if value in _KNOWN_PLANS:
         return _Claim("admin_statement", {str(value): total}, frozenset({str(value)}), True, line)
@@ -1015,9 +1045,49 @@ def _statement_claim(inp: _Inputs, entity: str, total: Decimal) -> _Claim | None
     return None
 
 
-def _disagrees(decider: _Claim, other: _Claim) -> bool:
-    return bool((decider.exclusive and other.plans - decider.plans)
-                or (other.exclusive and decider.plans - other.plans))
+def _statement_claim(inp: _Inputs, entity: str, census: _Census | None,
+                     total: Decimal) -> _Claim | None:
+    """The admin statement: stated seats per plan (``pool_seats``), else ``plan.<entity>``, else the
+    per-org statements (``plan.org:<o>``, the answers' ``plan_as_shown``) applied to each org's
+    seats, else ``plan.enterprise`` for an org or cost-center entity."""
+    split = inp.flag_seats.get(entity)
+    if split is not None:
+        claim = _count_claim("admin_statement", split.plans, total,
+                             [f"admin_statement: pool_seats.{entity}.{p}={_dec_str(n)}"
+                              for p, n in sorted(split.plans.items())])
+        if claim is not None:
+            return claim
+    claim = _plan_statement(f"plan.{entity}", inp.flags.get(f"plan.{entity}"), total)
+    if claim is not None:
+        return claim
+    if not entity.startswith("org:"):
+        per_org = {k[len("plan.org:"):]: str(v) for k, v in inp.flags.items()
+                   if k.startswith("plan.org:") and len(k) > len("plan.org:")
+                   and v in (*_KNOWN_PLANS, "mixed")}
+        claim = _org_claim("admin_statement", per_org, census, entity, total,
+                           "admin_statement: plan.org:{org}={plan}")
+        if claim is not None and claim.plans:
+            return claim
+    if entity != "enterprise":
+        return _plan_statement("plan.enterprise", inp.flags.get("plan.enterprise"), total)
+    return None
+
+
+def _min_counts(claim: _Claim) -> dict[str, Decimal]:
+    """Seats per plan the claim implies at least (1 for a plan it names without a count)."""
+    return {p: max(claim.counts.get(p, _ZERO), Decimal(1)) for p in claim.plans}
+
+
+def _disagrees(decider: _Claim, other: _Claim, seats: Decimal) -> bool:
+    """Two claims conflict when one speaks for every seat and the other names a plan outside it,
+    or when no assignment of the seats satisfies both (Σ over plans of the larger claimed count
+    exceeds the seats, counted as the larger of the seat total and either claim's total)."""
+    if (decider.exclusive and other.plans - decider.plans) or (
+            other.exclusive and decider.plans - other.plans):
+        return True
+    d, o = _min_counts(decider), _min_counts(other)
+    need = _dsum(max(d.get(p, _ZERO), o.get(p, _ZERO)) for p in _KNOWN_PLANS)
+    return need > max(seats, _dsum(d.values()), _dsum(o.values()))
 
 
 def _detect(inp: _Inputs, census: Mapping[str, _Census]) -> list[PlanEvidence]:
@@ -1031,7 +1101,7 @@ def _detect(inp: _Inputs, census: Mapping[str, _Census]) -> list[PlanEvidence]:
             _seats_api_claim(inp, entity, total),
             _org_settings_claim(inp.org_plans, cen, entity, total),
             _count_claim("report_quota", q_counts, total, q_lines),
-            _statement_claim(inp, entity, total),
+            _statement_claim(inp, entity, cen, total),
         ) if c is not None and c.plans]
         decider = claims[0] if claims else None
         known = dict(decider.counts) if decider is not None else {}
@@ -1043,7 +1113,8 @@ def _detect(inp: _Inputs, census: Mapping[str, _Census]) -> list[PlanEvidence]:
         seats = {p: _ceil_int(n) for p, n in known.items() if n > 0}
         if unknown > 0:
             seats["unknown"] = _ceil_int(unknown)
-        conflicts = [c.source for c in claims[1:] if decider is not None and _disagrees(decider, c)]
+        conflicts = [c.source for c in claims[1:]
+                     if decider is not None and _disagrees(decider, c, seats_total)]
         evidence = [line for c in claims for line in c.lines] + info
         if decider is not None and placed > total and cen is not None:
             evidence.append(f"seat count raised from {_dec_str(total)} to {_dec_str(placed)} "
@@ -1328,18 +1399,35 @@ def _data_months(cost_lines: Sequence[CostLine], licenses: Sequence[LicenseSnaps
     return months
 
 
-def _gross_is_list_for(value: object, entity: str, month: str) -> bool | None:
+def _gross_is_list_arg(value: object) -> bool | None | Mapping[object, object]:
+    """Validate *gross_is_list*: a bool, None, a mapping, or CP-RECON's decision pairs
+    (``AnalysisContext.recon_decisions``: ``(key, value)`` string pairs), which become a mapping."""
+    if value is None or isinstance(value, (bool, Mapping)):
+        return value
+    if isinstance(value, (tuple, list)) and all(
+            isinstance(p, tuple) and len(p) == 2 and isinstance(p[0], str) for p in value):
+        return dict(value)
+    raise UsageError("gross_is_list: expected a bool, None, a mapping or decision pairs")
+
+
+def _gross_is_list_for(value: bool | None | Mapping[object, object], entity: str,
+                       month: str) -> bool | None:
     if value is None or isinstance(value, bool):
         return value
-    if isinstance(value, Mapping):
-        for key in (f"{entity}:{month}", f"gross_is_list:{entity}:{month}"):
-            if key in value:
-                v = value[key]
-                if isinstance(v, bool) or v is None:
-                    return v
-                return {"true": True, "false": False}.get(str(v))
-        return None
-    raise UsageError("gross_is_list: expected a bool, None or a mapping")
+    for key in (f"{entity}:{month}", f"gross_is_list:{entity}:{month}"):
+        if key in value:
+            v = value[key]
+            if isinstance(v, bool) or v is None:
+                return v
+            return {"true": True, "false": False}.get(str(v))
+    return None
+
+
+def _flag_false(value: object) -> bool:
+    """A run-flag value that says no (``False`` or the strings ``false`` / ``no`` / ``0``)."""
+    if isinstance(value, str):
+        return value.strip().lower() in ("false", "no", "0")
+    return value is False
 
 
 def _estimates(recent: Sequence[tuple[str, str | None, int]], mode: str) -> dict[tuple[str, str],
@@ -1367,6 +1455,8 @@ def _estimates(recent: Sequence[tuple[str, str | None, int]], mode: str) -> dict
 def _resolve_seats(pe: PlanEvidence | None, cen: _Census | None) -> tuple[dict[str, Decimal],
                                                                             str]:
     """Seat-months per plan (``unknown`` for seats no evidence placed) and the seat source."""
+    if pe is not None and any(n > _MAX_COUNT for _, n in pe.seats):
+        raise UsageError("pool_months: plan evidence seat count out of range")
     if cen is not None and cen.source == "seat_lines":
         return dict(cen.split.plans), "seat_lines"
     known = {p: Decimal(n) for p, n in (pe.seats if pe is not None else ()) if p in _KNOWN_PLANS
@@ -1391,10 +1481,12 @@ def _figure_range(point: int, low: int, high: int, *, basis: Basis, note: str,
                   calibration=Calibration.UNCALIBRATED, upper_bound=upper, note=note)
 
 
-def _overage_forecast(fc: tuple[int, int, int, int], pool_nano: int, policy: str | None,
-                      lower_bound_seats: bool) -> Figure:
+def _overage_forecast(fc: tuple[int, int, int, int], pools: tuple[int, int, int],
+                      policy: str | None, lower_bound_seats: bool) -> Figure:
+    """The overage forecast at the p10 / p50 / p90 consumption against the pool available at each
+    level (*pools*: low, point, high)."""
     _, point, low, high = fc
-    cont = (max(0, low - pool_nano), max(0, point - pool_nano), max(0, high - pool_nano))
+    cont = (max(0, low - pools[0]), max(0, point - pools[1]), max(0, high - pools[2]))
     if policy == "block":
         return _figure_range(0, 0, 0, basis=Basis.LIST, upper=lower_bound_seats,
                              note=f"cap policy block: overage 0; blocked demand "
@@ -1465,6 +1557,46 @@ def _common(entity: str, month: str, cells: Sequence[Cell], today: _dt.date, lag
                    ai_cells=pooled + direct)
 
 
+@dataclass
+class _Shared:
+    """The enterprise's share of its capped cost centers in one month (enterprise mode): caps to
+    deduct from its seat allowance (cost centers whose seats its seat source does not attribute to
+    them) and the caps' unused part at the low / point / high consumption (shared with everyone)."""
+
+    deduct: Decimal
+    deducted: tuple[str, ...]
+    unused: tuple[int, int, int]
+
+
+def _levels(cm: _Common) -> tuple[int, int, int]:
+    """(low, point, high) month-end pooled consumption of an entity-month."""
+    if cm.finality == "open" and cm.fc is not None:
+        return cm.fc[2], cm.fc[1], cm.fc[3]
+    return cm.consumed, cm.consumed, cm.consumed
+
+
+def _shared(month: str, commons: Mapping[tuple[str, str], _Common], inp: _Inputs,
+            census: Mapping[str, _Census], capped: Mapping[str, Decimal]) -> _Shared | None:
+    ccs = sorted(e for e, m in commons if m == month and e.startswith("cc:") and e[3:] in capped)
+    parent = census.get("enterprise")
+    if not ccs or parent is None:
+        return None
+    layer = dict(inp.layers())[parent.source]
+    deduct = _ZERO
+    deducted: list[str] = []
+    unused = [0, 0, 0]
+    for cc in ccs:
+        cap = capped[cc[3:]]
+        own = layer.get(cc)
+        if own is None or own.total() <= 0:
+            deduct = EXACT_CTX.add(deduct, cap)
+            deducted.append(cc)
+        cap_nano = _credits_to_nano(cap)
+        for i, use in enumerate(_levels(commons[(cc, month)])):
+            unused[i] += max(0, cap_nano - use)
+    return _Shared(deduct, tuple(deducted), (unused[0], unused[1], unused[2]))
+
+
 def _scenario_seats(seats: Mapping[str, Decimal], scenario: str | None) -> dict[str, Decimal]:
     out: dict[str, Decimal] = {}
     for plan, n in seats.items():
@@ -1478,7 +1610,7 @@ def _scenario_seats(seats: Mapping[str, Decimal], scenario: str | None) -> dict[
 def _entity_month(entity: str, month: str, cm: _Common, pe: PlanEvidence | None,
                   cen: _Census | None, *, capped: Mapping[str, Decimal],
                   policies: Mapping[str, str], billing_mode: str, eligible: bool,
-                  gross_is_list: bool | None) -> list[PoolMonth]:
+                  gross_is_list: bool | None, shared: _Shared | None) -> list[PoolMonth]:
     seats, seats_source = _resolve_seats(pe, cen)
     scenarios: tuple[str | None, ...] = SCENARIOS if seats.get("unknown", _ZERO) > 0 else (None,)
     is_cc = entity.startswith("cc:") and entity[3:] in capped
@@ -1488,29 +1620,38 @@ def _entity_month(entity: str, month: str, cm: _Common, pe: PlanEvidence | None,
     for scenario in scenarios:
         allowance, promo = pool_credits(_scenario_seats(seats, scenario), month,
                                         promo_eligible=eligible)
-        pool_c = capped[entity[3:]] if is_cc else allowance
         pool_known = is_cc or bool(seats)
+        share = shared if pool_known and not is_cc else None
+        if is_cc:
+            pool_c = capped[entity[3:]]
+        elif share is not None:
+            pool_c = max(_ZERO, EXACT_CTX.subtract(allowance, share.deduct))
+        else:
+            pool_c = allowance
         pool_nano = _credits_to_nano(pool_c)
+        unused = share.unused if share is not None else (0, 0, 0)
+        # the pool this entity can draw at the low / point / high consumption
+        avail = (pool_nano + unused[0], pool_nano + unused[1], pool_nano + unused[2])
         draw, other, unclassified = classify_discounts(cm.ai_cells, gross_is_list=gross_is_list,
-                                                       pool_nano=pool_nano)
+                                                       pool_nano=avail[1])
         if scenario is None or is_cc:
             overage = cm.observed_net
         else:
-            overage = max(0, cm.consumed - pool_nano)
+            overage = max(0, cm.consumed - avail[1])
         if not pool_known:
             reg = "unknown"
         elif cm.finality == "closed":
-            reg = regime(cm.consumed, cm.consumed, pool_nano)
+            reg = regime(cm.consumed, cm.consumed, avail[1])
         elif cm.fc is None:
             reg = "unknown"
         else:
-            reg = regime(cm.fc[2], cm.fc[3], pool_nano)
+            reg = regime(cm.fc[2] - unused[0], cm.fc[3] - unused[2], pool_nano)
         fc_fig = over_fig = None
         if cm.finality == "open" and cm.fc is not None:
             fc_fig = _figure_range(cm.fc[1], cm.fc[2], cm.fc[3], basis=Basis.LIST_EQUIVALENT,
                                    note=_FORECAST_NOTE)
             if pool_known:
-                over_fig = _overage_forecast(cm.fc, pool_nano, policy, lower_bound)
+                over_fig = _overage_forecast(cm.fc, avail, policy, lower_bound)
         notes: list[str] = []
         if scenario is not None:
             notes.append(f"plan unknown: scenario {scenario}")
@@ -1523,6 +1664,15 @@ def _entity_month(entity: str, month: str, cm: _Common, pe: PlanEvidence | None,
             notes.append(SEATS_LOWER_BOUND_NOTE)
         if not pool_known:
             notes.append("seats unknown: pool and regime unknown")
+        if share is not None and share.deducted:
+            notes.append(f"caps of {', '.join(share.deducted)} deducted from this pool (the seat "
+                         f"source does not attribute their seats to them): "
+                         f"{_dec_str(share.deduct)} credits")
+        if share is not None and unused[1] > 0:
+            notes.append(f"shared pool: unused caps of capped cost centers "
+                         f"({nano_to_credits_str(unused[1])} credits at the point) count toward "
+                         f"this entity's regime and overage, not toward pool_credits; seat-change "
+                         f"savings ignore them (conservative)")
         if is_cc:
             notes.append(f"capped cost center: cap {_dec_str(pool_c)} credits, policy {policy}")
             if seats and _dec_str(allowance) != _dec_str(pool_c):
@@ -1557,7 +1707,8 @@ def pool_months(cells: Iterable[Cell], cost_lines: Iterable[CostLine],
                 licenses: Iterable[LicenseSnapshot], config: Iterable[ConfigSnapshot], *,
                 today: str, promo_eligible: bool = True,
                 recent_estimates: Sequence[tuple[str, str | None, int]] = (),
-                gross_is_list: bool | None | Mapping[str, object] = None,
+                gross_is_list: bool | None | Mapping[str, object]
+                | Sequence[tuple[str, str]] = None,
                 plans: Sequence[PlanEvidence] | None = None,
                 entity_mode: str | None = None) -> list[PoolMonth]:
     """One ``PoolMonth`` per entity × month with cells or seats — two (``plan_scenario``
@@ -1573,7 +1724,10 @@ def pool_months(cells: Iterable[Cell], cost_lines: Iterable[CostLine],
     carry an ESTIMATED ``forecast`` (LIST_EQUIVALENT) and ``overage_forecast`` (LIST; widened by an
     unknown cap policy). A ``report_users`` seat source makes the pool a lower bound: its overage
     forecast is an upper bound with :data:`SEATS_LOWER_BOUND_NOTE`. Promo eligibility needs
-    *promo_eligible* and no run flag ``promo_eligible=false``. Sorted by entity, month, scenario.
+    *promo_eligible* and no run flag ``promo_eligible`` saying no (``False``, ``"false"``). The
+    enterprise of enterprise mode shares its capped cost centers' unused caps (see the module
+    docstring). *gross_is_list*: one decision for every entity-month, or a mapping / CP-RECON's
+    decision pairs keyed ``gross_is_list:<entity>:<YYYY-MM>``. Sorted by entity, month, scenario.
     """
     cell_list = list(cells)
     if not all(isinstance(c, Cell) for c in cell_list):
@@ -1585,10 +1739,11 @@ def pool_months(cells: Iterable[Cell], cost_lines: Iterable[CostLine],
         raise UsageError("pool_months: plans must be PlanEvidence objects")
     mode = entity_mode if entity_mode is not None else _infer_mode(cell_list, plan_list)
     _check_mode(mode)
+    gil = _gross_is_list_arg(gross_is_list)
     capped = capped_cost_centers(conf)
     policies = capped_policies(conf)
     flags = run_flags(conf)
-    eligible = bool(promo_eligible) and flags.get("promo_eligible", True) is not False
+    eligible = bool(promo_eligible) and not _flag_false(flags.get("promo_eligible"))
     modes = billing_modes(lines, conf, lics)
     lag = _facts.copilot_report_lag_days()
     by_em: dict[tuple[str, str], list[Cell]] = defaultdict(list)
@@ -1596,10 +1751,12 @@ def pool_months(cells: Iterable[Cell], cost_lines: Iterable[CostLine],
         by_em[(c.entity_id, c.month)].append(c)
     evidence: dict[tuple[str, str], PlanEvidence] = {}
     census_by_month: dict[str, dict[str, _Census]] = {}
+    inputs_by_month: dict[str, _Inputs] = {}
 
     def census_of(month: str) -> dict[str, _Census]:
         if month not in census_by_month:
             inp = _inputs(lines, lics, conf, month, mode)
+            inputs_by_month[month] = inp
             census_by_month[month] = inp.census()
             if plan_list is None:
                 for pe in _detect(inp, census_by_month[month]):
@@ -1616,15 +1773,19 @@ def pool_months(cells: Iterable[Cell], cost_lines: Iterable[CostLine],
                 raise UsageError("pool_months: two different plan evidences for one entity-month")
             evidence[key] = pe
     estimates = _estimates(recent_estimates, mode)
+    keys = sorted(set(by_em) | set(evidence))
+    commons = {(entity, month): _common(entity, month, by_em.get((entity, month), []), today_d,
+                                        lag, estimates) for entity, month in keys}
     out: list[PoolMonth] = []
-    for entity, month in sorted(set(by_em) | set(evidence)):
-        census_of(month)
-        cm = _common(entity, month, by_em.get((entity, month), []), today_d, lag, estimates)
+    for entity, month in keys:
+        census = census_of(month)
+        shared = (_shared(month, commons, inputs_by_month[month], census, capped)
+                  if mode == "enterprise" and entity == "enterprise" else None)
         out.extend(_entity_month(
-            entity, month, cm, evidence.get((entity, month)),
-            census_by_month[month].get(entity), capped=capped, policies=policies,
+            entity, month, commons[(entity, month)], evidence.get((entity, month)),
+            census.get(entity), capped=capped, policies=policies,
             billing_mode=modes.get(entity, "unknown"), eligible=eligible,
-            gross_is_list=_gross_is_list_for(gross_is_list, entity, month)))
+            gross_is_list=_gross_is_list_for(gil, entity, month), shared=shared))
     return out
 
 
@@ -1723,7 +1884,8 @@ def _seat_fee(month_fee: Mapping[str, Decimal], plan: str, effective: str) -> De
 def realize_seat_change(pm: PoolMonth, delta: Mapping[str, int], *,
                         month_fee: Mapping[str, Decimal]) -> Figure | None:
     """The monthly invoice saving of a seat change in one pool month: ``−Δfees − Δoverage``
-    (Appendix C.P2–P4, P10–P13b), ESTIMATED basis LIST (fees are list prices).
+    (Appendix C.P2–P4, P10–P13b), ESTIMATED basis LIST (fees are list prices); unpriced when the
+    pool month's regime is ``unknown`` (no pool, or no observed day yet).
 
     *delta*: plan → change in seats (negative = removal; ``unknown`` seats count under the pool
     month's scenario plan, and raise ``UsageError`` without one). *month_fee*: plan → list price per
@@ -1744,6 +1906,8 @@ def realize_seat_change(pm: PoolMonth, delta: Mapping[str, int], *,
     for plan, n in sorted(delta.items()):
         if type(n) is not int:
             raise UsageError("realize_seat_change: seat changes must be ints")
+        if abs(n) > _MAX_COUNT:
+            raise UsageError("realize_seat_change: seat change out of range")
         if plan not in LICENSE_PLANS:
             raise UsageError("realize_seat_change: unknown plan")
         if n == 0:
@@ -1756,6 +1920,8 @@ def realize_seat_change(pm: PoolMonth, delta: Mapping[str, int], *,
                                                       _seat_fee(month_fee, plan, effective)))
         per_seat, _ = _allowance(effective, pm.month, promo_eligible=promo)
         dpool = EXACT_CTX.add(dpool, EXACT_CTX.multiply(Decimal(n), per_seat))
+    if pm.regime == "unknown":     # no pool or no observed day: the overage change is unknown (R2)
+        return unpriced(f"unpriced: pool regime unknown{_scenario_note(pm)}", Basis.LIST)
     dfees = decimal_to_nano(fees)
     pool0 = pm.pool_nano
     pool1 = max(0, pool0 + _credits_to_nano(dpool))

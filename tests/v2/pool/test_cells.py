@@ -176,3 +176,21 @@ def test_direct_draws_pool() -> None:
     assert direct_draws_pool([pooled, direct0]) == "no"
     assert direct_draws_pool([pooled, other_day]) == "unknown"
     assert direct_draws_pool([pooled]) == "unknown"
+
+
+def test_out_of_range_amounts_raise_usage_errors() -> None:
+    """Only TokenbillError escapes: a valid cost line beyond 10**15 credits (no quantity) and a
+    Cell whose credits would overflow exact sums are refused."""
+    line, _ = b.make_ai_usage_row(date_utc="2026-10-05", credits="1")
+    for amount in (10**70 + 1, -(10**70 + 1)):
+        big = replace(line, quantity=None, amount_nano=amount, list_amount_nano=amount)
+        with pytest.raises(UsageError):
+            build_cells([], [big])
+    # a quantity with too many digits falls back to gross ÷ $0.01
+    fine = replace(line, quantity="0.12345678901234567890123")
+    assert build_cells([], [fine])[0][0].credits == "1"
+    with pytest.raises(ContractViolation):
+        _cell(credits="9" * 31)
+    with pytest.raises(ContractViolation):
+        _cell(credits="1." + "1" * 21)
+    assert _cell(credits="9" * 30 + "." + "9" * 20).credits.startswith("9")

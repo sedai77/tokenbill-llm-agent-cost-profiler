@@ -307,3 +307,29 @@ def test_forecast_edges() -> None:
     for month, today in (("0000-01", "2026-01-01"), ("0001-01", "0001-01-01")):
         with pytest.raises(UsageError):
             forecast([], month=month, today=today, lag_days=3)
+
+
+def test_seat_change_with_an_unknown_regime_is_unpriced() -> None:
+    """No pool or no observed day yet: the overage change is unknown, so the saving is unpriced
+    (R2), never the bare fee."""
+    pm = replace(_pm(0), finality="open", regime="unknown")
+    fig = realize_seat_change(pm, {"business": -10}, month_fee=FEES)
+    assert fig is not None and fig.nano is None and fig.basis is Basis.LIST
+    assert fig.note == "unpriced: pool regime unknown"
+    scen = replace(_pm(0, seats={"unknown": "10"}, plan_scenario="business"), regime="unknown")
+    fig = realize_seat_change(scen, {"unknown": -1}, month_fee=FEES)
+    assert fig is not None
+    assert fig.note == "unpriced: pool regime unknown; plan unknown: scenario business"
+    # volume / azure entities still return None, and bad deltas still raise
+    assert realize_seat_change(replace(pm, billing_mode="volume"), {"business": -1},
+                               month_fee=FEES) is None
+    with pytest.raises(UsageError):
+        realize_seat_change(pm, {"pro": -1}, month_fee=FEES)
+
+
+def test_seat_change_out_of_range() -> None:
+    pm = _pm(2_000_000)
+    for n in (10**15 + 1, -(10**70 + 1)):
+        with pytest.raises(UsageError):
+            realize_seat_change(pm, {"business": n}, month_fee=FEES)
+    assert realize_seat_change(pm, {"business": -10**15}, month_fee=FEES) is not None

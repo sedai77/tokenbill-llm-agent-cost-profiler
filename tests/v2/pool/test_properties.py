@@ -307,6 +307,44 @@ def test_fuzz_arguments(month, today, mapping, estimates, gil, lag) -> None:
             pass
 
 
+amounts = st.one_of(st.integers(-10**80, 10**80), st.sampled_from([10**70 + 1, -(10**22) - 1,
+                                                                    10**22 - 1, 0, 1]))
+quantities = st.one_of(st.none(), st.from_regex(r"-?[0-9]{1,40}(\.[0-9]{1,40})?", fullmatch=True))
+
+
+@settings(max_examples=150, deadline=None,
+          suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large])
+@given(st.lists(st.tuples(amounts, amounts, quantities, st.booleans()), min_size=1, max_size=4),
+       st.integers(-10**40, 10**40), st.integers(-10**40, 10**40))
+def test_fuzz_cost_line_amounts_and_counts(items, seats: int, delta: int) -> None:
+    """Hostile but record-valid amounts, quantities and counts: only TokenbillError escapes."""
+    base, _ = b.make_ai_usage_row(date_utc="2026-10-02")
+    lines = []
+    for i, (net, gross, qty, seat) in enumerate(items):
+        try:
+            if seat:
+                line = b.make_seat_line("business", "1", date_utc="2026-10-01")
+                lines.append(dataclasses.replace(line, quantity=qty, amount_nano=net))
+            else:
+                lines.append(dataclasses.replace(base, line_id=f"cl_{i}", quantity=qty,
+                                                 amount_nano=net, list_amount_nano=gross))
+        except TokenbillError:
+            continue
+    plan = b.make_plan_evidence(month="2026-10", plan="unknown", seats={"unknown": abs(seats)})
+    pm = b.make_pool_month(consumed_report_nano=10**12)
+    for call in (lambda: build_cells([], lines),
+                 lambda: pool_months(build_cells([], lines)[0], lines, [], [], today="2026-10-20"),
+                 lambda: pool_months([], lines, [], [], today="2026-11-20", plans=[plan]),
+                 lambda: seat_months(lines, [], [], "2026-10"),
+                 lambda: detect_plans(lines, [], [], month="2026-10"),
+                 lambda: realize_seat_change(pm, {"business": delta, "enterprise": -delta},
+                                             month_fee={"business": str(seats)})):
+        try:
+            call()
+        except TokenbillError:
+            pass
+
+
 # ---------- no float in the money module (SPEC §2.4, C-30) ----------
 
 

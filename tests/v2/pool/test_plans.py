@@ -272,3 +272,59 @@ def test_bad_arguments() -> None:
         detect_plans([], ["x"], [], month=MONTH)  # type: ignore[list-item]
     with pytest.raises(UsageError):
         detect_plans([], [], ["x"], month=MONTH)  # type: ignore[list-item]
+
+
+def test_per_org_statements_apply_in_enterprise_mode() -> None:
+    """The admin answers state ``plan_as_shown`` per org (run flags ``plan.org:<o>``); in enterprise
+    mode each org's seats take its org's statement."""
+    lics = activity_seats(6, org="org-a") + activity_seats(4, org="org-b", seed="v")
+    answers = flags({"plan.org:org-a": "business", "plan.org:org-b": "enterprise"},
+                    entity="admin_answers")
+    [ev] = detect_plans([], lics, [answers], month=MONTH)
+    assert (ev.plan, ev.source, ev.seats, ev.conflict) == (
+        "mixed", "admin_statement", (("business", 6), ("enterprise", 4)), False)
+    assert ev.evidence == ("admin_statement: plan.org:org-a=business",
+                           "admin_statement: plan.org:org-b=enterprise")
+    # an org stated "mixed" (or not stated) leaves its seats unknown
+    answers = flags({"plan.org:org-a": "business", "plan.org:org-b": "mixed"},
+                    entity="admin_answers")
+    [ev] = detect_plans([], lics, [answers], month=MONTH)
+    assert (ev.plan, ev.seats) == ("unknown", (("business", 6), ("unknown", 4)))
+    # the enterprise's own statement comes first; data beats every statement
+    both = flags({"plan.enterprise": "enterprise", "plan.org:org-a": "business"})
+    [ev] = detect_plans([], lics, [both], month=MONTH)
+    assert (ev.plan, ev.seats) == ("enterprise", (("enterprise", 10),))
+    [ev] = detect_plans([b.make_seat_line("enterprise", "10", date_utc="2026-10-01")], lics,
+                        [answers], month=MONTH)
+    assert (ev.plan, ev.source, ev.conflict) == ("enterprise", "seat_lines", True)
+    # seats without an org: a unanimous per-org statement covers them
+    org_less = activity_seats(5, org=None)
+    [ev] = detect_plans([], org_less, [flags({"plan.org:x": "business", "plan.org:y": "business"})],
+                        month=MONTH)
+    assert (ev.plan, ev.seats) == ("business", (("business", 5),))
+
+
+@pytest.mark.parametrize("quota_rows,conflict", [
+    ([(1900, 8)], True),      # 6 Enterprise (seats API) + 8 Business > 10 seats
+    ([(1900, 4)], False),     # 6 + 4 ≤ 10: the quota may describe the other seats
+    ([(3900, 10)], False),    # agrees (and covers the rest)
+    ([(1900, 3), (3900, 7)], False),
+    ([(1900, 5), (3900, 5)], True),   # 6 Enterprise + 5 Business > 10 seats
+    ([(1900, 5), (3900, 7)], False),  # 12 quota users: at least 12 seats, 7 + 5 fits
+])
+def test_partial_sources_conflict_only_when_no_assignment_fits(
+        quota_rows: list[tuple[int, int]], conflict: bool) -> None:
+    lics = activity_seats(10, date="2026-10-20") + api_seats(6, "enterprise", date="2026-10-09")
+    [ev] = detect_plans([], lics, [quota(MONTH, q, n) for q, n in quota_rows], month=MONTH)
+    assert (ev.source, ev.seats, ev.conflict) == ("seats_api",
+                                                  (("enterprise", 6), ("unknown", 4)), conflict)
+    assert (f"{PLAN_CONFLICT_DQ}: seats_api vs report_quota" in ev.evidence) is conflict
+
+
+def test_exact_mixed_counts_conflict_with_a_larger_partial_count() -> None:
+    lines = [b.make_seat_line("business", "6", date_utc="2026-10-01"),
+             b.make_seat_line("enterprise", "4", date_utc="2026-10-01")]
+    [ev] = detect_plans(lines, api_seats(8, "business"), [], month=MONTH)
+    assert (ev.plan, ev.source, ev.conflict) == ("mixed", "seat_lines", True)
+    [ev] = detect_plans(lines, api_seats(5, "business"), [], month=MONTH)
+    assert ev.conflict is False

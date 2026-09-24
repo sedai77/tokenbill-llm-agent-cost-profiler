@@ -334,3 +334,115 @@ def test_volume_mode_note_and_cap_differs_note() -> None:
     cc, ent = pool_months([], cost, [], conf, today="2026-11-10")
     assert ent.billing_mode == "volume" and any("billing mode volume" in n for n in ent.notes)
     assert "cap differs from the seat allowance 1900 credits" in cc.notes
+
+
+def _cc_world(cc_credits: int, *, cc_seat_line: bool = True) -> tuple[list, list, list]:
+    """C.P7's enterprise (950 + 200 own seats, cap A 95,000) with 2,600,000 own credits and
+    *cc_credits* in cost center A; A's 50 seats appear as its own seat line or not at all."""
+    conf = [cost_center("A", "95000"), flags({"capped_policy.A": "continue"})]
+    seats = [b.make_seat_line("business", "950", date_utc="2026-10-01"),
+             b.make_seat_line("enterprise", "200", date_utc="2026-10-01")]
+    if cc_seat_line:
+        seats.append(b.make_seat_line("business", "50", date_utc="2026-10-01", cost_center="A"))
+    ent, ent_aggs = rows(2_600_000, date="2026-10-05", users=people(20))
+    cc, cc_aggs = rows(cc_credits, date="2026-10-05", users=people(5, "a"), cost_center="A")
+    return seats + ent + cc, ent_aggs + cc_aggs, conf
+
+
+def test_unused_cap_of_a_capped_cost_center_is_shared() -> None:
+    """A capped cost center that stays under its cap leaves the rest of the shared pool to the
+    enterprise: 2,600,000 + 50,000 ≤ 2,680,000 is slack, although the enterprise's own seats give
+    2,585,000 (the partitioned pool_credits)."""
+    cost, aggs, conf = _cc_world(50_000)
+    cc, ent = _months(cost, aggs, [], conf, today="2026-11-10")
+    assert (ent.pool_credits, ent.regime, cc.regime) == ("2585000", "slack", "slack")
+    assert any(n.startswith("shared pool: unused caps") and "45000 credits" in n
+               for n in ent.notes)
+    use = {pm.entity_id: pm.consumed_report_nano for pm in (cc, ent)}
+    pools = {pm.entity_id: pm.pool_nano for pm in (cc, ent)}
+    assert overage_total(use, pools, {"A": 95_000 * C}, policies={"A": "continue"}) == (0, 0)
+    # 2,700,000 own credits: shared overage 2,750,000 − 2,680,000 = 70,000 in both views
+    more, more_aggs = rows(100_000, date="2026-10-06", users=people(20))
+    cc, ent = _months(cost + more, aggs + more_aggs, [], conf, today="2026-11-10")
+    assert ent.regime == "overage"
+    use = {pm.entity_id: pm.consumed_report_nano for pm in (cc, ent)}
+    assert overage_total(use, pools, {"A": 95_000 * C}, policies={"A": "continue"}) == (
+        70_000 * C, 70_000 * C)
+
+
+def test_unused_cap_in_open_months_and_scenarios() -> None:
+    """Open month: the enterprise's overage forecast counts the cost center's unused cap at each
+    consumption level. Unknown plan: the scenario overage does too."""
+    cost, aggs, conf = _cc_world(50_000)
+    cc, ent = _months(cost, aggs, [], conf, today="2026-10-10")
+    over = ent.overage_forecast
+    assert (ent.finality, cc.finality) == ("open", "open")
+    assert over is not None and over.nano is not None
+    fc = ent.forecast
+    cc_fc = cc.forecast
+    assert fc is not None and cc_fc is not None
+    unused = max(0, 95_000 * C - cc_fc.nano)                                  # type: ignore[operator]
+    assert over.nano == max(0, fc.nano - (ent.pool_nano + unused))            # type: ignore[operator]
+    # plan unknown for the enterprise's own seats (activity report with cost centers attributed)
+    lics = activity_seats(1_150) + [b.make_license(p, snapshot_date="2026-10-15", plan="business",
+                                                   cost_center="A") for p in people(50, "a")]
+    usage = [x for x in cost if x.cost_type != "seat"]
+    cells, _ = build_cells(aggs, usage, capped=capped_cost_centers(conf))
+    got = pool_months(cells, usage, lics, conf, today="2026-11-10")
+    ent_b = next(pm for pm in got if pm.entity_id == "enterprise"
+                 and pm.plan_scenario == "business")
+    # 1,150 × 1,900 = 2,185,000 own + 45,000 unused cap → 2,230,000; use 2,600,000
+    assert (ent_b.pool_credits, ent_b.overage_observed_nano) == ("2185000", 370_000 * C)
+
+
+def test_caps_are_deducted_when_the_seat_source_does_not_attribute_cost_centers() -> None:
+    """Activity-report seats carry no cost center: the capped cost center's seats sit inside the
+    enterprise count, so its cap comes off the enterprise pool (Σ pools = the whole pool)."""
+    cost, aggs, conf = _cc_world(130_000, cc_seat_line=False)
+    usage = [x for x in cost if x.cost_type != "seat"]
+    cells, _ = build_cells(aggs, usage, capped=capped_cost_centers(conf))
+    got = pool_months(cells, usage, activity_seats(1_200), conf + [METERED], today="2026-11-10")
+    by = {(pm.entity_id, pm.plan_scenario): pm for pm in got}
+    ent_b, ent_e = by[("enterprise", "business")], by[("enterprise", "enterprise")]
+    assert (ent_b.pool_credits, ent_e.pool_credits) == ("2185000", "4585000")
+    assert any("caps of cc:A deducted from this pool" in n for n in ent_b.notes)
+    cc_b = by[("cc:A", "business")]
+    assert cc_b.pool_nano + ent_b.pool_nano == 1_200 * 1_900 * C          # the whole pool
+    # the seat lines attribute the cost center's seats: nothing is deducted
+    cost, aggs, conf = _cc_world(130_000)
+    cc, ent = _months(cost, aggs, [], conf, today="2026-11-10")
+    assert ent.pool_credits == "2585000"
+    assert not any("deducted" in n for n in ent.notes)
+
+
+def test_org_mode_keeps_partitioned_cost_center_pools() -> None:
+    cost, aggs, conf = _cc_world(50_000)
+    got = _months(cost, aggs, [], conf, today="2026-11-10", entity_mode="org")
+    assert not any("shared pool" in n for pm in got for n in pm.notes)
+
+
+def test_string_flags_decision_pairs_and_out_of_range_plans() -> None:
+    seats = [b.make_seat_line("business", "10", date_utc="2026-07-01")]
+    for value in ("false", "No", "0"):
+        [pm] = pool_months([], seats, [], [flags({"promo_eligible": value})], today="2026-11-10")
+        assert (pm.pool_credits, pm.promo) == ("19000", None)
+    [pm] = pool_months([], seats, [], [flags({"promo_eligible": "true"})], today="2026-11-10")
+    assert pm.pool_credits == "30000"
+    # CP-RECON's decisions (AnalysisContext.recon_decisions) are accepted as they are
+    cost, aggs = rows(100_000, date="2026-10-10", users=people(5), discount=90_000)
+    cost.append(b.make_seat_line("business", "100", date_utc="2026-10-01"))
+    cells, _ = build_cells(aggs, cost)
+    decisions = (("convention:src1", "excl"), ("gross_is_list:enterprise:2026-10", "true"))
+    [pm] = pool_months(cells, cost, [], [], today="2026-11-10", gross_is_list=decisions)
+    assert pm.pool_draw_nano == 90_000 * C
+    [pm] = pool_months(cells, cost, [], [], today="2026-11-10",
+                       gross_is_list=[("gross_is_list:enterprise:2026-10", "unknown")])
+    assert pm.pool_draw_nano is None
+    for bad in ((("k",),), [("k", "v", "w")], [(1, "v")]):
+        with pytest.raises(UsageError):
+            pool_months(cells, cost, [], [], today="2026-11-10", gross_is_list=bad)  # type: ignore[arg-type]
+    huge = b.make_plan_evidence(month="2026-10", plan="business", source="admin_statement",
+                                seats={"business": 10**70 + 1})
+    with pytest.raises(UsageError):
+        pool_months(cells, [x for x in cost if x.cost_type != "seat"], [], [],
+                    today="2026-11-10", plans=[huge])

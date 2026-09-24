@@ -92,11 +92,19 @@ def test_seat_months_precedence() -> None:
     users, _ = rows(10, date="2026-10-03", users=people(5))
     everything = (seat_lines + users, lics, counts + [stated])
     assert seat_months(*everything, MONTH) == (
-        {("enterprise", "business"): Decimal("99.5"), ("enterprise", "enterprise"): Decimal("0.5"),
-         ("org:x", "business"): Decimal(4)}, "run_flags")
+        {("enterprise", "business"): Decimal("99.5"), ("enterprise", "enterprise"): Decimal("0.5")},
+        "seat_lines")
+    # the enterprise's own statement wins over org-scoped ones (enterprise mode has no org pools)
     assert seat_months(users, lics, counts + [stated], MONTH) == (
-        {("enterprise", "enterprise"): Decimal(12), ("org:x", "business"): Decimal(4)},
+        {("enterprise", "enterprise"): Decimal(12)}, "run_flags")
+    per_org = flags({"pool_seats.org:x.business": 4, "pool_seats.org:y.business": 3,
+                     "pool_seats.org:y.enterprise": 2, "pool_seats.cc:Z.business": 1})
+    assert seat_months([], [], [per_org], MONTH) == (
+        {("enterprise", "business"): Decimal(8), ("enterprise", "enterprise"): Decimal(2)},
         "run_flags")
+    assert seat_months([], [], [per_org], MONTH, entity_mode="org") == (
+        {("enterprise", "business"): Decimal(1), ("org:x", "business"): Decimal(4),
+         ("org:y", "business"): Decimal(3), ("org:y", "enterprise"): Decimal(2)}, "run_flags")
     assert seat_months(users, lics, counts, MONTH) == ({("enterprise", "unknown"): Decimal(9)},
                                                        "licenses")
     assert seat_months(users, [], counts, MONTH) == ({("enterprise", "business"): Decimal(6)},
