@@ -207,3 +207,17 @@ def test_scenario_kinds_carry_the_dim_and_estimated_figures() -> None:
             for fig in (f.cost_observed, f.recoverable):
                 if fig is not None and fig.nano is not None:
                     assert fig.evidence is Evidence.ESTIMATED
+
+
+def test_provisional_seat_lines_are_provisional_list() -> None:
+    cost = [b.make_seat_line("business", "10", date_utc="2026-09-01", finality="provisional")]
+    [ps] = of_kind(detect(ctx(plans=[p_plan_known()], cost_lines=cost)), "plan-status")
+    fig = ps.cost_observed
+    assert (fig.nano, fig.evidence, fig.basis, fig.finality) == (
+        190 * USD, Evidence.EXACT, Basis.LIST, Finality.PROVISIONAL)
+
+
+def p_plan_known():
+    from .helpers import p_plan
+
+    return p_plan(plan="business", source="seat_lines", seats_map={"business": 10})

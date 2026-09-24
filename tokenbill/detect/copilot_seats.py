@@ -548,9 +548,10 @@ class _Run:
         value = self.flags.get(f"renewal_date.{entity}")
         return value if isinstance(value, str) and _date(value) is not None else None
 
-    def r16(self, nano: int, pm: PoolMonth, what: str) -> Figure:
-        """An invoice-side amount of *pm* labelled per R16."""
-        if pm.plan_scenario is not None:
+    def r16(self, nano: int, pm: PoolMonth, what: str, *, pool_derived: bool = True) -> Figure:
+        """An invoice-side amount of *pm* labelled per R16; a pool-derived amount of a scenario
+        pool month is ESTIMATED (R17)."""
+        if pm.plan_scenario is not None and pool_derived:
             return estimated(nano, Basis.LIST,
                              note=f"{what}: scenario {pm.plan_scenario} (plan unknown)")
         if pm.finality == "closed":
@@ -881,13 +882,11 @@ def _seat_fees(run: _Run, entity: str, pe: PlanEvidence) -> tuple[Figure, list[E
         net = sum(c.amount_nano for c in lines)
         final = all(c.finality == "final" for c in lines)
         pm = pms[0] if pms else None
-        if pm is not None and pm.plan_scenario is None and final:
-            fig = run.r16(net, pm, "seat lines")
+        if pm is not None and final:        # seat-line amounts are data, whatever the plan
+            fig = run.r16(net, pm, "seat lines", pool_derived=False)
         else:
-            closed = final and pm is not None and pm.finality == "closed"
             fig = Figure(nano=net, evidence=Evidence.EXACT, basis=Basis.LIST,
-                         finality=Finality.FINAL if closed else Finality.PROVISIONAL,
-                         note="seat lines: unreconciled" if closed else "seat lines: provisional")
+                         finality=Finality.PROVISIONAL, note="seat lines: provisional")
         evidence.append(_ev("fees:seat_lines", n=len(lines), nano=net,
                             label=f"{fig.evidence.value} {fig.basis.value}"))
         return fig, evidence
@@ -994,7 +993,8 @@ def _pool_regime(run: _Run) -> list[Finding]:
                     estimate_nano=pm.consumed_estimate_nano or None),
                 _ev("overage", **_fig_attrs(overage)),
                 _ev("direct", nano=pm.direct_net_nano, draws_pool=pm.direct_draws_pool,
-                    label=_label_text(run.r16(pm.direct_net_nano, pm, "direct-org net"))),
+                    label=_label_text(run.r16(pm.direct_net_nano, pm, "direct-org net",
+                                              pool_derived=False))),
                 _ev("regime", regime=pm.regime, billing_mode=pm.billing_mode,
                     finality=pm.finality, days_final=pm.days_final,
                     days_provisional=pm.days_provisional, capped_policy=pm.capped_policy,
