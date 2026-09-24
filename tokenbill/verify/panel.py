@@ -42,6 +42,7 @@ __all__ = [
     "BILLING_CLASSES",
     "CLUSTER_FIELDS",
     "CONTROL_ARMS",
+    "UNKNOWN_SCOPE",
     "build_panel",
     "cache_scope_clusters",
     "cluster_of",
@@ -67,6 +68,9 @@ CLUSTER_FIELDS: Mapping[str, tuple[str, str]] = {
 
 #: Arm labels that mean "never treated".
 CONTROL_ARMS = frozenset({"control", "holdback"})
+
+#: The cache scope of lanes without a session shell (``core.lanes.group_lanes``).
+UNKNOWN_SCOPE = "unknown"
 
 #: Billing classes a panel can measure (``core.records.billing_class``).
 BILLING_CLASSES = ("billed", "allowance")
@@ -265,12 +269,15 @@ def panel_channels(store: LedgerStore, *, cluster_kind: str, since: str, until: 
 def cache_scope_clusters(store: LedgerStore, *, cluster_kind: str, since: str,
                          until: str) -> dict[str, tuple[str, ...]]:
     """Cache scope → the clusters whose lanes share it (for the cluster ≥ cache-scope guard: a
-    scope spanning two clusters means treated and control traffic share a cache)."""
+    scope spanning two clusters means treated and control traffic share a cache). Lanes whose
+    scope is ``"unknown"`` (no session shell) carry no evidence of sharing and are skipped."""
     if cluster_kind not in CLUSTER_FIELDS:
         raise UsageError(f"unknown cluster kind {cluster_kind!r}")
     lo, hi = _check_window(since, until)
     scopes: dict[str, set[str]] = {}
     for lane in store.iter_lanes(since_ms=lo, until_ms=hi):
+        if lane.cache_scope_key == UNKNOWN_SCOPE:
+            continue
         for req in lane.requests:
             cluster = cluster_of(req, cluster_kind)
             if cluster is not None:

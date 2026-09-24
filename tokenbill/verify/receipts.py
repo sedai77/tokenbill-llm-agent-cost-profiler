@@ -8,7 +8,9 @@
   ``predicate {label, design, metric, scope_label, window, estimate_usd_micro, ci_low_usd_micro,
   ci_high_usd_micro, projected_usd_micro, realization_rate_milli, shapley_credit_usd_micro,
   guards[], adjustments[], rate_card_sha256, assignment_log_sha256, preregistration_sha256,
-  reconciliation_verdict, calibration, tool_version, created}``. Two additive predicate fields
+  reconciliation_verdict, calibration, tool_version, created}``; ``calibration`` is the caller's
+  (model-gate) status, downgraded to ``uncalibrated`` when the measurement's own projection is not
+  CALIBRATED. Two additive predicate fields
   carry the refusal inputs a receipt must be judged on by itself: ``basis`` (the estimate's
   basis; allowance receipts are refused) and ``signable`` (the measurement's own verdict).
 * **DSSE**: ``payloadType "application/vnd.tokenbill.receipt+json"``,
@@ -177,6 +179,8 @@ def build_receipt(m: MeasurementResult, *, lever_id: str, patch_sha256: str,
             raise UsageError(f"{name} must be a non-empty string")
     _created_ms(created)
     cal = Calibration(calibration)
+    if m.projected is not None and m.projected.calibration is not Calibration.CALIBRATED:
+        cal = Calibration.UNCALIBRATED   # never record a projection as stronger than it is
     predicate: dict[str, object] = {
         "label": m.estimate.evidence.value,
         "basis": m.estimate.basis.value,
@@ -214,6 +218,8 @@ def build_receipt(m: MeasurementResult, *, lever_id: str, patch_sha256: str,
 
 
 def _predicate(receipt: Mapping[str, object]) -> Mapping[str, object]:
+    if not isinstance(receipt, Mapping):
+        raise UsageError("not a tokenbill receipt")
     pred = receipt.get("predicate")
     if receipt.get("_type") != RECEIPT_TYPE or not isinstance(pred, Mapping):
         raise UsageError("not a tokenbill receipt")

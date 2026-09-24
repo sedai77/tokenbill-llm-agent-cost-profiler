@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from tokenbill.common import rng
@@ -50,8 +51,11 @@ def rollout_panel(*, seed: int, clusters: int = 24, weeks: int = 10, waves: int 
                   pre_weeks: int = 2, pre_trend: float = 0.0, price_cut: float = 0.0,
                   washout_days: int = 0, design: str = "stepped_wedge", prs: bool = False,
                   pr_effect: float = 0.0, targeted: bool = False,
-                  lever: str = "cc.prompt_cache_ttl.main") -> GenPanel:
-    """A stepped-wedge (or, with ``design="cluster_rct"``, a single-wave) panel."""
+                  lever: str = "cc.prompt_cache_ttl.main",
+                  assignment: tuple[Sequence[str], Sequence[Sequence[str]]] | None = None
+                  ) -> GenPanel:
+    """A stepped-wedge (or, with ``design="cluster_rct"``, a single-wave) panel. *assignment*
+    ``(holdback, waves)`` (e.g. from a ``MeasurePlan``) replaces the generator's own random one."""
     rnd = rng(seed, "tests.verify.panelgen", design)
     names = [f"c{i:02d}" for i in range(clusters)]
     size = {c: rnd.randint(8, 40) for c in names}
@@ -66,19 +70,21 @@ def rollout_panel(*, seed: int, clusters: int = 24, weeks: int = 10, waves: int 
         rnd.shuffle(order)
     n_hold = max(1, round(holdback * clusters))
     hold = order[len(order) - n_hold:] if targeted else order[:n_hold]
+    groups: list[list[str]] = []
+    if assignment is not None:
+        hold = list(assignment[0])
+        groups = [list(g) for g in assignment[1]]
+        waves = len(groups)
     treat = [c for c in order if c not in hold]
     pre_days = pre_weeks * 7
     starts: dict[str, str | None] = {c: None for c in hold}
     start_idx: dict[str, int | None] = {c: None for c in hold}
-    if design == "cluster_rct":
-        for c in treat:
-            start_idx[c], starts[c] = pre_days, day(pre_days)
-    else:
-        step = max(1, (n_days - pre_days - 14) // waves)
-        for i, c in enumerate(treat):
-            k = i * waves // len(treat)
-            idx = pre_days + k * step
-            start_idx[c], starts[c] = idx, day(idx)
+    step = max(1, (n_days - pre_days - 14) // waves)
+    wave_k = {c: k for k, g in enumerate(groups) for c in g}
+    for i, c in enumerate(treat):
+        k = wave_k.get(c, i * waves // len(treat)) if design != "cluster_rct" else 0
+        idx = pre_days + k * step
+        start_idx[c], starts[c] = idx, day(idx)
     wave_of = {}
     for c in treat:
         wave_of[c] = str(1 + sorted({v for v in start_idx.values() if v is not None})
@@ -146,3 +152,13 @@ def org_series(*, seed: int, days: int = 150, change_day: int = 90, shift: float
         devs = 400 + rnd.randint(-20, 20) if t % 7 < 5 else 120 + rnd.randint(-10, 10)
         out.append((day(t), round(y * devs), devs))
     return out, shift * level
+
+
+def pre_panel(*, seed: int, clusters: int = 24, weeks: int = 4, noise: float = 0.05
+              ) -> list[PanelRow]:
+    """A pre-period panel (nothing treated) of *weeks* weeks, for plans and A/A MDEs."""
+    g = rollout_panel(seed=seed, clusters=clusters, weeks=weeks + 3, pre_weeks=weeks,
+                      effect=0.0, noise=noise, waves=1)
+    return [PanelRow(r.cluster_id, r.date_utc, r.cost_baseline_nano, r.cost_actual_nano,
+                     r.active_dev_days, None, None, False)
+            for r in g.rows if r.date_utc < g.first_start]

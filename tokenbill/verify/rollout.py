@@ -23,6 +23,7 @@ import datetime as _dt
 import hashlib
 import json
 import math
+import re
 import statistics
 from collections.abc import Mapping, Sequence
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -79,6 +80,15 @@ ORG_WIDE_RANDOMIZABLE = frozenset({"mdm_group", "gateway"})
 ORG_WIDE_WARNING = ("org-wide server-managed settings: randomize via MDM groups or the Claude apps "
                     "gateway per IdP group, else design its (MEASURED at best)")
 _CONTROL_LABELS = frozenset({"control", "holdback", "0"})
+_LEVER_RE = re.compile(r"[A-Za-z0-9._:-]{1,128}\Z")
+
+
+def _encodable(text: str) -> bool:
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def canonical_json(obj: object) -> str:
@@ -326,12 +336,12 @@ def plan(clusters: Sequence[str], *, lever_id: str, cluster_kind: str, design: s
     user-supplied assignment: it has no logged seed (MEASURED at best) and is checked for
     correlation with pre-period spend."""
     names = list(clusters)
-    if not names or any(not isinstance(c, str) or not c for c in names):
-        raise UsageError("clusters must be non-empty strings")
+    if not names or any(not isinstance(c, str) or not c or not _encodable(c) for c in names):
+        raise UsageError("clusters must be non-empty UTF-8 strings")
     if len(set(names)) != len(names):
         raise UsageError("clusters must be unique")
-    if not isinstance(lever_id, str) or not lever_id or any(ch in lever_id for ch in ",= \n"):
-        raise UsageError("lever_id must be a non-empty id without ',', '=' or spaces")
+    if not isinstance(lever_id, str) or not _LEVER_RE.match(lever_id):
+        raise UsageError("lever_id must match [A-Za-z0-9._:-]{1,128}")
     if cluster_kind not in CLUSTER_FIELDS:
         raise UsageError(f"unknown cluster kind {cluster_kind!r}")
     if design not in DESIGNS:
