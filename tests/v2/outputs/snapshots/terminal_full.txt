@@ -1,0 +1,186 @@
+TOKEN BILL · report · 2026-08-24 → 2026-09-23 (end exclusive)
+*** SYNTHETIC DEMO DATA — not a real bill ***
+sources: 2 · records: 43,503 · quarantined: 2
+  claude-code  s_beta  records 43,383  quarantined 2
+  otlp  s_alpha  records 120  quarantined 0
+inferences: 103 (100 priced, 3 unpriced)
+privacy: content tier none · identity central · k=5 · 1 small groups merged or withheld
+
+BILL
+------------
+  exact      $27,000.75 exact·list
+  basis list · rate card abababababab (builtin@2026-09-23)
+  coverage   99.8% of billable tokens priced
+  not priced unpriced (3 inferences) · 3,600 tokens — unknown is not zero
+  estimated  ~$610 est. (range $290–$840) uncalibrated (beside the bill, never in it)
+  allowance  $9,880.12 allowance·list-equivalent (not billed)
+  pool       $321.40 Copilot credits·list-equivalent (not billed) seen by collectors
+  ESR        71.0% effective token savings rate (exact)
+  naive line-sum ratio 2.33× (de-duplicated bill is priced)
+  [ok] anthropic_api: reconciled
+  [!!] bedrock: not reconciled
+  by team (k=5; 2 rows merged or withheld)
+    payments  12  480
+      bill: $18,000.50 exact·list
+      allowance: $900.00 allowance·list-equivalent (not billed)
+    (none)  users unknown  0
+      bill: $3.00 exact·list
+    (other: <5 users)  8  400
+      bill: $9,015.25 exact·list
+  by bucket (k=5; 0 rows merged or withheld)
+    bucket      users  requests  bill                   allowance
+    cache_read     20       800  $12,000.00 exact·list
+    output         20       800  $15,000.75 exact·list
+  note: trace@1 cache writes priced at the 5m rate (D12)
+
+DATA QUALITY
+--------------------
+  [info] dq.naive_line_sum_ratio ×103,607 · 5,000,000 tokens — naive line sum is 2.33x the
+         de-duplicated ledger
+  [info] dq.provider_estimate ×1 · $27,100.00 exact·provider estimate (not billed) — OTel cost_usd
+         total
+
+CALIBRATION (MODEL GATE)
+--------------------------------
+  status pass · mode documented · 30 day periods · label calibrated
+  NMBE 1.2% · CV(RMSE) 8.4% (thresholds ±10% / 30%)
+  calibrated: NMBE 0.8% · CV(RMSE) 7.1%
+    gap band  hits  trials  ρ 95% Wilson
+    0-5m       900   1,000  [0.88, 0.92]
+    5-60m       40     100  [0.31, 0.50]
+    predicted   server reason                n
+    ttl-expiry  previous_message_not_found  12
+  unlabeled 3 · no comparison label 1 · TTL corroboration 9/10
+  note: 12 periods minimum
+
+RECONCILIATION (LEDGER GATE, PER CHANNEL)
+-------------------------------------------------
+  verdict not_reconciled · finality final · window 2026-08-24 → 2026-09-23 · tolerance 0.5%
+  (unexplained 1.0%)
+  [ok] anthropic_api: reconciled (anthropic.cost_report)
+  [!!] bedrock: not_reconciled (no invoice source) · mapping unverified
+  token coverage 99.9% · dollar coverage 100.2% · over-count rows 0
+  rate-card error |%| p50 0.1 · p95 0.4 · max 0.9
+  unexplained residual $0.42 (estimated)
+    residual seat_allowance_unmetered: $12.00 (estimated)
+    residual cents_rounding: $0.000000003 (estimated)
+    effective discount anthropic_api:claude-opus-5-5:output: 10.0%
+  suggested contract derived-2026-09 → re-run verdict reconciled
+    decision convention:s_report = excl
+
+TOP RECOVERABLE (SHAPLEY-RANKED; STANDALONE CEILINGS ARE NEVER SUMMED)
+------------------------------------------------------------------------------
+  1. TTL expiry re-writes on payments main lanes
+     monthly ~$6,100/mo est. (p10–p90 $3,050–$9,150) calibrated · observed $812.40 exact·list ·
+     scope lane_kind=main team=payments
+     fix: Set promptCacheTtl to 1h for main lanes.
+  2. Fast mode premium on platform
+     monthly ~$1,200/mo est. (p10–p90 $600–$1,800) calibrated · observed $812.40 exact·list · scope
+     lane_kind=main team=platform
+     fix: Set promptCacheTtl to 1h for main lanes.
+
+ALLOWANCE / POOL HEADROOM (LIST-EQUIVALENT, NOT INVOICE DOLLARS)
+------------------------------------------------------------------------
+  1. Allowance headroom: subscription TTL
+     monthly ~$300/mo est.·list-equivalent (not billed) (p10–p90 $150–$450) calibrated · observed
+     $812.40 exact·list-equivalent (not billed) · scope lane_kind=main team=payments
+     fix: Set promptCacheTtl to 1h for main lanes.
+
+DATA-QUALITY FINDINGS
+-----------------------------
+  - Detectors skipped: missing capabilities — Cache re-writes after idle gaps longer than the
+    5-minute TTL.
+
+ACTION PLAN (SHAPLEY-EXACT)
+-----------------------------------
+  headline     ~$9,800/mo est. (p10–p90 $4,100–$12,000) calibrated (billed-basis levers)
+  joint saving ~$700 est. calibrated in the window (full-scope joint replay)
+  sample: shapley on 2000/2000 lanes (seed 7)
+  cc.prompt_cache_ttl.main (cache_transform, group g1)
+    shapley ~$390 est. calibrated · monthly ~$6,100/mo est. (p10–p90 $2,900–$8,400) calibrated
+  cc.autocompact_window (trajectory, group g2) [needs-eval, trade-off]
+    shapley ~$390 est. calibrated · monthly ~$6,100/mo est. (p10–p90 $2,900–$8,400) calibrated
+  allowance headroom ~$300/mo est.·list-equivalent (not billed) uncalibrated (not invoice dollars)
+  Copilot pool headroom ~$45.00/mo est.·list-equivalent (not billed) uncalibrated
+  observed realization cache_transform: mean RR 0.62 (n=3)
+
+POLICY PACKS
+--------------------
+  claude-code · cohort payments · 1 settings
+    - promptCacheTtl = "1h" · ~$6,100/mo est. (p10–p90 $2,900–$8,400) calibrated
+    OTEL_RESOURCE_ATTRIBUTES=tokenbill.arm=cc.prompt_cache_ttl.main,tokenbill.wave=1
+
+WHATIF (COUNTERFACTUAL REPLAYS)
+---------------------------------------
+  policy ttl=1h@lane_kind:main (documented)
+    baseline $1,000.00 exact·list · cost ~$880 est. (range $850–$910) uncalibrated · saving ~$120
+    est. (range $90–$150) uncalibrated
+    lanes 3 · requests 120 · added calls 0 · keepalive pings 0 · skipped 1 lanes
+
+MEASURE PLAN
+--------------------
+  lever cc.prompt_cache_ttl.main · design stepped_wedge · clusters by team
+  wave 1: payments, search
+  wave 2: platform
+  holdback: mobile
+  washout 24 h · looks 2026-10-01
+  MDE $0.80 (estimated) · projection ~$2.50/mo est. calibrated
+  verification design: yes · clusters needed 6
+  pre-registration efefefefefefefef · assignment log cdcdcdcdcdcdcdcd
+  warning: two clusters below 5 developers merged
+
+MEASUREMENTS
+--------------------
+  cc.prompt_cache_ttl.main · stepped_wedge · cost per active developer-day ·
+  fleet:2026-08-24/2026-09-23
+    estimate $2.10 verified·list (95% CI $1.40–$2.80)
+    projected ~$2.50 est. calibrated
+    realization rate 0.84 [0.56, 1.12]
+    guards: srm pass (0.41 vs 0.01), placebo pass (0.62 vs 0.05)
+    rate variance -$0.12 exact·list (price effect, reported apart)
+    signable: yes
+
+AB (PAIRED LAB COMPARISON)
+----------------------------------
+  verdict costlier · lab:0123456789ab · 20 tasks · trials 5/5 · randomized yes
+  cost per success baseline $1.00 verified·list (95% CI $0.90–$1.10) · candidate $1.07 verified·list
+  (95% CI $0.97–$1.17)
+  paired difference $0.07 verified·list (95% CI $0.01–$0.13)
+  Δ tokens -38% · Δ turns 14% · Δ reads -52% · Δ success 0%
+  cc.prompt_cache_ttl.main · ab · cost per active developer-day · lab:0123456789ab
+    estimate $2.10 verified·list (95% CI $1.40–$2.80)
+    projected ~$2.50 est. calibrated
+    realization rate 0.84 [0.56, 1.12]
+    guards: srm pass (0.41 vs 0.01), placebo pass (0.62 vs 0.05)
+    rate variance -$0.12 exact·list (price effect, reported apart)
+    signable: yes
+
+CHECK (FAILED)
+----------------------
+  runs 3 · cache-read share 41.0%
+  median cost per run $0.12 exact·list · baseline $0.11 exact·list
+  breaker kinds: volatile-system
+  [error] TB-CACHE-SHARE cache-read share 0.41 < 0.80 @ timestamp.jsonl#run=r1#call=3
+  [error] TB-NEW-BREAKER new breaker volatile-system @ timestamp.jsonl#run=r1#call=1
+
+PRICING (VERIFY; OK)
+----------------------------
+  rate row                                            in $/MTok  out $/MTok  enabled  verified
+  anthropic/anthropic_api/claude-opus-5-5/2026-09-22       4.00       20.00  yes      2026-09-23
+  anthropic/anthropic_api/claude-opus-5/2026-07-24         5.00       25.00  yes      2026-09-23
+  anthropic/anthropic_api/claude-opus-4-8/2026-05-28       5.00       25.00  yes      2026-09-23
+  modifiers 2 · stale rows 0
+  warning: anthropic/anthropic_api/claude-opus-5-5/2026-09-22 output: ours 25 vs 24 (litellm)
+
+RECEIPTS
+----------------
+  rcpt_b
+  rcpt_a
+
+NOTES
+-------------
+  - demo fleet (seed 7)
+
+labels: exact = billed tokens × sourced rate · est. = modeled (range, calibration) ·
+measured/verified = rollout estimate with CI · list-equivalent = seat allowance or Copilot credits,
+never billed

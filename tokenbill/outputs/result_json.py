@@ -708,6 +708,10 @@ def dumps_result(result: RunResult, *, deterministic: bool = False) -> str:
 # ---------------------------------------------------------------------------------------------
 
 
+def _is_label(value: object, allowed: frozenset[str]) -> bool:
+    return isinstance(value, str) and value in allowed
+
+
 def _is_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
@@ -724,9 +728,9 @@ def _money_errors(obj: Mapping[str, object], path: str) -> list[str]:
         errs.append(f"{path}: MONEY nano must be an int")
     elif not isinstance(usd, str) or usd != nano_to_usd_str(nano):
         errs.append(f"{path}: MONEY usd must be the exact decimal string of nano")
-    if obj["evidence"] not in _EVIDENCE_VALUES:
+    if not _is_label(obj["evidence"], _EVIDENCE_VALUES):
         errs.append(f"{path}: MONEY evidence not an Evidence value")
-    if obj["basis"] not in _BASIS_VALUES:
+    if not _is_label(obj["basis"], _BASIS_VALUES):
         errs.append(f"{path}: MONEY basis not a Basis value")
     rng = obj["range"]
     if rng is not None:
@@ -798,7 +802,7 @@ class _Walker:
             ev = obj.get("evidence")
             if ev is None:
                 self.errors.append(f"{path or '/'}: object with integer values has no evidence key")
-            elif ev not in _EVIDENCE_VALUES:
+            elif not _is_label(ev, _EVIDENCE_VALUES):
                 self.errors.append(f"{path or '/'}: evidence is not an Evidence value")
 
 

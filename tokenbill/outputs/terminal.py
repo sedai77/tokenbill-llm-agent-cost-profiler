@@ -156,17 +156,23 @@ class _Out:
         self.lines: list[str] = []
 
     def line(self, text: str = "", indent: int = 0) -> None:
-        clean = " " * indent + scrub(text)
-        for part in clean.split("\n"):
-            self.lines.append(part if len(part) <= self.width else part[: self.width - 1] + "…")
+        """One line; a line wider than the terminal wraps (continuation indented by 2)."""
+        for part in scrub(text).split("\n"):
+            if indent + len(part) <= self.width:
+                self.lines.append(" " * indent + part)
+            else:
+                self.wrap(part, indent, cont=2)
 
-    def wrap(self, text: str, indent: int = 0, first: str = "") -> None:
+    def _fit(self, text: str) -> None:
+        self.lines.append(text if len(text) <= self.width else text[: self.width - 1] + "…")
+
+    def wrap(self, text: str, indent: int = 0, first: str = "", cont: int = 0) -> None:
         body = scrub(text)
         wrapped = textwrap.wrap(body, width=self.width, initial_indent=" " * indent + first,
-                                subsequent_indent=" " * (indent + len(first)),
+                                subsequent_indent=" " * (indent + len(first) + cont),
                                 break_long_words=True, break_on_hyphens=False)
         for w in wrapped or [" " * indent + first]:
-            self.line(w)
+            self._fit(w)
 
     def section(self, title: str) -> None:
         self.lines.append("")
@@ -174,14 +180,27 @@ class _Out:
         self.lines.append("-" * min(self.width, len(title) + 8))
 
     def table(self, headers: Sequence[str], rows: Iterable[Sequence[str]], *,
-              right: Sequence[int] = (), indent: int = 2) -> None:
+              right: Sequence[int] = (), indent: int = 2, keep: Sequence[int] = ()) -> None:
+        """A column table; columns in *keep* (money chips) are never truncated — when they do not
+        fit, each row prints on its own line with the kept cells as indented ``header: value``
+        lines."""
         body = [[scrub(c) for c in r] for r in rows]
         head = [scrub(h) for h in headers]
         widths = [max([len(head[i])] + [len(r[i]) for r in body]) for i in range(len(head))]
         room = self.width - indent - 2 * (len(widths) - 1)
-        while sum(widths) > room and max(widths) > 8:
-            widest = widths.index(max(widths))
-            widths[widest] -= 1
+        while sum(widths) > room:
+            shrink = [i for i in range(len(widths)) if i not in keep and widths[i] > 8]
+            if not shrink:
+                break
+            widths[max(shrink, key=lambda i: (widths[i], -i))] -= 1
+        if sum(widths) > room:
+            free = [i for i in range(len(widths)) if i not in keep]
+            for r in body:
+                self.line("  ".join(r[i] for i in free), indent)
+                for i in keep:
+                    if r[i]:
+                        self.line(f"{head[i]}: {r[i]}", indent + 2)
+            return
 
         def fmt(cells: Sequence[str]) -> str:
             out = []
@@ -190,9 +209,9 @@ class _Out:
                 out.append(cell.rjust(widths[i]) if i in right else cell.ljust(widths[i]))
             return (" " * indent + "  ".join(out)).rstrip()
 
-        self.line(fmt(head))
+        self._fit(fmt(head))
         for r in body:
-            self.line(fmt(r))
+            self._fit(fmt(r))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -245,7 +264,8 @@ def _breakdown(out: _Out, key: str, agg: PublishedAggregate) -> None:
         rows.append([dims or "(all)", users, f"{row.n_requests:,}",
                      chip(row.priced.exact, unpriced_count=row.priced.unpriced_inferences),
                      extra])
-    out.table([key, "users", "requests", "bill", "allowance"], rows, right=(1, 2), indent=4)
+    out.table([key, "users", "requests", "bill", "allowance"], rows, right=(1, 2), indent=4,
+              keep=(3, 4))
     if len(agg.rows) > _TOP_N * 2:
         out.line(f"(+{len(agg.rows) - _TOP_N * 2} more rows; see --format json)", indent=4)
 
