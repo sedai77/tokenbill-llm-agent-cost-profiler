@@ -183,6 +183,18 @@ def test_exact_parsers_fuzz(blob: bytes) -> None:
     assert got is None or isinstance(got, dict)
 
 
+@given(st.binary(max_size=120) | st.text(max_size=60).map(lambda t: t.encode("utf-8")))
+@settings(max_examples=200, deadline=None)
+def test_load_json_exact_fuzz(tmp_path_factory: pytest.TempPathFactory, blob: bytes) -> None:
+    """Hostile files load or raise SourceError — nothing else escapes."""
+    path = tmp_path_factory.mktemp("f") / "x.json"
+    path.write_bytes(blob)
+    try:
+        jsonl.load_json_exact(path)
+    except SourceError:
+        pass
+
+
 _exact_values = st.recursive(
     st.none() | st.booleans() | st.integers()
     | st.decimals(min_value=-(10**9), max_value=10**9, places=8)
