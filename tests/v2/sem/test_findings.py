@@ -341,3 +341,31 @@ def test_rate_nano_errors() -> None:
         rate_nano(PRICER, OPUS, 0, "cache_write", 10)
     with pytest.raises(UsageError):
         rate_nano(PRICER, OPUS, 0, "output", 1.5)  # type: ignore[arg-type]
+
+
+def test_provider_estimate_data_quality_finding_in_an_allowance_cohort() -> None:
+    """R4 and D26 together: a provider estimate is neither billed nor list-equivalent, so a
+    data-quality finding may carry it in an allowance cohort; other categories still may not."""
+    pe = Figure(nano=10, evidence=Evidence.EXACT, basis=Basis.PROVIDER_ESTIMATE)
+    allowance_scope = make_scope(team="payments", lane_kind="main", billing_class="allowance")
+    dq = build_finding(**fields(scope=allowance_scope, cost_observed=pe, recoverable=None,
+                                category="data-quality", lever_class="none",
+                                kind="cost-state-drift"))
+    assert dq.cost_observed.basis is Basis.PROVIDER_ESTIMATE
+    with pytest.raises(ContractViolation):
+        build_finding(**fields(scope=allowance_scope, cost_observed=pe, recoverable=None))
+
+
+def test_fit_cpt_reset_window_is_half_open() -> None:
+    base = carry_lane(3)                       # requests at 0, 10, 20 s → two samples
+    at_prev = lane(list(base.requests), events=[event("clear", 10)])     # in (0, 10] only
+    assert fit_cpt([at_prev], "claude-4.7+")[1] == 1
+    at_start = lane(list(base.requests), events=[event("compaction", 0, trigger="auto",
+                                                       pre_tokens=1, post_tokens=1,
+                                                       duration_ms=1, dropped_tokens=None)])
+    assert fit_cpt([at_start], "claude-4.7+")[1] == 2               # ts == first request: none
+    many = lane(list(base.requests),
+                events=[event("human_prompt", 1 + i / 1000) for i in range(2000)]
+                + [event("context_edit", 20, edit_type="clear_tool_uses_20250919",
+                         cleared_input_tokens=5)])
+    assert fit_cpt([many], "claude-4.7+")[1] == 1                   # only (10, 20] is reset

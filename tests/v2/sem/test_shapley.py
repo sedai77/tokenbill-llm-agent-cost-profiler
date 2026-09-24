@@ -204,3 +204,18 @@ def test_largest_remainder_rejects_unreachable_targets() -> None:
     assert largest_remainder({"a": Fraction(1, 2), "b": Fraction(1, 2)}, 1) == {"a": 1, "b": 0}
     with pytest.raises(UsageError):
         largest_remainder({"a": Fraction(1, 2)}, 5)
+
+
+def test_mc_seed_stream_uses_plain_player_values() -> None:
+    from tokenbill.core.records import TBEnum
+
+    Lever = TBEnum("Lever", {n.upper(): n for n in FIVE})   # str-valued enum players
+
+    def enum_value(s: frozenset) -> int:
+        return interacting(frozenset(str(p) for p in s))
+
+    plain = shapley_mc(FIVE, interacting, permutations=30, seed=5)
+    members = list(Lever)
+    values, errors = shapley_mc(members, enum_value, permutations=30, seed=5)
+    assert {str(k): v for k, v in values.items()} == plain[0]
+    assert {str(k): v for k, v in errors.items()} == plain[1]

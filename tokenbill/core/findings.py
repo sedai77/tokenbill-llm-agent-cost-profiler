@@ -7,6 +7,7 @@ evidence ordering, figure sums and per-bucket rate arithmetic. Money is int nano
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections.abc import Iterable
 from decimal import Decimal, InvalidOperation
 from enum import Enum
@@ -103,9 +104,10 @@ def build_finding(**fields: object) -> Finding:
     must equal it; list-valued ``lever_ids`` / ``evidence`` / ``references`` become tuples.
     Validates: title non-empty and ≤ 120 chars, summary ≤ 400, references non-empty, evidence ≤ 20,
     category / lever_class / audience / confidence in their SPEC value sets, non-negative counts,
-    and figure bases — every figure is a :class:`Figure` on one common basis, ``LIST_EQUIVALENT``
-    exactly when the scope's ``billing_class`` is ``allowance`` (D26), ``PROVIDER_ESTIMATE`` only on
-    data-quality findings (R4). Violations raise :class:`ContractViolation`.
+    and figure bases — every figure is a :class:`Figure` on one common basis, ``PROVIDER_ESTIMATE``
+    only on data-quality findings (R4, in any cohort), otherwise ``LIST_EQUIVALENT`` exactly when
+    the scope's ``billing_class`` is ``allowance`` (D26). Violations raise
+    :class:`ContractViolation`.
     """
     data = dict(fields)
     for name in ("lever_ids", "evidence", "references"):
@@ -171,11 +173,15 @@ def _validate(f: Finding) -> None:
     if len(bases) != 1:
         raise fail("figures must share one basis")
     basis = bases.pop()
+    if basis is Basis.PROVIDER_ESTIMATE:
+        # R4: a provider estimate is never a billed number, so it is neither a billed nor a
+        # list-equivalent figure; it may appear (in any cohort) only in data-quality findings.
+        if f.category != "data-quality":
+            raise fail("provider estimates appear only in data-quality findings (R4)")
+        return
     allowance = ("billing_class", "allowance") in f.scope.dims
     if allowance != (basis is Basis.LIST_EQUIVALENT):
         raise fail("allowance cohorts use basis list_equivalent and only they do (D26)")
-    if basis is Basis.PROVIDER_ESTIMATE and f.category != "data-quality":
-        raise fail("provider estimates appear only in data-quality findings (R4)")
 
 
 def miss_waste(t: Transition, request: Request) -> tuple[int, int]:
@@ -244,14 +250,16 @@ def fit_cpt(lanes: Iterable[Lane], family: str) -> tuple[Decimal, int]:
     total_bytes = total_tokens = n = 0
     for lane in lanes:
         prev: tuple[Request, UsageBuckets] | None = None
-        events = lane.events
+        # sorted timestamps of the lane's reset events (Lane sorts events by ts): O(log m) per
+        # sample instead of a scan of every event
+        resets = [ev.ts_ms for ev in lane.events if ev.kind in _RESET_EVENTS]
         for req in lane.requests:
             inf = req.serving_inference
             if inf is None:
                 continue
             current = (req, inf.usage)
             if prev is not None and req.appended:
-                sample = _cpt_sample(prev, current, events)
+                sample = _cpt_sample(prev, current, resets)
                 if sample is not None:
                     total_bytes += sample[0]
                     total_tokens += sample[1]
@@ -263,7 +271,7 @@ def fit_cpt(lanes: Iterable[Lane], family: str) -> tuple[Decimal, int]:
 
 
 def _cpt_sample(prev: tuple[Request, UsageBuckets], cur: tuple[Request, UsageBuckets],
-                events: tuple) -> tuple[int, int] | None:
+                resets: list[int]) -> tuple[int, int] | None:
     prev_req, prev_usage = prev
     req, usage = cur
     if req.model != prev_req.model:
@@ -273,8 +281,9 @@ def _cpt_sample(prev: tuple[Request, UsageBuckets], cur: tuple[Request, UsageBuc
     if any(att.applied_edits or att.thinking_dropped for att in req.attempts):
         return None
     lo, hi = prev_req.ts_start_ms, req.ts_start_ms
-    if any(lo < ev.ts_ms <= hi and ev.kind in _RESET_EVENTS for ev in events):
-        return None
+    first_after = bisect_right(resets, lo)
+    if first_after < len(resets) and resets[first_after] <= hi:
+        return None     # a COMPACTION / CLEAR / CONTEXT_EDIT event in (lo, hi]
     n_bytes = sum(item.n_bytes for item in req.appended)
     tokens = usage.total_input - prev_usage.total_input
     if not any(item.kind == "assistant" for item in req.appended):

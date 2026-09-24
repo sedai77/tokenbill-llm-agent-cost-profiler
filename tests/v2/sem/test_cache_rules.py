@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from tokenbill.core import cache_rules as cr
@@ -172,3 +172,47 @@ def test_rules_for_is_cached_and_deterministic() -> None:
     a = TABLE.rules_for("anthropic", "anthropic_api", "claude-sonnet-5")
     assert TABLE.rules_for("anthropic", "anthropic_api", "claude-sonnet-5") is a
     assert cr.RulesTable().rules_for("anthropic", "anthropic_api", "claude-sonnet-5") == a
+
+
+# ---------------------------------------------------------------------------------------------
+# hostile inputs (client versions come from transcripts, model ids from provider payloads)
+# ---------------------------------------------------------------------------------------------
+
+
+def test_huge_digit_runs_are_unknown_not_a_crash() -> None:
+    # int() of more than sys.get_int_max_str_digits() digits raises ValueError on 3.10.7+
+    huge = "2." + "1" * 5000
+    assert cr.parse_version(huge) is None
+    assert cr.parse_version("1" * 18) == (10**18 // 9,)          # 18 digits still parse
+    assert cr.parse_version("1" * 19) is None
+    assert keeps(client_version=huge)                              # unknown version → recent
+    with pytest.raises(UsageError):
+        cr.version_at_least(huge, "2.1.260")
+    rules = TABLE.rules_for("openai", "openai_api", "gpt-" + "9" * 5000)
+    assert rules.ttl_options_s == ()
+    assert TABLE.rules_for("openai", "openai_api", "gpt-5.6" + "0" * 10).ttl_options_s == ()
+
+
+def test_betas_match_by_exact_value() -> None:
+    header = f"interleaved-thinking-2025-05-14, {BETA}"
+    assert keeps(agent_product="api", model="claude-opus-5", betas=header)
+    assert not keeps(agent_product="api", model="claude-opus-5", betas=f"x{BETA}y")
+    assert not keeps(agent_product="api", model="claude-opus-5", betas=(f"x{BETA}y",))
+    assert not keeps(agent_product="api", model="claude-opus-5", betas=None)
+    assert keeps(betas=None)                         # the Claude Code branch needs no beta
+
+
+@settings(max_examples=300, deadline=None)
+@given(st.one_of(st.none(), st.text(max_size=40),
+                 st.text("0123456789.v ", max_size=6000)),
+       st.text(max_size=40), st.sampled_from(["anthropic_api", "vertex", "bedrock", "x"]))
+def test_fuzz_effort_predicate_and_rules_never_crash(version: str | None, model: str,
+                                                     channel: str) -> None:
+    for product in ("claude_code", "agent_sdk", None):
+        result = cr.effort_change_keeps_cache(agent_product=product, model=model,
+                                              channel=channel, client_version=version,
+                                              betas=(BETA,))
+        assert type(result) is bool
+    for provider in ("anthropic", "openai", "other"):
+        assert TABLE.rules_for(provider, channel, model).channel == channel
+        assert TABLE.rules_for(provider, "openai_api", "gpt-" + (version or "")).provider

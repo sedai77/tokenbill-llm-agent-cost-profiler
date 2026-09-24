@@ -43,6 +43,12 @@ def _team(team: str | None) -> str | None:
     return team or None
 
 
+def _text(value: object) -> str:
+    """The plain-str value of a lane kind / billing class (``TBEnum`` members format as their
+    value), so enum- and str-valued index rows plan, group and seed identically."""
+    return str(value)
+
+
 def _team_order(team: str | None) -> tuple[int, str]:
     return (0, "") if team is None else (1, team)
 
@@ -51,7 +57,8 @@ def plan_shards(index: Iterable[LaneIndexRow], *,
                 max_requests: int = SHARD_MAX_REQUESTS) -> list[ShardKey]:
     """One shard per team; a team with **more than** *max_requests* requests is split into one
     shard per lane kind (never further). Order: unattributed first, then teams by name; lane
-    kinds by name. Deterministic for any order of *index*."""
+    kinds by name. Deterministic for any order of *index*; ``ShardKey.lane_kind`` is always a
+    plain str (the LaneKind value)."""
     if type(max_requests) is not int or max_requests < 1:
         raise UsageError("plan_shards: max_requests must be a positive int")
     totals: dict[str | None, int] = {}
@@ -59,7 +66,7 @@ def plan_shards(index: Iterable[LaneIndexRow], *,
     for row in index:
         team = _team(row.team)
         totals[team] = totals.get(team, 0) + row.requests
-        kinds.setdefault(team, set()).add(row.lane_kind)
+        kinds.setdefault(team, set()).add(_text(row.lane_kind))
     shards: list[ShardKey] = []
     for team in sorted(totals, key=_team_order):
         if totals[team] > max_requests:
@@ -197,7 +204,7 @@ def stratified_sample(index: Sequence[LaneIndexRow], *, n: int = 20_000,
         return frozenset(rows)
     groups: dict[tuple[str, str], list[LaneIndexRow]] = {}
     for row in rows.values():
-        groups.setdefault((row.lane_kind, row.billing_class), []).append(row)
+        groups.setdefault((_text(row.lane_kind), _text(row.billing_class)), []).append(row)
     strata: dict[tuple[str, str, int], list[str]] = {}
     for (kind, bclass), members in groups.items():
         for key, decile in _deciles(members).items():

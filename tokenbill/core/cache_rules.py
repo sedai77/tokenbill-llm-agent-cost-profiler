@@ -162,13 +162,16 @@ def _openai_rules(channel: str, *, ttl_options_s: tuple[int, ...]) -> CacheRules
     )
 
 
-_GPT_VERSION_RE = re.compile(r"\Agpt-(\d+)(?:\.(\d+))?")
+# Bounded digit runs: model ids come from provider payloads, and ``int()`` of a digit string longer
+# than ``sys.get_int_max_str_digits()`` raises ValueError (a garbage id must not crash rules_for).
+_GPT_VERSION_RE = re.compile(r"\Agpt-(\d{1,6})(?:\.(\d{1,6}))?(?!\d)")
 
 
 def _openai_explicit_ttl(model: str) -> tuple[int, ...]:
     """GPT-5.6 and later cache for 30 minutes from the last write or reuse; earlier models keep
-    prefixes for an unspecified in-memory time (TTL unknown → ``()``)."""
-    m = _GPT_VERSION_RE.match(model or "")
+    prefixes for an unspecified in-memory time (TTL unknown → ``()``). An id whose version is
+    not a short dotted number (e.g. an implausibly long digit run) has no TTL option."""
+    m = _GPT_VERSION_RE.match(model if isinstance(model, str) else "")
     if m is None:
         return ()
     major, minor = int(m.group(1)), int(m.group(2) or 0)
@@ -240,17 +243,24 @@ class RulesTable:
 
 
 _VERSION_RE = re.compile(r"\A\s*v?(\d+(?:\.\d+)*)")
+#: Longest numeric component accepted; longer digit runs are not versions (and ``int()`` of a
+#: digit string above ``sys.get_int_max_str_digits()`` would raise ValueError).
+_MAX_VERSION_DIGITS = 18
 
 
 def parse_version(version: str | None) -> tuple[int, ...] | None:
     """Leading numeric dotted components of *version* (``"2.1.270 (Claude Code)"`` →
-    ``(2, 1, 270)``), or None when there are none."""
+    ``(2, 1, 270)``), or None when there are none or a component has more than 18 digits
+    (client versions come from transcripts: garbage is "unknown", never a crash)."""
     if not isinstance(version, str):
         return None
     m = _VERSION_RE.match(version)
     if m is None:
         return None
-    return tuple(int(part) for part in m.group(1).split("."))
+    parts = m.group(1).split(".")
+    if any(len(part) > _MAX_VERSION_DIGITS for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
 
 
 def version_at_least(version: str, minimum: str) -> bool:
@@ -281,7 +291,14 @@ def effort_change_keeps_cache(*, agent_product: str | None, model: str, channel:
 
     Otherwise an effort or thinking change invalidates the messages tier
     (``anth-invalidation-hierarchy``, ``anth-effort-rerun-budgets``).
+
+    *betas* is matched by exact value: a raw ``anthropic-beta`` header string is split on commas
+    (never a substring test) and None counts as no betas.
     """
+    if betas is None:
+        betas = ()
+    elif isinstance(betas, str):
+        betas = tuple(part.strip() for part in betas.split(","))
     if agent_product == "claude_code":
         cc_model = _canonical_model(model, EFFORT_KEEPS_CACHE_CLAUDE_CODE)
         if cc_model in EFFORT_KEEPS_CACHE_CLAUDE_CODE and \

@@ -120,7 +120,8 @@ def shapley_mc(players: Sequence[str], value: ValueFn, *, permutations: int = 20
     empty = _value(value, memo, frozenset())
     sums = dict.fromkeys(ordered, 0)
     squares = dict.fromkeys(ordered, 0)
-    generator = rng(seed, "core.shapley.shapley_mc", *ordered)
+    # seeded by the players' plain-str values (a str-enum's repr would change the stream)
+    generator = rng(seed, "core.shapley.shapley_mc", *(str(p) for p in ordered))
     for _ in range(permutations):
         order = list(ordered)
         generator.shuffle(order)

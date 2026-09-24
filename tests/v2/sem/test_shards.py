@@ -274,3 +274,15 @@ def test_sample_size_property(n: int, seed: int) -> None:
     index = BIG_INDEX[:300]
     sample = stratified_sample(index, n=n, seed=seed)
     assert len(sample) == min(n, len(index))
+
+
+def test_enum_valued_index_rows_plan_and_sample_like_str_rows() -> None:
+    """A store may fill ``LaneIndexRow.lane_kind`` with LaneKind members: shard keys, strata and
+    the seeded sample must not depend on that (the rng is seeded from the plain values)."""
+    enum_rows = [dataclasses.replace(r, lane_kind=LaneKind(r.lane_kind)) for r in BIG_INDEX]
+    assert stratified_sample(enum_rows, n=300, seed=7) == stratified_sample(BIG_INDEX, n=300,
+                                                                            seed=7)
+    shards = plan_shards(enum_rows, max_requests=1)
+    assert shards == plan_shards(BIG_INDEX, max_requests=1)
+    assert all(type(s.lane_kind) is str for s in shards)
+    assert repr(shards) == repr(plan_shards(BIG_INDEX, max_requests=1))
