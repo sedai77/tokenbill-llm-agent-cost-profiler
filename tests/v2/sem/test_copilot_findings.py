@@ -386,6 +386,10 @@ def test_pool_labels_fit_the_limits_and_always_survive() -> None:
     # a single over-long token is still cut to the limit
     token = build_finding(**pool_fields(title="z" * 120)).title
     assert len(token) == MAX_TITLE and token.endswith("…")
+    # an already-prefixed title is cut behind its prefix, never rejected
+    pre = build_finding(**pool_fields(title=COPILOT_TITLE_PREFIX + "word " * 40)).title
+    assert len(pre) <= MAX_TITLE and pre.startswith(COPILOT_TITLE_PREFIX)
+    assert pre.count(COPILOT_TITLE_PREFIX) == 1
     # a 400-char summary keeps the phrase
     full = build_finding(**pool_fields(summary="s" * MAX_SUMMARY)).summary
     assert len(full) <= MAX_SUMMARY and COPILOT_SUMMARY_PHRASE in full
@@ -520,14 +524,14 @@ def test_every_catalog_copilot_fix_passes_build_finding() -> None:
     fix_for = getattr(catalog, "fix_for", None)
     if fix_for is None:
         pytest.skip("core.catalog.fix_for not merged yet (F-KIT-C)")
-    detectors = sorted(registry.BUILTIN_DETECTORS)
-    for det in detectors:
-        fix = fix_for(det, None, "copilot")
-        if fix is None:
-            continue
-        assert fix.target == "github-copilot"
-        f = build_finding(**pool_fields(detector_id=det, fix=CLAUDE_FIX))
-        assert f.fix is not None and _no_claude_keys(f.fix)
+    for det in registry.all_detectors():          # the importable ones, with their kinds
+        for kind in det.kinds:
+            fix = fix_for(det.id, kind, "copilot")
+            if fix is None:
+                continue
+            assert fix.target == "github-copilot" and _no_claude_keys(fix)
+            f = build_finding(**pool_fields(detector_id=det.id, kind=kind, fix=CLAUDE_FIX))
+            assert f.fix == fix
 
 
 # ---------------------------------------------------------------------------------------------

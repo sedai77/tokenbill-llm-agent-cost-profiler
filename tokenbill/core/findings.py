@@ -245,8 +245,10 @@ def _cut(text: str, limit: int) -> str:
 def _pool_labels(data: dict[str, object]) -> None:
     """S-2 title prefix and summary phrase of a pool cohort (idempotent)."""
     title, summary = data.get("title"), data.get("summary")
-    if isinstance(title, str) and title and not title.startswith(COPILOT_TITLE_PREFIX):
-        data["title"] = COPILOT_TITLE_PREFIX + _cut(title, MAX_TITLE - len(COPILOT_TITLE_PREFIX))
+    if isinstance(title, str) and title:
+        body = title[len(COPILOT_TITLE_PREFIX):] if title.startswith(COPILOT_TITLE_PREFIX) \
+            else title
+        data["title"] = COPILOT_TITLE_PREFIX + _cut(body, MAX_TITLE - len(COPILOT_TITLE_PREFIX))
     if isinstance(summary, str) and COPILOT_SUMMARY_PHRASE not in summary:
         if not summary:
             data["summary"] = _COPILOT_SUMMARY_TAIL
