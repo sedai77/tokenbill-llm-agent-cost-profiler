@@ -16,6 +16,7 @@ import logging
 import os
 import secrets
 import stat
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -106,26 +107,62 @@ def load(
         st = os.stat(path)
     except OSError:
         raise UsageError(f"key file {path.name}: not found or unreadable") from None
+    _check_stat(st, path, platform)  # before opening: never block on a FIFO
+    flags = (os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+             | getattr(os, "O_NONBLOCK", 0))
+    try:
+        fd = os.open(path, flags)
+    except OSError:
+        raise UsageError(f"key file {path.name}: not readable") from None
+    try:
+        # The checks apply to the file actually read (no stat-then-open race).
+        _check_stat(os.fstat(fd), path, platform)
+        chunks: list[bytes] = []
+        size = 0
+        while size <= _MAX_KEY_FILE_BYTES:
+            chunk = os.read(fd, _MAX_KEY_FILE_BYTES + 1 - size)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+    except OSError:
+        raise UsageError(f"key file {path.name}: not readable") from None
+    finally:
+        os.close(fd)
+    raw = b"".join(chunks)
+    if len(raw) > _MAX_KEY_FILE_BYTES:
+        raise UsageError(f"key file {path.name}: too large to be a key")
+    if _platform(platform) == "nt" and not _windows_owner_acl(path, runner):
+        logger.warning("%s: owner-only ACL not enforced (%s)", path.name, ACL_WARNING)
+        if notes is not None:
+            notes.append(_acl_note(path))
+    return _decode(raw, path)
+
+
+def _check_stat(st: os.stat_result, path: Path, platform: str | None) -> None:
+    """A key file is a regular file of at most 4 KiB; on POSIX no group/other permission bit."""
     if not stat.S_ISREG(st.st_mode):
         raise UsageError(f"key file {path.name}: not a regular file")
     if st.st_size > _MAX_KEY_FILE_BYTES:
         raise UsageError(f"key file {path.name}: too large to be a key")
-    if _platform(platform) != "nt":
-        if st.st_mode & 0o077:
-            raise PrivacyError(
-                f"key file {path.name}: accessible by group or others "
-                f"(mode {stat.S_IMODE(st.st_mode):04o}); run chmod 600"
-            )
-    elif not _windows_owner_acl(path, runner):
-        logger.warning("%s: owner-only ACL not enforced (%s)", path.name, ACL_WARNING)
-        if notes is not None:
-            notes.append(_acl_note(path))
-    try:
-        with open(path, "rb") as f:
-            raw = f.read(_MAX_KEY_FILE_BYTES + 1)
-    except OSError:
-        raise UsageError(f"key file {path.name}: not readable") from None
-    return _decode(raw, path)
+    if _platform(platform) != "nt" and st.st_mode & 0o077:
+        raise PrivacyError(
+            f"key file {path.name}: accessible by group or others "
+            f"(mode {stat.S_IMODE(st.st_mode):04o}); run chmod 600"
+        )
+
+
+def _load_settled(target: Path, *, runner: Runner | None, platform: str | None,
+                  notes: list[DataQualityNote] | None, attempts: int = 20,
+                  pause_s: float = 0.05) -> bytes:
+    """:func:`load` for a key another process may still be writing in place (the no-hard-link
+    fallback): a short read is retried for up to ``attempts × pause_s`` seconds."""
+    for _ in range(attempts - 1):
+        try:
+            return load(target, runner=runner, platform=platform, notes=notes)
+        except UsageError:
+            time.sleep(pause_s)
+    return load(target, runner=runner, platform=platform, notes=notes)
 
 
 def load_or_create(
@@ -138,22 +175,45 @@ def load_or_create(
     """The key at *path* (default ``~/.config/tokenbill/key``, the install key), created on first
     use.
 
-    Creation writes 32 bytes from ``secrets.token_bytes`` as hex, exclusively (``O_EXCL``: a
-    concurrent creator's key wins and is loaded), file ``0600``, missing directories ``0700``; on
-    Windows the owner-only ACL is attempted and a ``dq.windows_acl_not_enforced`` note is appended
-    to *notes* when it fails. An existing file is read with :func:`load` (same permission checks).
+    Creation writes 32 bytes from ``secrets.token_bytes`` as hex into a private temporary file
+    (``0600``, missing directories ``0700``), flushes it, and publishes it under *path* with a
+    hard link, which fails when *path* exists: a concurrent creator's key wins and is loaded, and
+    no reader ever sees a partially written key. Where hard links are unavailable the key is
+    written with ``O_EXCL`` directly. On Windows the owner-only ACL is attempted and a
+    ``dq.windows_acl_not_enforced`` note is appended to *notes* when it fails. An existing file is
+    read with :func:`load` (same permission checks).
     """
     target = Path(path if path is not None else DEFAULT_KEY_PATH).expanduser()
     if target.exists():
         return load(target, runner=runner, platform=platform, notes=notes)
     key = secrets.token_bytes(KEY_BYTES)
+    text = key.hex() + "\n"
+    tmp = target.with_name(f".{target.name}.{secrets.token_hex(8)}.tmp")
     try:
-        handle = open_private(target, "x", runner=runner, platform=platform)
-    except FileExistsError:
-        return load(target, runner=runner, platform=platform, notes=notes)
-    with handle:
-        handle.write(key.hex() + "\n")
-        warning = acl_warning(handle)
+        handle = open_private(tmp, "x", runner=runner, platform=platform)
+        with handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+            warning = acl_warning(handle)
+        try:
+            os.link(tmp, target)
+        except FileExistsError:
+            return load(target, runner=runner, platform=platform, notes=notes)
+        except (AttributeError, NotImplementedError, OSError):
+            # No hard links on this file system: write the key exclusively in place.
+            try:
+                handle = open_private(target, "x", runner=runner, platform=platform)
+            except FileExistsError:
+                return _load_settled(target, runner=runner, platform=platform, notes=notes)
+            with handle:
+                handle.write(text)
+                warning = acl_warning(handle)
+    finally:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
     if warning is not None and notes is not None:
         notes.append(_acl_note(target))
     return key

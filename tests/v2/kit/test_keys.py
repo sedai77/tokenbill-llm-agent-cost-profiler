@@ -146,17 +146,100 @@ def test_unreadable_file(tmp_path: Path) -> None:
         os.chmod(path, 0o600)
 
 
+def _plant(path: Path, key: bytes) -> None:
+    path.write_text(key.hex() + "\n")
+    os.chmod(path, 0o600)
+
+
 def test_creation_race_loads_the_winner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "race.key"
     winner = bytes(range(32))
+    real_link = os.link
+
+    def racing_link(src, dst):
+        _plant(Path(dst), winner)  # another process published its key first
+        return real_link(src, dst)
+
+    monkeypatch.setattr(keys.os, "link", racing_link)
+    assert keys.load_or_create(path, platform="posix") == winner
+    assert [p.name for p in tmp_path.iterdir()] == ["race.key"]  # the temporary file is gone
+
+
+def test_a_concurrent_reader_never_sees_a_partial_key(tmp_path: Path,
+                                                       monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "partial.key"
+    real_link = os.link
+    seen: list[str] = []
+
+    def observing_link(src, dst):
+        assert not Path(dst).exists()  # nothing is visible under the key's name while writing
+        seen.append(Path(src).read_text())
+        return real_link(src, dst)
+
+    monkeypatch.setattr(keys.os, "link", observing_link)
+    key = keys.load_or_create(path, platform="posix")
+    assert seen == [key.hex() + "\n"] and keys.load(path, platform="posix") == key
+
+
+def test_without_hard_links_the_key_is_written_exclusively(tmp_path: Path,
+                                                             monkeypatch: pytest.MonkeyPatch
+                                                             ) -> None:
+    def no_links(src, dst):
+        raise OSError("hard links not supported")
+
+    monkeypatch.setattr(keys.os, "link", no_links)
+    path = tmp_path / "nolink.key"
+    key = keys.load_or_create(path, platform="posix")
+    assert keys.load(path, platform="posix") == key
+    assert [p.name for p in tmp_path.iterdir()] == ["nolink.key"]
+    # a creator losing the in-place race waits for the winner's key to be complete
+    other = tmp_path / "late.key"
+    winner = bytes(range(1, 33))
+    real_open = keys.open_private
+    reads = []
 
     def racing_open(target, mode="w", **kw):
-        target.write_text(winner.hex() + "\n")
-        os.chmod(target, 0o600)
-        raise FileExistsError(str(target))
+        if Path(target) == other:
+            other.write_bytes(b"")  # the winner has created the file but not written it yet
+            os.chmod(other, 0o600)
+            raise FileExistsError(str(target))
+        return real_open(target, mode, **kw)
+
+    real_load = keys.load
+
+    def slow_winner(target, **kw):
+        reads.append(1)
+        if len(reads) == 2:
+            _plant(other, winner)  # the winner finishes writing
+        return real_load(target, **kw)
 
     monkeypatch.setattr(keys, "open_private", racing_open)
-    assert keys.load_or_create(path, platform="posix") == winner
+    monkeypatch.setattr(keys, "load", slow_winner)
+    assert keys.load_or_create(other, platform="posix") == winner
+    assert len(reads) == 2  # one short read, retried once the winner had written its key
+    monkeypatch.setattr(keys, "load", real_load)
+    never = tmp_path / "never.key"
+    never.write_bytes(b"")
+    os.chmod(never, 0o600)
+    with pytest.raises(UsageError):
+        keys._load_settled(never, runner=None, platform="posix", notes=None, attempts=2,
+                           pause_s=0)
+
+
+def test_load_checks_the_file_it_actually_reads(tmp_path: Path,
+                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "swap.key"
+    _plant(path, bytes(range(32)))
+    real_fstat = os.fstat
+
+    def swapped(fd):
+        st = real_fstat(fd)
+        # the file read is group-readable although the path looked private a moment before
+        return os.stat_result((st.st_mode | 0o040, *tuple(st)[1:]))
+
+    monkeypatch.setattr(keys.os, "fstat", swapped)
+    with pytest.raises(PrivacyError):
+        keys.load(path, platform="posix")
 
 
 @posix_only
