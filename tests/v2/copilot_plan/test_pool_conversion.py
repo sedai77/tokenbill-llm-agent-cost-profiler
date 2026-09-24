@@ -8,7 +8,7 @@ from fractions import Fraction
 from tokenbill.core.labels import Basis, Evidence
 from tokenbill.core.shapley import shapley_exact
 
-from .worlds import C, USD, World, finding, has_lever, idle, lever, p1_world, plan_for
+from .worlds import USD, C, World, finding, has_lever, idle, lever, p1_world, plan_for
 
 SEAT = "copilot.seat_reclaim"
 AUTO = "copilot.default_model_auto"

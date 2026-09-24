@@ -749,17 +749,26 @@ def _scenario_findings(findings: Sequence[Finding], scenario: str | None) -> lis
     return sorted(out, key=lambda f: (f.finding_id, f.kind))
 
 
-def _units(ctx: _Context, pricing: _Pricing,
-           remap_targets: Mapping[str, tuple[str, bool]]) -> tuple[list[_Unit], int]:
-    """Cells of the included entities → units; the count of cells used."""
+def _units(ctx: _Context, pricing: _Pricing, remap_targets: Mapping[str, tuple[str, bool]]
+           ) -> tuple[list[_Unit], int, int]:
+    """Cells → units: pooled cells of the included entities and direct (org-metered) cells of
+    every entity with a pool month (their dollars do not depend on the pool). Returns the units,
+    the count of cells used and the count of pooled cells of excluded entities (unpriced)."""
     band_hi = Fraction(TOKENIZER_BAND.value[1])  # type: ignore[index]
+    excluded = frozenset(ctx.excluded)
     acc: dict[tuple, _Unit] = {}
     used = 0
+    unconverted = 0
     for cell in ctx.cells:
-        if cell.cost_type not in (_POOLED, _DIRECT) or cell.entity_id not in ctx.pools:
+        if cell.cost_type not in (_POOLED, _DIRECT):
+            continue
+        pooled = cell.cost_type == _POOLED
+        if cell.entity_id in excluded and pooled:
+            unconverted += 1
+            continue
+        if cell.entity_id not in ctx.pools and cell.entity_id not in excluded:
             continue
         used += 1
-        pooled = cell.cost_type == _POOLED
         value = _credits_nano(cell.credits)
         model = cell.model
         routing = cell.routing if cell.routing in ("direct", "auto") else "direct"
@@ -805,7 +814,7 @@ def _units(ctx: _Context, pricing: _Pricing,
         unit.gross += value
     order = sorted(acc, key=lambda k: tuple((v is not None, "" if v is None else str(v))
                                             for v in k))
-    return [acc[k] for k in order], used
+    return [acc[k] for k in order], used, unconverted
 
 
 def _entity_for(dims: Mapping[str, str], pools: Mapping[str, PoolMonth]) -> str | None:
@@ -1173,7 +1182,7 @@ def _plan(ctx: _Context) -> ActionPlan:
                        else None)
     pairs = _remap_pairs()
     remap_targets = {src: (tgt, same) for src, tgt, same, _spec in pairs}
-    units, n_cells = _units(ctx, pricing, remap_targets)
+    units, n_cells, unconverted = _units(ctx, pricing, remap_targets)
     reach = team_reach(ctx.activity, ctx.config, month=ctx.month)
     reach_fr = {team: r.reach for team, r in reach.items()}
     auto_scale = {} if auto_labels else {
@@ -1225,16 +1234,17 @@ def _plan(ctx: _Context) -> ActionPlan:
     if skipped:
         notes.append("not in the joint set: " + ", ".join(skipped))
     if ctx.excluded:
-        notes.append("excluded (pool regime unknown; their saving is unpriced, not zero): "
+        notes.append("excluded (pool regime unknown; savings on their pooled credits are "
+                     "unpriced, not zero; their direct org-metered rows are kept): "
                      + ", ".join(ctx.excluded))
+    if not ents and unconverted:
+        return _unpriced_plan(ctx, players, n_cells, scen + "; ".join(
+            ["pool regime unknown for every entity: invoice savings unpriced", *notes]))
     if not players:
         return _empty_plan(ctx, n_cells, scen + "; ".join(
             ["no applicable aggregate Copilot lever", *notes]))
     for p in players:
         game.add(p)
-    if not ents:
-        return _unpriced_plan(ctx, players, n_cells, scen + "; ".join(
-            ["pool regime unknown for every entity: invoice savings unpriced", *notes]))
     return _assemble(ctx, game, players, reach, n_cells, notes, scen)
 
 

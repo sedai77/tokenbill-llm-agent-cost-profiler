@@ -41,6 +41,7 @@ class World:
     licenses: list[LicenseSnapshot] = field(default_factory=list)
     activity: list[ActivityDay] = field(default_factory=list)
     config: list[ConfigSnapshot] = field(default_factory=list)
+    entity_mode: str = "enterprise"
     _n: int = 0
 
     def usage(self, credits: int, *, model: str = "Claude Sonnet 5", team: str | None = "t1",
@@ -116,11 +117,12 @@ class World:
 
     def cells(self, *, grain: str = "month") -> list[Cell]:
         capped = pool.capped_cost_centers(self.config)
-        return pool.build_cells(self.aggs, self.lines, grain=grain, capped=capped)[0]
+        return pool.build_cells(self.aggs, self.lines, grain=grain, capped=capped,
+                                entity_mode=self.entity_mode)[0]
 
     def pools(self, *, today: str = TODAY, grain: str = "month") -> list[PoolMonth]:
         return pool.pool_months(self.cells(grain=grain), self.lines, self.licenses, self.config,
-                                today=today)
+                                today=today, entity_mode=self.entity_mode)
 
 
 def finding(kind: str, *, detector: str = "copilot.org-scan", evidence: Sequence[EvidenceItem] = (),
