@@ -127,12 +127,12 @@ written (TRACE owns the real fingerprinter).
 ## Performance
 
 A 4,000-call growing conversation (4,002 blocks at the end, one breakpoint on the newest block)
-replays under `breakpoints=every_15` in ≈ 0.35 s on the build machine (baseline pricing included),
+replays under `breakpoints=every_15` in ≈ 0.4 s on the build machine (baseline pricing included),
 against the 2 s budget; the chain build compares delta-shared block tuples at C speed and interns
 only new blocks, the static prefix walk is memoized per node. When consecutive requests carry equal
 but distinct block objects (a reader that decodes each request independently), the build compares
 per-request hash-key lists instead (O(prefix) per request at C speed, keeping only the newest
-list): ≈ 0.7 s for the same run.
+list): ≈ 0.65 s for the same run.
 
 ## Known limits
 
