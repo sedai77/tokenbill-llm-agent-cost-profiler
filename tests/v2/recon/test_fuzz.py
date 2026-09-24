@@ -86,7 +86,7 @@ def worlds(draw: Any) -> tuple[list, list, list]:
     aggs = [agg(u, date=d, model=m, ws=w, tier=draw(st.sampled_from(["standard", "priority"])))
             for d, m, w, u in provider]
     lines = []
-    for i, (d, m, w, u) in enumerate(draw(st.lists(cells, max_size=4))):
+    for i, (d, m, w, _u) in enumerate(draw(st.lists(cells, max_size=4))):
         token_type = draw(st.sampled_from(["output_tokens", "uncached_input_tokens", "mystery"]))
         cost_type = draw(st.sampled_from(["tokens", "tokens", "code_execution", "fine_tuning"]))
         lines.append(make_cost_line(draw(st.integers(-10**9, 10**11)), date_utc=d, model=m,

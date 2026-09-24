@@ -1,7 +1,7 @@
-"""Gate (SPEC §18, PLAN §1.5): the synthetic fleet's provider records and ledger, reconciled, recover
-SYNTH-FLEET's closed-form reconciliation truth (``FleetTruth.recon``): the contract multipliers per
-channel, the Priority Tier and seat-allowance residuals, the revision window, and a re-run on the
-suggested contracts that reconciles."""
+"""Gate (SPEC §18, PLAN §1.5): the synthetic fleet's provider records and ledger, reconciled,
+recover SYNTH-FLEET's closed-form reconciliation truth (``FleetTruth.recon``): the contract
+multipliers per channel, the Priority Tier and seat-allowance residuals, the revision window, and a
+re-run on the suggested contracts that reconciles."""
 
 from __future__ import annotations
 
