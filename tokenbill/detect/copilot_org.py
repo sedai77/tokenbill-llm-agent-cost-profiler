@@ -290,6 +290,16 @@ def _add_tri(a: _Triple, b: Sequence[int], sign: int = 1) -> None:
         a[i] += sign * b[i]
 
 
+def _threshold(inp: _In, name: str, default: str, high: int, *, low: int = 0) -> Decimal:
+    """``ctx.thresholds["copilot.org-scan.<name>"]`` within ``[low, high]`` (else
+    ``UsageError`` naming the key), so a hostile value can never stall the arithmetic."""
+    key = f"{DETECTOR_ID}.{name}"
+    value = threshold(inp.ctx, key, default)
+    if not low <= value <= high:
+        raise UsageError(f"threshold {key}: must be in [{low}, {high}]")
+    return value
+
+
 def _lever_class(lever_ids: Sequence[str]) -> str:
     return catalog.lever(lever_ids[0]).lever_class if lever_ids else "none"
 
@@ -919,7 +929,7 @@ def _is_cloud_agent(c: pool.Cell | _Row) -> bool:
 
 def _jetbrains_heavy(inp: _In, shares: Sequence[tuple[str, Fraction]]) -> bool:
     """The team's JetBrains share reaches ``jetbrains_policy_share`` (default 0.5)."""
-    limit = Fraction(threshold(inp.ctx, f"{DETECTOR_ID}.jetbrains_policy_share", "0.5"))
+    limit = Fraction(_threshold(inp, "jetbrains_policy_share", "0.5", 1))
     return bool(shares) and dict(shares).get("jetbrains", Fraction(0)) >= limit
 
 
@@ -1238,7 +1248,7 @@ def _review_default_balanced(inp: _In, skipped: dict[str, str]) -> list[Finding]
     expires = flip + _dt.timedelta(days=30)
     if inp.today >= expires:
         return []
-    days = int(threshold(inp.ctx, f"{DETECTOR_ID}.review_window_days", "30"))
+    days = int(_threshold(inp, "review_window_days", "30", 3650, low=1))
     since = (inp.today - _dt.timedelta(days=max(1, days))).isoformat()
     estimates = _facts.load().copilot.review_estimates
     lite, balanced = estimates["lite"], estimates["balanced"]
@@ -1654,8 +1664,8 @@ def _mcp_sprawl(inp: _In, skipped: dict[str, str]) -> list[Finding]:
     if not inp.activity:
         skipped["mcp-sprawl"] = "no per-user activity (aggregate-only bundle or no metrics)"
         return []
-    heavy = threshold(inp.ctx, f"{DETECTOR_ID}.mcp_heavy_distinct", "5")
-    share_min = Fraction(str(threshold(inp.ctx, f"{DETECTOR_ID}.mcp_heavy_share", "0.25")))
+    heavy = _threshold(inp, "mcp_heavy_distinct", "5", 10**6)
+    share_min = Fraction(_threshold(inp, "mcp_heavy_share", "0.25", 1))
     out: list[Finding] = []
     for team, users in sorted(_activity_by_team(inp).items(), key=lambda kv: kv[0] or ""):
         values = [u.get("mcp_distinct", 0) for u in users.values()]
@@ -1689,7 +1699,7 @@ def _context_heavy_cli(inp: _In, skipped: dict[str, str]) -> list[Finding]:
         skipped["context-heavy-cli"] = ("no per-user activity (aggregate-only bundle or no "
                                         "metrics)")
         return []
-    limit = int(threshold(inp.ctx, f"{DETECTOR_ID}.cli_heavy_tokens", "100000"))
+    limit = int(_threshold(inp, "cli_heavy_tokens", "100000", 2**53))
     out: list[Finding] = []
     for team, users in sorted(_activity_by_team(inp).items(), key=lambda kv: kv[0] or ""):
         ratios = [_round(Fraction(u.get("cli_prompt_tokens", 0), u["cli_requests"]))
