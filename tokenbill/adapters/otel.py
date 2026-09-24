@@ -77,6 +77,7 @@ from tokenbill.adapters.conventions_ext import (
     lane_capabilities,
     name_or_hash,
     normalize_claude_code_otel,
+    normalize_identity,
     normalize_openinference,
     normalize_otel_genai,
     normalize_otel_genai_legacy,
@@ -999,11 +1000,10 @@ def _identities(attrs: Mapping[str, Any]) -> tuple[list[str], str | None]:
     principal: str | None = None
     for key in _USER_KEYS:
         value = attrs.get(key)
-        if not isinstance(value, str) or not value.strip() or len(value) > 512:
+        normalized = normalize_identity(value)
+        if normalized is None:
             continue
-        value = value.strip()
-        normalized = value.lower() if "@" in value else value
-        candidates.extend(dict.fromkeys((value, normalized)))
+        candidates.extend(dict.fromkeys((str(value).strip(), normalized)))
         if principal is None:
             principal = normalized
     return candidates, principal

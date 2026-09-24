@@ -108,6 +108,7 @@ __all__ = [
     "clean_label",
     "name_or_hash",
     "normalize_bedrock_converse",
+    "normalize_identity",
     "normalize_claude_code_otel",
     "normalize_openai_chat",
     "normalize_openai_responses",
@@ -625,6 +626,15 @@ def principal_for(opts: IngestOptions, raw: str | None) -> str | None:
     return pseudonym(opts.principal_key, "p", raw)
 
 
+def normalize_identity(value: object) -> str | None:
+    """A raw central identity prepared for team lookup and pseudonymization: stripped, emails
+    lower-cased (so one person has one ``p_`` across sources); None when empty or over-long."""
+    if not isinstance(value, str) or not value.strip() or len(value) > 512:
+        return None
+    value = value.strip()
+    return value.lower() if "@" in value else value
+
+
 def name_or_hash(opts: IngestOptions, value: object,
                  builtin: frozenset[str] = frozenset()) -> str | None:
     """A tool / skill / MCP / plugin / repo name in clear when built in or allowlisted, else its
@@ -910,17 +920,17 @@ def attribution_from(opts: IngestOptions, scan: SourceScan, meta: Mapping[str, A
                      *, base: Attribution | None = None, raw_principal: str | None = None,
                      team: str | None = None) -> Attribution:
     """``opts.attribution`` overridden by an allowlisted attribution mapping (request_meta /
-    requestMetadata): clear short labels, names hashed unless allowlisted, repos and API keys
-    hashed, ``principal`` pseudonymized; unknown keys and over-long values are dropped
-    (``dq.unknown_fields``)."""
+    requestMetadata), then by *team* (from ``opts.team_map``): clear short labels, names hashed
+    unless allowlisted, repos and API keys hashed, ``principal`` pseudonymized; unknown keys and
+    over-long values are dropped (``dq.unknown_fields``)."""
     attr = base if base is not None else opts.attribution
     updates: dict[str, Any] = {}
     extra = dict(attr.extra)
     principal_raw = raw_principal
     if meta:
         for key, value in meta.items():
-            if key == "principal" and isinstance(value, str) and value.strip():
-                principal_raw = value.strip()
+            if key == "principal" and normalize_identity(value) is not None:
+                principal_raw = normalize_identity(value)
             elif key in _CLEAR_ATTR and clean_label(value) is not None:
                 updates[key] = clean_label(value)
             elif key in _NAMED_ATTR and isinstance(value, str) and value.strip():
@@ -941,8 +951,8 @@ def attribution_from(opts: IngestOptions, scan: SourceScan, meta: Mapping[str, A
                         scan.note("dq.unknown_fields")
             else:
                 scan.note("dq.unknown_fields")
-    if team:
-        updates.setdefault("team", team)
+    if team:  # the admin's team map outranks caller-supplied metadata
+        updates["team"] = team
     principal = scan.principal(principal_raw)
     if principal is not None:
         updates["principal"] = principal

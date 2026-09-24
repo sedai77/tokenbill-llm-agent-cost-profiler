@@ -179,8 +179,6 @@ class _Reader:
         model_raw = (clean_label(meta.get("model_raw")) if meta else None) \
             or clean_label(resp.get("model")) or ""
         mid = normalize_model(model_raw, channel if channel in ("bedrock", "vertex") else None)
-        if not mid.model and resp.get("type") == "message":
-            self.scan.note("dq.unpriced_model")
         scope = meta.get("endpoint_scope") if meta else None
         if scope not in _SCOPES:
             scope = mid.endpoint_scope if mid.endpoint_scope in _SCOPES else dict(
@@ -232,6 +230,8 @@ class _Reader:
             inferences, codes = anthropic_inferences(usage, message_model=model_raw, ctx=ctx,
                                                      id_prefix=att_id)
             self.scan.notes(codes)
+            if not mid.model:
+                self.scan.note("dq.unpriced_model")
             output = to_int(usage.get("output_tokens")) or 0
             attempt = Attempt(
                 attempt_id=att_id, attempt_no=0, ts_start_ms=ts,
