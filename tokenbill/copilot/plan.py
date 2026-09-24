@@ -582,11 +582,69 @@ class _Game:
                 hi = r if r is not None else Fraction(1)
             s = auto_scale.get(u.team, Fraction(1))
             self._auto_factor.append((1 - auto_discount * lo * s, 1 - auto_discount * hi * s))
+        # evaluation units: pooled units that every transform treats alike (same entity, remap
+        # model, fast flag, eligibility and Auto factors) merged across teams; direct units kept
+        # apart (their net / gross share is per unit)
+        merged: dict[tuple, _Unit] = {}
+        self._eval: list[tuple[_Unit, tuple[Fraction, Fraction]]] = []
+        for u, factor in zip(units, self._auto_factor, strict=True):
+            if not u.pooled:
+                self._eval.append((u, factor))
+                continue
+            key = (u.entity, u.remap_model or "", u.fast, u.auto, factor)
+            m = merged.get(key)
+            if m is None:
+                m = merged[key] = _Unit(u.entity, True, None, u.cloud, u.auto, u.remap_model,
+                                        u.fast)
+                self._eval.append((m, factor))
+            m.value += u.value
+            m.d_remap += u.d_remap
+            m.d_remap_hi += u.d_remap_hi
+            m.d_fast += u.d_fast
         self._memo: dict[tuple[frozenset[str], _State], tuple[int, int]] = {}
+        self._sums_memo: dict[tuple, tuple[dict[str, Fraction], Fraction, Fraction]] = {}
         self._ov_memo: dict[tuple, int] = {}
 
     def add(self, player: _Player) -> None:
         self.players[player.pid] = player
+
+    def _cell_sums(self, active: Sequence[_Player], st: _State
+                   ) -> tuple[dict[str, Fraction], Fraction, Fraction]:
+        """Transformed cells of a coalition: pooled value per entity, the direct rows' invoice
+        and discount savings. Only the band and reach dimensions of *st* matter (memoized)."""
+        remaps = frozenset(p.remap_model for p in active if p.kind == "remap")
+        fast = any(p.kind == "fast" for p in active)
+        auto = any(p.kind == "auto" for p in active)
+        key = (remaps, fast, auto, st.band_high, st.reach_high)
+        got = self._sums_memo.get(key)
+        if got is not None:
+            return got
+        pooled: dict[str, Fraction] = defaultdict(Fraction)
+        direct_inv = Fraction(0)
+        direct_disc = Fraction(0)
+        pick = 1 if st.reach_high else 0
+        for u, factor in self._eval:
+            v: int = u.value
+            if u.remap_model is not None and u.remap_model in remaps:
+                v -= u.d_remap_hi if st.band_high else u.d_remap
+            elif fast and u.fast:
+                v -= u.d_fast
+            v = max(v, 0)
+            val = Fraction(v)
+            if auto and u.auto:
+                val *= factor[pick]
+            if u.pooled:
+                pooled[u.entity] += val
+            else:
+                saved = u.value - val
+                if u.gross > 0:
+                    direct_inv += saved * u.net / u.gross
+                    direct_disc += saved * (u.gross - u.net) / u.gross
+                else:
+                    direct_inv += saved
+        got = (dict(pooled), direct_inv, direct_disc)
+        self._sums_memo[key] = got
+        return got
 
     def _overage(self, group: str, cons: Mapping[str, int], pools: Mapping[str, int],
                  cap: str) -> int:
@@ -612,31 +670,7 @@ class _Game:
         if got is not None:
             return got
         active = [self.players[p] for p in sorted(coalition)]
-        remaps = {p.remap_model for p in active if p.kind == "remap"}
-        fast = any(p.kind == "fast" for p in active)
-        auto = any(p.kind == "auto" for p in active)
-        pooled: dict[str, Fraction] = defaultdict(Fraction)
-        direct_inv = Fraction(0)
-        direct_disc = Fraction(0)
-        for idx, u in enumerate(self.units):
-            v: int = u.value
-            if u.remap_model is not None and u.remap_model in remaps:
-                v -= u.d_remap_hi if st.band_high else u.d_remap
-            elif fast and u.fast:
-                v -= u.d_fast
-            v = max(v, 0)
-            val = Fraction(v)
-            if auto and u.auto:
-                val *= self._auto_factor[idx][1 if st.reach_high else 0]
-            if u.pooled:
-                pooled[u.entity] += val
-            else:
-                saved = u.value - val
-                if u.gross > 0:
-                    direct_inv += saved * u.net / u.gross
-                    direct_disc += saved * (u.gross - u.net) / u.gross
-                else:
-                    direct_inv += saved
+        pooled, direct_inv, direct_disc = self._cell_sums(active, st)
         dpool: dict[str, int] = defaultdict(int)
         fee_saving = 0
         runner = 0
