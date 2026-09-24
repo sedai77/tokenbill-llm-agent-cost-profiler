@@ -4,8 +4,6 @@ escape, outputs stay valid records, person fields never leak, money stays exact.
 from __future__ import annotations
 
 import copy
-import csv
-import io
 import json
 import os
 import tempfile
@@ -142,14 +140,14 @@ CELL = st.one_of(st.text(max_size=10), st.sampled_from(
 @given(st.lists(st.lists(CELL, min_size=len(CUR_COLS), max_size=len(CUR_COLS)), max_size=6),
        st.booleans())
 def test_random_cur_rows(rows: list[list[str]], legacy_ragged: bool) -> None:
-    buf = io.StringIO()
-    w = csv.writer(buf, lineterminator="\n")
-    w.writerow(CUR_COLS)
-    for r in rows:
-        w.writerow(r[:-1] if legacy_ragged and r[0] == "" else r)
+    def line(cells: list[str]) -> str:  # quoted by hand: csv.writer on 3.10 refuses NUL
+        return ",".join('"' + c.replace('"', '""') + '"' for c in cells) + "\n"
+
+    text = line(CUR_COLS) + "".join(line(r[:-1] if legacy_ragged and r[0] == "" else r)
+                                    for r in rows)
     with tempfile.TemporaryDirectory() as d:
         path = Path(d) / "cur.csv"
-        path.write_text(buf.getvalue(), encoding="utf-8", errors="surrogatepass")
+        path.write_text(text, encoding="utf-8", errors="surrogatepass")
         try:
             result = ADAPTERS["aws-cur"]().read(path, opts())
         except TokenbillError:

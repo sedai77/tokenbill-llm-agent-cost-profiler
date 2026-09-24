@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Build the ADMIN recorded-page fixtures and their MANIFEST.json (package ADMIN, SPEC §5.11, §5.13).
+"""Build the ADMIN recorded-page fixtures and their MANIFEST.json (package ADMIN, SPEC §5.11,
+§5.13).
 
-Stand-alone: ``python tests/v2/fixtures/admin/build_fixtures.py`` rewrites every fixture file in this
-directory, byte-identically on every run and Python version (no randomness; numbers come from
+Stand-alone: ``python tests/v2/fixtures/admin/build_fixtures.py`` rewrites every fixture file in
+this directory, byte-identically on every run and Python version (no randomness; numbers come from
 SHA-256). It never imports ``tokenbill``: expected totals in MANIFEST.json are computed here in
 closed form from the generated rows, so the adapter tests compare two independent computations.
-Rates for the reconcilable usage/cost pair are read from ``tokenbill/core/facts.json`` (the same rows
-FakePricer and the RateCard use), so the cost report equals the usage report priced at list.
+Rates for the reconcilable usage/cost pair are read from ``tokenbill/core/facts.json`` (the same
+rows FakePricer and the RateCard use), so the cost report equals the usage report priced at list.
 
 All data is synthetic. Shapes follow the documented responses (retrieved 2026-09-23):
 Usage & Cost Admin API, Claude Code Analytics API, Claude Enterprise Analytics API reference, the
