@@ -14,12 +14,17 @@ gives the same bootstrap draws in every process.
 * :func:`wilson` — Wilson score interval for a proportion.
 * :func:`ols` and :func:`newey_west_se` — least squares with Newey–West (Bartlett, HAC) standard
   errors.
+* :func:`iso_date` — the strict ``YYYY-MM-DD`` date parser every VERIFY module uses (Python 3.11+
+  ``date.fromisoformat`` also accepts ``YYYYMMDD`` and ISO week dates, which would make results
+  differ between Python versions and break the string ordering of dates).
 """
 
 from __future__ import annotations
 
+import datetime as _dt
 import math
 import random
+import re
 from collections.abc import Callable, Sequence
 from statistics import NormalDist
 from typing import TypeVar
@@ -34,6 +39,7 @@ __all__ = [
     "cluster_bootstrap_ci",
     "cuped",
     "gammaincc",
+    "iso_date",
     "mat_inv",
     "mean",
     "newey_west_se",
@@ -54,6 +60,17 @@ Z95 = NormalDist().inv_cdf(0.975)
 _EPS = 1e-300
 _GAMMA_ITMAX = 10_000
 _GAMMA_TOL = 1e-15
+_ISO_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
+
+
+def iso_date(value: object, name: str = "date") -> _dt.date:
+    """Parse a ``YYYY-MM-DD`` UTC date string strictly (``UsageError`` otherwise, with *name*)."""
+    if isinstance(value, str) and _ISO_DATE_RE.match(value):
+        try:
+            return _dt.date.fromisoformat(value)
+        except ValueError:
+            pass
+    raise UsageError(f"{name} must be a YYYY-MM-DD date")
 
 
 def mean(values: Sequence[float]) -> float:

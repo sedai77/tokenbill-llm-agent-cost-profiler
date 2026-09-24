@@ -35,7 +35,8 @@ from dataclasses import dataclass, replace
 from tokenbill.common import rng
 from tokenbill.core.errors import UsageError
 from tokenbill.core.types import PanelRow
-from tokenbill.verify.stats import percentile, resample_counts
+from tokenbill.verify.panel import check_rows
+from tokenbill.verify.stats import iso_date, percentile, resample_counts
 
 __all__ = [
     "AP_MAX_ITER",
@@ -82,20 +83,19 @@ class _Cell:
 
 
 def _merged_rows(panel: Sequence[PanelRow]) -> list[_Cell]:
-    """One cell per (cluster, date): costs, dev-days and PRs summed, ``treated`` OR-ed."""
+    """One cell per (cluster, date): costs, dev-days and PRs summed, ``treated`` OR-ed (rows are
+    validated by ``verify.panel.check_rows``)."""
     cells: dict[tuple[str, str], _Cell] = {}
-    for row in panel:
-        if not isinstance(row, PanelRow):
-            raise UsageError("panel rows must be PanelRow")
+    for row in check_rows(panel):
         key = (row.cluster_id, row.date_utc)
         cell = cells.get(key)
         if cell is None:
             cells[key] = _Cell(row.cluster_id, row.date_utc, row.cost_baseline_nano,
-                               row.active_dev_days, bool(row.treated), row.outcome_prs)
+                               row.active_dev_days, row.treated, row.outcome_prs)
         else:
             cell.cost += row.cost_baseline_nano
             cell.dev_days += row.active_dev_days
-            cell.treated = cell.treated or bool(row.treated)
+            cell.treated = cell.treated or row.treated
             if row.outcome_prs is not None:
                 cell.prs = (cell.prs or 0) + row.outcome_prs
     return [cells[k] for k in sorted(cells)]
@@ -113,7 +113,7 @@ def _value(cell: _Cell, metric: str) -> float | None:
 
 def first_treated_date(panel: Sequence[PanelRow]) -> str | None:
     """The earliest date of any treated row (None when nothing is treated)."""
-    dates = [r.date_utc for r in panel if r.treated]
+    dates = [r.date_utc for r in check_rows(panel) if r.treated]
     return min(dates) if dates else None
 
 
@@ -472,15 +472,14 @@ def cuped_cluster_dim(panel: Sequence[PanelRow], *, pre_until: str, boot: int = 
 
 
 def _check_date(value: str, name: str) -> None:
-    try:
-        _dt.date.fromisoformat(value)
-    except (TypeError, ValueError):
-        raise UsageError(f"{name} must be a YYYY-MM-DD date") from None
+    iso_date(value, name)
 
 
 def pre_midpoint(dates: Sequence[str]) -> str:
     """The midpoint date of a pre-period (the fake adoption date of the placebo)."""
     ds = sorted(set(dates))
+    for d in ds:
+        iso_date(d, "pre-period date")
     if len(ds) < 4:
         raise UsageError("the pre-period needs at least 4 days for a placebo")
     return ds[len(ds) // 2]
@@ -496,6 +495,7 @@ def placebo_did(panel: Sequence[PanelRow], *, boot: int = 2000, seed: int = 0
     """Imputation DiD on the pre-period (before the first adoption) with a fake adoption of every
     ever-treated cluster at the pre-period midpoint. A CI that excludes 0 means differential
     pre-trends (the placebo guard fails)."""
+    panel = check_rows(panel)
     first = first_treated_date(panel)
     if first is None:
         raise UsageError("placebo_did: the panel has no treated rows")
@@ -510,6 +510,7 @@ def placebo_cuped(panel: Sequence[PanelRow], *, pre_until: str, boot: int = 2000
     """CUPED DIM inside the covariate period: the first half is the covariate, the second the
     outcome, the real assignment the (fake) arm."""
     _check_date(pre_until, "pre_until")
+    panel = check_rows(panel)
     pre = [r for r in panel if r.date_utc < pre_until]
     mid = pre_midpoint([r.date_utc for r in pre])
     ever = {r.cluster_id for r in panel if r.treated and r.date_utc >= pre_until}
@@ -524,6 +525,7 @@ def quality_lower_bound(panel: Sequence[PanelRow], *, design: str, pre_until: st
 
     The non-inferiority guard passes when the bound is above −5%.
     """
+    panel = check_rows(panel)
     if not any(r.outcome_prs is not None for r in panel):
         return None
     rows = [r for r in panel if r.outcome_prs is not None]

@@ -20,6 +20,7 @@ from tokenbill.core.types import PanelRow
 from tokenbill.verify import ab as A
 from tokenbill.verify import estimators as E
 from tokenbill.verify import its as I
+from tokenbill.verify import label_policy as L
 from tokenbill.verify import panel as P
 from tokenbill.verify import receipts as RC
 from tokenbill.verify import rollout as R
@@ -193,3 +194,51 @@ def test_plan_clusters_and_ids(clusters, lever, design, waves, org_wide) -> None
         return
     assert R.verify_assignment(p)
     assert sorted(set(p.holdback) | {c for _, m in p.waves for c in m}) == sorted(clusters)
+
+
+_any_rows = st.lists(st.builds(
+    PanelRow, cluster_id=st.one_of(st.sampled_from(["a", "b", ""]), _scalars),
+    date_utc=st.one_of(_dates, st.text(max_size=10), _scalars),
+    cost_baseline_nano=st.one_of(st.integers(-10**6, 10**12), _scalars),
+    cost_actual_nano=st.one_of(st.integers(0, 10**12), _scalars),
+    active_dev_days=st.one_of(st.integers(-2, 30), _scalars), arm=_scalars, wave=_scalars,
+    treated=st.one_of(st.booleans(), _scalars),
+    outcome_prs=st.one_of(st.none(), st.integers(-1, 50), _scalars)), max_size=12)
+
+
+@FUZZ
+@given(_any_rows)
+def test_panel_consumers_on_malformed_rows(rows) -> None:
+    """Rows with any field types: every panel consumer raises only TokenbillError."""
+    for call in (lambda: E.imputation_did(rows, washout_days=1, boot=3),
+                 lambda: E.cuped_cluster_dim(rows, pre_until="2026-02-01", boot=3),
+                 lambda: E.placebo_cuped(rows, pre_until="2026-02-01", boot=3),
+                 lambda: E.quality_lower_bound(rows, design="cluster_rct",
+                                               pre_until="2026-02-01", boot=3),
+                 lambda: P.org_series(rows), lambda: P.rate_variance(rows),
+                 lambda: P.panel_window(rows)):
+        try:
+            call()
+        except TokenbillError:
+            pass
+
+
+_PLAN = R.plan(["a", "b", "c", "d"], lever_id="cc.prompt_cache_ttl.main", cluster_kind="team",
+               design="stepped_wedge", waves=2, holdback="0.25", seed=1, pre_panel=None,
+               projection=None, washout_hours=1, looks=("2026-02-01",))
+
+
+@FUZZ
+@given(st.dictionaries(st.sampled_from(["panel", "placebo", "placebo_passed", "pre_until",
+                                        "channels", "window", "cache_scopes", "look",
+                                        "looks_taken", "washout_days", "quality_lower", "boot",
+                                        "seed"]), _json_like, max_size=6))
+def test_guard_inputs(inputs) -> None:
+    """``guards`` on arbitrary ``result_inputs``: only TokenbillError escapes."""
+    from .helpers import recon
+    try:
+        out = L.guards(inputs, plan=_PLAN, reconciliation=recon({"anthropic_api": "reconciled"}),
+                       projection=None)
+    except TokenbillError:
+        return
+    assert [g.name for g in out] == list(L.GUARD_NAMES)

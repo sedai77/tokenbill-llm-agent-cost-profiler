@@ -370,9 +370,11 @@ def test_receipt_rows_carry_the_realization_rate(tmp_path: Path) -> None:
 
 
 def test_receipts_never_carry_the_canary() -> None:
+    """The measurement's own lever id is not copied: the receipt's subject is the lever id the
+    caller signs for (the end-to-end canary check is in ``test_e2e_fakes.py``)."""
     m = sample_measurement()
     m = m.__class__(**{**{f: getattr(m, f) for f in m.__slots__},
-                       "lever_id": "x"})
+                       "lever_id": f"lever-{CANARY}"})
     r = RC.build_receipt(m, lever_id="cc.prompt_cache_ttl.main", patch_sha256=PATCH,
                          shapley_credit=None, reconciliation_verdict="reconciled",
                          calibration=Calibration.CALIBRATED, tool_version="0.2.0",
@@ -391,3 +393,40 @@ def test_receipts_module_has_no_float() -> None:
 
 def test_label_values_match_the_evidence_enum() -> None:
     assert RC.SIGNABLE_LABELS == {Evidence.MEASURED.value, Evidence.VERIFIED.value}
+
+
+def test_created_is_parsed_the_same_on_every_python() -> None:
+    """``created`` is parsed by hand: Python 3.10 and 3.11+ ``fromisoformat`` disagree on basic
+    formats, week dates and short fractions."""
+    ok = {"2026-09-23": 1_790_121_600_000, "2026-09-23T12:00:00Z": 1_790_164_800_000,
+          "2026-09-23T12:00Z": 1_790_164_800_000, "2026-09-23 12:00:00": 1_790_164_800_000,
+          "2026-09-23T12:00:00.1Z": 1_790_164_800_100,
+          "2026-09-23T12:00:00.123456+00:00": 1_790_164_800_123,
+          "2026-09-23T14:00:00+02:00": 1_790_164_800_000,
+          "2026-09-23T10:30:00-01:30": 1_790_164_800_000}
+    for text, ms in ok.items():
+        assert RC._created_ms(text) == ms, text
+    for bad in ("20260923", "2026-W39-3", "2026-09-23T12", "2026-09-23T25:00:00Z",
+                "2026-09-23T12:00:00+24:00", "2026-09-23T12:00:00+01:60", "2026-02-30",
+                "2026-09-23T12:00:00.1234567Z", " 2026-09-23", "２０２６-09-23", 20260923):
+        with pytest.raises(UsageError):
+            RC._created_ms(bad)  # type: ignore[arg-type]
+
+
+def test_bad_calibration_and_deep_nesting_are_usage_errors() -> None:
+    m = sample_measurement()
+    with pytest.raises(UsageError):
+        RC.build_receipt(m, lever_id="x", patch_sha256=PATCH, shapley_credit=None,
+                         reconciliation_verdict="reconciled",
+                         calibration="bogus",  # type: ignore[arg-type]
+                         tool_version="0.2.0", created="2026-09-23")
+    deep: dict = {}
+    node = deep
+    for _ in range(5000):
+        node["x"] = {}
+        node = node["x"]
+    with pytest.raises(UsageError):
+        RC.canonical_bytes(deep)
+    nested = ("[" * 100_000 + "]" * 100_000).encode()
+    with pytest.raises(UsageError):
+        RC.envelope_receipt({"payload": base64.b64encode(nested).decode()})

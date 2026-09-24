@@ -229,3 +229,25 @@ def test_point_estimate_and_helpers() -> None:
     res = E.BootResult(att=1.0, base=0.0, draws=((1.0, 0.0),), n_units=1, n_treated_cells=1)
     with pytest.raises(UsageError):
         res.relative_lower()
+
+
+def test_malformed_panel_rows_raise_usage_errors() -> None:
+    """Rows are validated before any arithmetic: a bad date is not silently sorted after every
+    real date (it used to become a treated cell), and a str cost is not a TypeError."""
+    g = rollout_panel(seed=17)
+    extra = [PanelRow("c00", "x", 1, 1, 1, None, None, True),
+             PanelRow("c00", "2026-06-02", "1", 1, 1, None, None, False),  # type: ignore[arg-type]
+             PanelRow("c00", "2026-06-02", 1.5, 1, 1, None, None, False),  # type: ignore[arg-type]
+             PanelRow("c00", "2026-06-02", 1, 1, "1", None, None, False)]  # type: ignore[arg-type]
+    calls = (lambda rows: E.imputation_did(rows, washout_days=2, boot=5),
+             lambda rows: E.cuped_cluster_dim(rows, pre_until=g.first_start, boot=5),
+             lambda rows: E.placebo_did(rows, boot=5),
+             lambda rows: E.placebo_cuped(rows, pre_until=g.first_start, boot=5),
+             lambda rows: E.quality_lower_bound(rows, design="stepped_wedge", boot=5),
+             E.first_treated_date)
+    for bad in extra:
+        for call in calls:
+            with pytest.raises(UsageError):
+                call(g.rows + [bad])
+    with pytest.raises(UsageError):
+        E.cuped_cluster_dim(g.rows, pre_until="20260615")

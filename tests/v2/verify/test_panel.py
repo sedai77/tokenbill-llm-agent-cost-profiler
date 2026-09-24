@@ -195,3 +195,60 @@ def test_panel_channels_and_cache_scopes() -> None:
         P.panel_channels(store, cluster_kind="person", since=DAYS[0], until=DAYS[1])
     with pytest.raises(UsageError):
         P.cache_scope_clusters(store, cluster_kind="person", since=DAYS[0], until=DAYS[1])
+
+
+def test_a_developer_with_two_tags_on_one_day_is_one_developer_day() -> None:
+    """The wave's MDM payload lands mid-day: morning requests untagged, afternoon tagged. The
+    store splits the cluster-day by tag; the panel counts each developer once."""
+    reqs = []
+    for dev in (1, 2):
+        reqs.append(request("beta", DAYS[0], dev, seq=0, hour=8))
+        reqs.append(request("beta", DAYS[0], dev, seq=1, hour=15, arm=LEVER, wave="1"))
+    store = MemoryStore(org_key=ORG_KEY)
+    ingest(store, reqs)
+    kw = {"cluster_kind": "team", "since": DAYS[0], "until": DAYS[1],
+          "baseline_pricer": FakePricer(), "actual_pricer": FakePricer()}
+    assert len(store.cluster_days(cluster_kind="team", since=DAYS[0], until=DAYS[1])) == 2
+    (row,) = P.build_panel(store, **kw)
+    assert row.active_dev_days == 2
+    assert row.cost_baseline_nano == _priced(FakePricer(), reqs)
+    assert row.treated and row.arm == LEVER
+    # identity already purged from one request (principal None): the store's per-tag counts
+    # are all that is left, so they are summed
+    anon = make_request("L-anon", 0, reqs[0].ts_start_ms + 1, {"output": 10}, "claude-sonnet-4-6",
+                        attribution={"team": "beta", "arm": LEVER}, message_id="msg_anon")
+    store2 = MemoryStore(org_key=ORG_KEY)
+    ingest(store2, reqs + [anon])
+    (row2,) = P.build_panel(store2, **kw)
+    assert row2.active_dev_days == 4
+
+
+def test_check_rows_rejects_malformed_panel_rows() -> None:
+    good = PanelRow("c1", "2026-09-01", 10, 10, 2, None, None, False)
+    assert P.check_rows([good]) == [good]
+    bad_rows = [
+        "row", PanelRow("", "2026-09-01", 10, 10, 2, None, None, False),
+        PanelRow("c1", "x", 10, 10, 2, None, None, False),
+        PanelRow("c1", "20260901", 10, 10, 2, None, None, False),     # basic ISO format
+        PanelRow("c1", "2026-W36-2", 10, 10, 2, None, None, False),   # ISO week date
+        PanelRow("c1", "2026-09-01", 1.5, 10, 2, None, None, False),  # type: ignore[arg-type]
+        PanelRow("c1", "2026-09-01", 10, "10", 2, None, None, False),  # type: ignore[arg-type]
+        PanelRow("c1", "2026-09-01", 10, 10, True, None, None, False),
+        PanelRow("c1", "2026-09-01", 10, 10, -1, None, None, False),
+        PanelRow("c1", "2026-09-01", 10, 10, 2, None, None, 1),  # type: ignore[arg-type]
+        PanelRow("c1", "2026-09-01", 10, 10, 2, 5, None, False),  # type: ignore[arg-type]
+        PanelRow("c1", "2026-09-01", 10, 10, 2, None, None, False, -3),
+    ]
+    for bad in bad_rows:
+        with pytest.raises(UsageError):
+            P.check_rows([good, bad])  # type: ignore[list-item]
+    with pytest.raises(UsageError):
+        P.check_rows(5)  # type: ignore[arg-type]
+    for fn in (P.org_series, P.rate_variance, P.panel_window):
+        with pytest.raises(UsageError):
+            fn([PanelRow("c1", "2026-9-1", 10, 10, 2, None, None, False)])
+    with pytest.raises(UsageError):
+        P.rate_variance([good], post_from="20260901")
+    with pytest.raises(UsageError):
+        P.build_panel(MemoryStore(), cluster_kind="team", since="20260901", until="2026-09-02",
+                      baseline_pricer=FakePricer(), actual_pricer=FakePricer())

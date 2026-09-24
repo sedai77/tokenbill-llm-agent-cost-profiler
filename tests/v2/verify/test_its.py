@@ -110,3 +110,21 @@ def test_input_validation() -> None:
     for call in bad_calls:
         with pytest.raises(UsageError):
             call()
+
+
+def test_dates_are_strict_iso_on_every_python() -> None:
+    """Python 3.11+ ``date.fromisoformat`` also takes ``YYYYMMDD`` and week dates; VERIFY takes
+    only ``YYYY-MM-DD`` so 3.10 and 3.12 agree (and string order stays date order)."""
+    series, _ = org_series(seed=11)
+    basic = [(d.replace("-", ""), c, n) for d, c, n in series]
+    for call in (
+            lambda: I.event_study_its(basic, change_date=day(90), placebo_date=day(45)),
+            lambda: I.event_study_its(series, change_date=day(90).replace("-", ""),
+                                      placebo_date=day(45)),
+            lambda: I.event_study_its(series, change_date=day(90), placebo_date="2026-W29-3"),
+            lambda: I.event_study_its([([day(0)], 1, 1)], change_date=day(90),  # type: ignore
+                                      placebo_date=day(45)),
+            lambda: I.event_study_its(5, change_date=day(90), placebo_date=day(45)),  # type: ignore
+    ):
+        with pytest.raises(UsageError):
+            call()

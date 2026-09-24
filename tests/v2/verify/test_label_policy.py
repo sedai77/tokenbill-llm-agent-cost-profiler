@@ -6,11 +6,12 @@ import dataclasses
 import functools
 import hashlib
 import json
+from datetime import date
 from decimal import Decimal
 
 import pytest
 
-from tokenbill.core.errors import UsageError
+from tokenbill.core.errors import GateFailed, UsageError
 from tokenbill.core.labels import Basis, Calibration, Evidence, estimated
 from tokenbill.core.types import GuardResult, PanelRow
 from tokenbill.verify import label_policy as L
@@ -207,7 +208,8 @@ def test_cluster_rct_end_to_end() -> None:
 
 def test_its_org_wide_is_measured_at_most() -> None:
     """Acceptance: plan(org_wide_delivery=True) → its; the org series is MEASURED, never
-    VERIFIED; a planted pre-trend leaves it unlabeled (ESTIMATED, unsignable)."""
+    VERIFIED; a planted pre-trend leaves it unlabeled: ``measure`` never emits ESTIMATED (SPEC
+    §13.4), it refuses with ``NotAMeasurement`` (a GateFailed, exit 3) carrying the diagnostics."""
     series, truth = org_series(seed=0)
     pp = [PanelRow("org", d, c, c, n, None, None, False) for d, c, n in series if d < day(90)]
     plan = R.plan(["org"], lever_id="cc.default_model", cluster_kind="team", design="its",
@@ -222,9 +224,14 @@ def test_its_org_wide_is_measured_at_most() -> None:
     assert m.assignment_log_sha256 is None and m.signable
     kinked, _ = org_series(seed=0, pre_ramp=(40, 10, -0.06))
     bad = [PanelRow("org", d, c, c, n, None, None, d >= day(90)) for d, c, n in kinked]
-    m2 = _measure(plan, bad, cache_scopes=None)
-    assert m2.estimate.evidence is Evidence.ESTIMATED and not m2.signable
-    assert "not a measurement" in m2.estimate.note
+    with pytest.raises(L.NotAMeasurement) as refused:
+        _measure(plan, bad, cache_scopes=None)
+    assert isinstance(refused.value, GateFailed)
+    assert "placebo" in str(refused.value)
+    assert refused.value.estimate.evidence is Evidence.ESTIMATED
+    assert "not a measurement" in refused.value.estimate.note
+    assert [g.name for g in refused.value.guards] == list(L.GUARD_NAMES)
+    assert not next(g for g in refused.value.guards if g.name == "placebo").passed
     # without a pre-registered change date the first treated day is used
     bare = _with_prereg(plan, change_date=None, placebo_date=None)
     m3 = _measure(bare, rows, cache_scopes=None)
@@ -265,9 +272,18 @@ def test_guards_with_missing_inputs_fail() -> None:
 def test_guard_inputs_are_type_checked() -> None:
     plan = _plan()
     for bad in ({"panel": [object()]}, {"placebo": (1, 2)}, {"cache_scopes": ["x"]},
-                {"quality_lower": "low"}, {"boot": "many", "panel": []}):
+                {"quality_lower": "low"}, {"boot": "many", "panel": []}, {"panel": 5},
+                {"panel": "rows"}, {"window": 5}, {"window": ("2026-06-01",)},
+                {"window": (1, 2)}, {"window": ("20260601", "2026-08-09")}, {"channels": 5},
+                {"channels": "anthropic_api"}, {"channels": [1]}, {"looks_taken": 5},
+                {"looks_taken": [date(2026, 8, 10)]}, {"placebo": ("a", "b", "c")},
+                {"placebo": (1.5, -1.0, 2.0)}, {"cache_scopes": {"x": 5}},
+                {"panel": [PanelRow("c00", "2026-6-1", 1, 1, 1, None, None, False)]},
+                {"quality_lower": True}):
         with pytest.raises(UsageError):
             L.guards(bad, plan=plan, reconciliation=OK_RECON, projection=None)
+    with pytest.raises(UsageError):
+        L.guards(["panel"], plan=plan, reconciliation=OK_RECON, projection=None)  # type: ignore
     with pytest.raises(UsageError):
         L.guards({}, plan="plan", reconciliation=OK_RECON, projection=None)  # type: ignore
     with pytest.raises(UsageError):
@@ -317,6 +333,14 @@ def test_reconciliation_guard_window_and_overall() -> None:
                         projection=None)[3].passed
     bad = recon({"anthropic_api": "not_reconciled"})
     assert not L.guards({}, plan=plan, reconciliation=bad, projection=None)[3].passed
+    # a date-time window from the reconciliation is compared by its dates; garbage fails
+    stamps = recon({"anthropic_api": "reconciled"},
+                   window=("2026-06-01T00:00:00Z", "2026-09-01T00:00:00Z"))
+    ok = {"window": ("2026-06-01", "2026-08-09"), "channels": ["anthropic_api"]}
+    assert L.guards(ok, plan=plan, reconciliation=stamps, projection=None)[3].passed
+    junk = recon({"anthropic_api": "reconciled"}, window=("soon", "later"))
+    g = L.guards(ok, plan=plan, reconciliation=junk, projection=None)[3]
+    assert not g.passed and "not comparable" in g.value
 
 
 def test_cache_scope_guard() -> None:

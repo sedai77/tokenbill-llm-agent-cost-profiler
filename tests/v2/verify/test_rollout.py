@@ -218,3 +218,23 @@ def test_projection_per_dev_day() -> None:
     assert per_day.nano == 20 * 10**9 and per_day.calibration is Calibration.CALIBRATED
     with pytest.raises(UsageError):
         R.projection_per_dev_day(monthly, 0)
+
+
+def test_its_mde_refusal_states_the_window_needed() -> None:
+    pp = pre_panel(seed=4)
+    p = _plan(org_wide_delivery=True, pre_panel=pp, projection=_saving(0.0005))
+    assert p.design == "its" and p.mde_nano is not None and not p.verification_design
+    assert any("pre-period and window about" in w for w in p.warnings)
+
+
+def test_plan_input_shapes_are_checked() -> None:
+    from tokenbill.core.types import PanelRow
+    bad = [{"clusters": "c00c01"}, {"clusters": 5}, {"looks": "2026-08-10"}, {"looks": 5},
+           {"looks": ["20260810"]}, {"pre_panel": ["row"]},
+           {"pre_panel": [PanelRow("c00", "2026-6-1", 1, 1, 1, None, None, False)]}]
+    for kw in bad:
+        with pytest.raises(UsageError):
+            _plan(**kw)
+    p = _plan()
+    with pytest.raises(UsageError):
+        R.arms_for(p, {1: "20260803"})

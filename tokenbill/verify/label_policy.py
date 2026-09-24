@@ -25,16 +25,19 @@ design passes with a value starting ``"n/a"``):
     the assignment is not correlated with pre-period spend (regression to the mean).
 
 ``result_inputs`` keys read by :func:`guards` (all optional; a missing input fails the guard that
-needs it): ``panel`` (``Sequence[PanelRow]``), ``placebo`` (``(att, lo, hi)``), ``placebo_passed``
-(ITS), ``pre_until``, ``channels``, ``window`` (``(since, until)``), ``cache_scopes`` (cache scope →
-clusters), ``look`` / ``looks_taken``, ``washout_days``, ``quality_lower`` (float), ``boot``,
-``seed``. Without ``placebo`` / ``quality_lower`` the guard computes them from ``panel``.
+needs it): ``panel`` (``Sequence[PanelRow]``), ``placebo`` (int nano ``(att, lo, hi)``),
+``placebo_passed`` (ITS), ``pre_until``, ``channels``, ``window`` (``(since, until)``),
+``cache_scopes`` (cache scope → clusters), ``look`` / ``looks_taken``, ``washout_days``,
+``quality_lower`` (float), ``boot``, ``seed``. Without ``placebo`` / ``quality_lower`` the guard
+computes them from ``panel``. Malformed inputs raise ``UsageError``.
 
 :func:`decide` returns VERIFIED iff the design is randomized with a logged seed whose assignment
 hash matches the pre-registration, every guard passes and the CI excludes 0; MEASURED iff a
 comparison group exists (or design ``its`` with its placebo passing) and a CI was computed;
 otherwise ESTIMATED — "not a measurement" (e.g. an ITS whose placebo failed), which is never
-signable. Nothing here emits EXACT.
+signable. :func:`measure` never emits EXACT or ESTIMATED (SPEC §13.4): when :func:`decide` finds no
+label it raises :class:`NotAMeasurement` (a ``GateFailed``, CLI exit 3) that carries the guards
+and the unlabeled estimate for diagnostics.
 """
 
 from __future__ import annotations
@@ -45,7 +48,7 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal
 
 from tokenbill.core.catalog import lever as catalog_lever
-from tokenbill.core.errors import UsageError
+from tokenbill.core.errors import GateFailed, UsageError
 from tokenbill.core.labels import Basis, Calibration, Evidence, Figure
 from tokenbill.core.money import RATIO_CTX
 from tokenbill.core.types import (
@@ -66,7 +69,7 @@ from tokenbill.verify.estimators import (
     to_nano_triple,
 )
 from tokenbill.verify.its import event_study_its
-from tokenbill.verify.panel import org_series, panel_window, rate_variance
+from tokenbill.verify.panel import check_rows, org_series, panel_window, rate_variance
 from tokenbill.verify.rollout import (
     CONTROL_ARM,
     METRIC,
@@ -74,7 +77,7 @@ from tokenbill.verify.rollout import (
     preregistration,
     verify_assignment,
 )
-from tokenbill.verify.stats import srm_pvalue
+from tokenbill.verify.stats import iso_date, srm_pvalue
 
 __all__ = [
     "CACHE_TOUCHING_CLASSES",
@@ -83,6 +86,7 @@ __all__ = [
     "PLACEBO_DESIGNS",
     "QUALITY_MARGIN",
     "SRM_ALPHA",
+    "NotAMeasurement",
     "decide",
     "guards",
     "measure",
@@ -105,6 +109,18 @@ CACHE_TOUCHING_CLASSES = frozenset({"cache_transform", "trajectory"})
 _LABELS = frozenset({Evidence.MEASURED, Evidence.VERIFIED})
 
 
+class NotAMeasurement(GateFailed):
+    """No label applies (an ITS whose placebo failed, or no CI): :func:`measure` refuses to emit
+    a result (SPEC §13.4 — ``measure`` never emits ESTIMATED). ``guards`` holds every guard result
+    and ``estimate`` the unlabeled ESTIMATED saving with its interval, for diagnostics only."""
+
+    def __init__(self, message: str, *, guards: tuple[GuardResult, ...],
+                 estimate: Figure) -> None:
+        super().__init__(message)
+        self.guards = guards
+        self.estimate = estimate
+
+
 def _g(name: str, passed: bool, value: str, threshold: str) -> GuardResult:
     return GuardResult(name=name, passed=bool(passed), value=value, threshold=threshold)
 
@@ -113,10 +129,33 @@ def _panel(result_inputs: Mapping[str, object]) -> list[PanelRow] | None:
     panel = result_inputs.get("panel")
     if panel is None:
         return None
-    rows = list(panel)  # type: ignore[call-overload]
-    if any(not isinstance(r, PanelRow) for r in rows):
+    if isinstance(panel, (str, bytes, Mapping)):
         raise UsageError("result_inputs['panel'] must hold PanelRow values")
-    return rows
+    return check_rows(panel)  # type: ignore[arg-type]
+
+
+def _date_prefix(value: object) -> str | None:
+    """The ``YYYY-MM-DD`` date a reconciliation window bound starts with (a date or an ISO
+    date-time), or None."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return iso_date(value[:10]).isoformat()
+    except UsageError:
+        return None
+
+
+def _strings(value: object, key: str) -> list[str]:
+    """*value* as a list of strings (``UsageError`` for anything else)."""
+    if isinstance(value, (str, bytes, Mapping)):
+        raise UsageError(f"result_inputs[{key!r}] must be a sequence of strings")
+    try:
+        items = list(value)  # type: ignore[call-overload]
+    except TypeError:
+        raise UsageError(f"result_inputs[{key!r}] must be a sequence of strings") from None
+    if any(not isinstance(v, str) for v in items):
+        raise UsageError(f"result_inputs[{key!r}] must be a sequence of strings")
+    return items
 
 
 def _int_opt(result_inputs: Mapping[str, object], key: str, default: int) -> int:
@@ -178,8 +217,9 @@ def _placebo(result_inputs: Mapping[str, object], panel: list[PanelRow] | None,
                 tri = placebo_did(panel, boot=boot, seed=seed)
         except UsageError:
             return _g("placebo", False, "not computable (pre-period too short)", threshold)
-    if not isinstance(tri, (tuple, list)) or len(tri) != 3:
-        raise UsageError("result_inputs['placebo'] must be (att, ci_low, ci_high)")
+    if (not isinstance(tri, (tuple, list)) or len(tri) != 3
+            or any(type(v) is not int for v in tri)):
+        raise UsageError("result_inputs['placebo'] must be int nano (att, ci_low, ci_high)")
     _, lo, hi = tri
     return _g("placebo", lo <= 0 <= hi, f"CI [{lo}, {hi}] nano per active developer-day",
               threshold)
@@ -204,16 +244,22 @@ def _reconciliation(result_inputs: Mapping[str, object],
         raise UsageError("reconciliation must be a ReconciliationReport")
     window = result_inputs.get("window")
     if window is not None:
-        since, until = window  # type: ignore[misc]
-        r_since, r_until = reconciliation.window
-        if not (r_since <= since and until <= r_until):
+        dates = _strings(window, "window")
+        if len(dates) != 2:
+            raise UsageError("result_inputs['window'] must be (since, until)")
+        since, until = (iso_date(d, "window date").isoformat() for d in dates)
+        r_window = [_date_prefix(v) for v in tuple(reconciliation.window)[:2]]
+        if len(r_window) != 2 or None in r_window:
+            return _g("reconciliation", False, "reconciliation window not comparable", threshold)
+        r_since, r_until = r_window
+        if not (r_since <= since and until <= r_until):  # type: ignore[operator]
             return _g("reconciliation", False, "reconciliation window does not cover the panel",
                       threshold)
     channels = result_inputs.get("channels")
     if channels is None:
         ok = reconciliation.verdict == "reconciled"
         return _g("reconciliation", ok, f"overall {reconciliation.verdict}", threshold)
-    chans = sorted(set(channels))  # type: ignore[call-overload]
+    chans = sorted(set(_strings(channels, "channels")))
     if not chans:
         return _g("reconciliation", False, "no channel covered", threshold)
     verdicts = {cv.channel: cv.verdict for cv in reconciliation.channels}
@@ -241,7 +287,8 @@ def _cache_scope(result_inputs: Mapping[str, object], plan: MeasurePlan) -> Guar
         return _g("cluster_cache_scope", False, "missing input: cache_scopes", threshold)
     if not isinstance(scopes, Mapping):
         raise UsageError("result_inputs['cache_scopes'] must map cache scope → clusters")
-    spanning = sorted(s for s, cl in scopes.items() if len(set(cl)) > 1)
+    spanning = sorted(str(s) for s, cl in scopes.items()
+                      if len(set(_strings(cl, "cache_scopes"))) > 1)
     return _g("cluster_cache_scope", not spanning,
               f"{len(spanning)} of {len(scopes)} cache scopes span clusters", threshold)
 
@@ -268,7 +315,8 @@ def _quality(result_inputs: Mapping[str, object], panel: list[PanelRow] | None,
         if bound is None:  # pragma: no cover - guarded by the outcome check above
             return _g("quality_noninferiority", True, "n/a: no team-level outcome data",
                       threshold)
-    if not isinstance(bound, (int, float)) or not math.isfinite(bound):
+    if isinstance(bound, bool) or not isinstance(bound, (int, float)) \
+            or not math.isfinite(bound):
         raise UsageError("result_inputs['quality_lower'] must be a finite number")
     return _g("quality_noninferiority", bound > QUALITY_MARGIN,
               f"lower bound {bound:+.2%} merged PRs per active developer-day", threshold)
@@ -280,7 +328,7 @@ def _looks(result_inputs: Mapping[str, object], plan: MeasurePlan) -> GuardResul
     if taken is None:
         look = result_inputs.get("look")
         taken = [look] if look is not None else []
-    looks = [str(v) for v in taken]  # type: ignore[attr-defined]
+    looks = _strings(taken, "looks_taken")
     if not looks:
         return _g("registered_looks", False, "missing input: look", threshold)
     bad = [v for v in looks if v not in plan.looks]
@@ -318,6 +366,8 @@ def guards(result_inputs: Mapping[str, object], *, plan: MeasurePlan,
     ``result_inputs`` keys)."""
     if not isinstance(plan, MeasurePlan):
         raise UsageError("plan must be a MeasurePlan")
+    if not isinstance(result_inputs, Mapping):
+        raise UsageError("result_inputs must be a mapping")
     panel = _panel(result_inputs)
     return (
         _srm(panel, plan),
@@ -397,11 +447,15 @@ def measure(panel: Sequence[PanelRow], *, plan: MeasurePlan,
 
     ``estimate`` is the realized **saving** per active developer-day (``−ATT``: positive when the
     treated arm got cheaper) with its CI; the rate variance is reported separately (EXACT, R8).
-    Allowance panels (``basis=LIST_EQUIVALENT``) are measured but never signable (D26).
+    Allowance panels (``basis=LIST_EQUIVALENT``) are measured but never signable (D26). The label
+    is MEASURED or VERIFIED; when no label applies (an ITS whose placebo failed) this raises
+    :class:`NotAMeasurement` (``GateFailed``, exit 3) instead of emitting an ESTIMATED result.
     """
-    rows = list(panel)
+    rows = check_rows(panel)
     if not rows:
         raise UsageError("empty panel")
+    if not isinstance(plan, MeasurePlan):
+        raise UsageError("plan must be a MeasurePlan")
     design = plan.design
     since, until = panel_window(rows)
     need = math.ceil(plan.washout_hours / 24)
@@ -463,14 +517,15 @@ def measure(panel: Sequence[PanelRow], *, plan: MeasurePlan,
                    guards=results, ci=(lo, hi))
     saving, s_lo, s_hi = to_nano_triple(-att, -hi, -lo)
     failing = [g.name for g in results if not g.passed]
-    if label in _LABELS:
-        estimate = Figure(nano=saving, evidence=label, basis=basis, low_nano=s_lo,
-                          high_nano=s_hi, ci_level_pct=95,
-                          note="failing guards: " + ", ".join(failing) if failing else "")
-    else:
-        estimate = Figure(nano=saving, evidence=Evidence.ESTIMATED, basis=basis, low_nano=s_lo,
-                          high_nano=s_hi,
-                          note="not a measurement: " + (", ".join(failing) or "no CI"))
+    if label not in _LABELS:
+        why = ", ".join(failing) or "no CI"
+        raise NotAMeasurement(
+            f"not a measurement (design {design}): failing guards: {why}", guards=results,
+            estimate=Figure(nano=saving, evidence=Evidence.ESTIMATED, basis=basis, low_nano=s_lo,
+                            high_nano=s_hi, note="not a measurement: " + why))
+    estimate = Figure(nano=saving, evidence=label, basis=basis, low_nano=s_lo, high_nano=s_hi,
+                      ci_level_pct=95,
+                      note="failing guards: " + ", ".join(failing) if failing else "")
     reconciled = next(g.passed for g in results if g.name == "reconciliation")
     ok = (signable(label, reconciled=reconciled, projection=plan.projection)
           and basis is not Basis.LIST_EQUIVALENT)

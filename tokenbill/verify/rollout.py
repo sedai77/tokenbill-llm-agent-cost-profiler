@@ -36,7 +36,8 @@ from tokenbill.core.records import to_json
 from tokenbill.core.types import MeasurePlan, PanelRow
 from tokenbill.verify.estimators import point_estimate
 from tokenbill.verify.its import MIN_SIDE_DAYS, its_point
-from tokenbill.verify.panel import CLUSTER_FIELDS, org_series
+from tokenbill.verify.panel import CLUSTER_FIELDS, check_rows, org_series
+from tokenbill.verify.stats import iso_date
 
 __all__ = [
     "AA_DRAWS",
@@ -102,10 +103,7 @@ def _sha(text: str) -> str:
 
 
 def _date(value: str, name: str) -> _dt.date:
-    try:
-        return _dt.date.fromisoformat(value)
-    except (TypeError, ValueError):
-        raise UsageError(f"{name} must be a YYYY-MM-DD date") from None
+    return iso_date(value, name)
 
 
 def _dec(value: object, name: str) -> Decimal:
@@ -335,7 +333,15 @@ def plan(clusters: Sequence[str], *, lever_id: str, cluster_kind: str, design: s
     """A measurement plan (SPEC §13.2). ``treated`` (cluster → wave number or ``"control"``) is a
     user-supplied assignment: it has no logged seed (MEASURED at best) and is checked for
     correlation with pre-period spend."""
-    names = list(clusters)
+    if isinstance(clusters, (str, bytes)):
+        raise UsageError("clusters must be a sequence of cluster ids")
+    try:
+        names = list(clusters)
+        look_values = list(looks) if not isinstance(looks, (str, bytes)) else None
+    except TypeError:
+        raise UsageError("clusters and looks must be sequences") from None
+    if look_values is None:
+        raise UsageError("looks must be a sequence of YYYY-MM-DD dates")
     if not names or any(not isinstance(c, str) or not c or not _encodable(c) for c in names):
         raise UsageError("clusters must be non-empty UTF-8 strings")
     if len(set(names)) != len(names):
@@ -353,9 +359,11 @@ def plan(clusters: Sequence[str], *, lever_id: str, cluster_kind: str, design: s
     if type(washout_hours) is not int or washout_hours < 0:
         raise UsageError("washout_hours must be an int ≥ 0")
     hb = _dec(holdback, "holdback")
-    look_list = sorted({_date(v, "look").isoformat() for v in looks})
+    look_list = sorted({_date(v, "look").isoformat() for v in look_values})
     if projection is not None and not isinstance(projection, Figure):
         raise UsageError("projection must be a Figure")
+    if pre_panel is not None:
+        pre_panel = check_rows(pre_panel)
     names.sort()
     warnings: list[str] = []
     if org_wide_delivery:
@@ -478,9 +486,11 @@ def plan(clusters: Sequence[str], *, lever_id: str, cluster_kind: str, design: s
                     f"{clusters_needed} clusters or a pre-period and window about "
                     f"{math.ceil(ratio * ratio)}× longer")
             else:
+                ratio = (MDE_RATIO_DEN * mde) / max(1, MDE_RATIO_NUM * target)
                 warnings.append(
                     f"MDE ${nano_to_usd_str(mde)} per active developer-day exceeds 0.8 × "
-                    f"|projection| (${nano_to_usd_str(target)})")
+                    f"|projection| (${nano_to_usd_str(target)}): the series needs a pre-period "
+                    f"and window about {math.ceil(ratio * ratio)}× longer")
     else:
         warnings.append("no projection: the MDE guard is not applicable")
     if spend_flag:

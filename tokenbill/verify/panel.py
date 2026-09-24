@@ -25,6 +25,13 @@ Conventions (documented contract of this module):
   Treatment is absorbing.
 * ``outcome_prs`` is filled from team-level ``OutcomeAggregate`` rows when the cluster kind is
   ``team`` (the largest ``pull_requests`` per team-day across outcome sources).
+* Active developer-days come from ``cluster_days``, which splits a cluster-day by arm/wave tag. A
+  developer whose requests carry two tags on one day (the wave's MDM payload landing mid-day, or a
+  tagged and an untagged source) appears in two of those rows; when every active request of the
+  cluster-day still carries its principal, the developer is counted once (distinct principals),
+  otherwise (identity already purged) the store's per-tag counts are summed.
+* :func:`check_rows` validates panel rows for every consumer (strict ``YYYY-MM-DD`` dates, int
+  money and developer-days, bool ``treated``); malformed rows raise ``UsageError``.
 """
 
 from __future__ import annotations
@@ -38,6 +45,7 @@ from tokenbill.core.protocols import LedgerStore, Pricer
 from tokenbill.core.records import Request
 from tokenbill.core.records import billing_class as billing_class_of
 from tokenbill.core.types import PanelRow, PricedInference
+from tokenbill.verify.stats import iso_date
 
 __all__ = [
     "BILLING_CLASSES",
@@ -46,6 +54,7 @@ __all__ = [
     "UNKNOWN_SCOPE",
     "build_panel",
     "cache_scope_clusters",
+    "check_rows",
     "cluster_of",
     "org_series",
     "panel_channels",
@@ -78,11 +87,42 @@ BILLING_CLASSES = ("billed", "allowance")
 
 
 def _date_ms(date: str, name: str) -> int:
+    return (iso_date(date, name) - _EPOCH).days * _DAY_MS
+
+
+def _is_int(value: object) -> bool:
+    return type(value) is int
+
+
+def check_rows(panel: Iterable[object]) -> list[PanelRow]:
+    """The rows of *panel* as a list, validated: ``PanelRow`` instances with a non-empty string
+    cluster id, a strict ``YYYY-MM-DD`` date, int costs, int developer-days ≥ 0, a bool
+    ``treated``, string-or-None arm/wave and int-or-None (≥ 0) ``outcome_prs``; otherwise
+    ``UsageError``."""
     try:
-        d = _dt.date.fromisoformat(date)
-    except (TypeError, ValueError):
-        raise UsageError(f"{name} must be a YYYY-MM-DD date") from None
-    return (d - _EPOCH).days * _DAY_MS
+        rows = list(panel)
+    except TypeError:
+        raise UsageError("a panel is a sequence of PanelRow") from None
+    seen: set[str] = set()
+    for r in rows:
+        if not isinstance(r, PanelRow):
+            raise UsageError("panel rows must be PanelRow")
+        if not isinstance(r.cluster_id, str) or not r.cluster_id:
+            raise UsageError("PanelRow.cluster_id must be a non-empty string")
+        if r.date_utc not in seen:
+            iso_date(r.date_utc, "PanelRow.date_utc")
+            seen.add(r.date_utc)
+        if not (_is_int(r.cost_baseline_nano) and _is_int(r.cost_actual_nano)):
+            raise UsageError("PanelRow costs must be int nano")
+        if not _is_int(r.active_dev_days) or r.active_dev_days < 0:
+            raise UsageError("PanelRow.active_dev_days must be an int ≥ 0")
+        if type(r.treated) is not bool:
+            raise UsageError("PanelRow.treated must be a bool")
+        if any(v is not None and not isinstance(v, str) for v in (r.arm, r.wave)):
+            raise UsageError("PanelRow arm and wave must be strings or None")
+        if r.outcome_prs is not None and (not _is_int(r.outcome_prs) or r.outcome_prs < 0):
+            raise UsageError("PanelRow.outcome_prs must be an int ≥ 0 or None")
+    return rows
 
 
 def _date_of(ts_ms: int) -> str:
@@ -152,25 +192,31 @@ def build_panel(store: LedgerStore, *, cluster_kind: str, since: str, until: str
     assigned = {c: parse_arm(v) for c, v in (arms or {}).items()}
     cells: dict[tuple[str, str], list[int]] = {}      # (cluster, date) → [baseline, actual, devs]
     tags: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+    splits: dict[tuple[str, str], int] = {}           # cluster_day rows per (cluster, date)
     for cd in store.cluster_days(cluster_kind=cluster_kind, since=since, until=until):
         key = (cd.cluster_id, cd.date_utc)
         cell = cells.setdefault(key, [0, 0, 0])
         cell[2] += cd.active_users
+        splits[key] = splits.get(key, 0) + 1
         prev = tags.get(key, (None, None))
         arm = prev[0]
         if cd.arm is not None and (arm is None or arm in CONTROL_ARMS):
             arm = cd.arm
         tags[key] = (arm, prev[1] if prev[1] is not None else cd.wave)
+    people: dict[tuple[str, str], set[str]] = {}      # principals of active requests
+    anonymous: set[tuple[str, str]] = set()             # cells with an active request w/o one
     for req in _requests(store, lo, hi):
         cluster = cluster_of(req, cluster_kind)
         if cluster is None:
             continue
         key = (cluster, _date_of(req.ts_start_ms))
         cell = cells.setdefault(key, [0, 0, 0])
+        active = False
         for att in req.attempts:
             for inf in att.inferences:
                 if inf.billable is False:
                     continue
+                active = True
                 if billing_class_of(inf.pricing.billing_path) != billing_class:
                     continue
                 cell[0] += _costs(baseline_pricer.price_inference(inf, ts_ms=att.ts_start_ms),
@@ -178,12 +224,21 @@ def build_panel(store: LedgerStore, *, cluster_kind: str, since: str, until: str
                 cell[1] += _costs(actual_pricer.price_inference(inf, ts_ms=att.ts_start_ms),
                                   billing_class)
         a = req.attribution
+        if active:
+            if a.principal is None:
+                anonymous.add(key)
+            else:
+                people.setdefault(key, set()).add(a.principal)
         if a.arm is not None or a.wave is not None:
             prev = tags.get(key, (None, None))
             arm = prev[0]
             if a.arm is not None and (arm is None or arm in CONTROL_ARMS):
                 arm = a.arm
             tags[key] = (arm, prev[1] if prev[1] is not None else a.wave)
+    # a developer in two arm/wave rows of one cluster-day counts once (module docstring)
+    for key, n in splits.items():
+        if n > 1 and key not in anonymous and key in people:
+            cells[key][2] = min(cells[key][2], len(people[key]))
     # adoption per cluster: explicit date, else the first day with a non-control arm tag (the
     # assigned arm's own tag when the cluster has an ``arms`` entry)
     first_tag: dict[str, str] = {}
@@ -222,9 +277,10 @@ def build_panel(store: LedgerStore, *, cluster_kind: str, since: str, until: str
 
 def panel_window(panel: Sequence[PanelRow]) -> tuple[str, str]:
     """``(first date, last date)`` of *panel* (``UsageError`` when empty)."""
-    if not panel:
+    rows = check_rows(panel)
+    if not rows:
         raise UsageError("empty panel")
-    dates = [r.date_utc for r in panel]
+    dates = [r.date_utc for r in rows]
     return min(dates), max(dates)
 
 
@@ -233,10 +289,13 @@ def rate_variance(panel: Sequence[PanelRow], *, post_from: str | None = None,
     """The EXACT price effect (R8): ``Σ (cost_actual − cost_baseline)`` over rows dated on or after
     *post_from* (default: the first treated date; every row when nothing is treated). Negative when
     prices fell."""
+    rows = check_rows(panel)
     if post_from is None:
-        treated = [r.date_utc for r in panel if r.treated]
+        treated = [r.date_utc for r in rows if r.treated]
         post_from = min(treated) if treated else ""
-    total = sum(r.cost_actual_nano - r.cost_baseline_nano for r in panel
+    elif post_from:
+        iso_date(post_from, "post_from")
+    total = sum(r.cost_actual_nano - r.cost_baseline_nano for r in rows
                 if r.date_utc >= post_from)
     return exact(total, basis, provenance=("rate_variance",))
 
@@ -245,7 +304,7 @@ def org_series(panel: Sequence[PanelRow]) -> list[tuple[str, int, int]]:
     """The org-level daily series ``(date, Σ cost_baseline_nano, Σ active_dev_days)`` for the ITS
     design, in date order."""
     acc: dict[str, list[int]] = {}
-    for r in panel:
+    for r in check_rows(panel):
         a = acc.setdefault(r.date_utc, [0, 0])
         a[0] += r.cost_baseline_nano
         a[1] += r.active_dev_days

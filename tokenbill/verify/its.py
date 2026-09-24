@@ -28,7 +28,7 @@ import math
 from collections.abc import Sequence
 
 from tokenbill.core.errors import UsageError
-from tokenbill.verify.stats import newey_west_se, ols
+from tokenbill.verify.stats import iso_date, newey_west_se, ols
 
 __all__ = [
     "MIN_SIDE_DAYS",
@@ -53,16 +53,18 @@ def _parse(series: Sequence[tuple[str, int, int]]) -> list[tuple[_dt.date, float
     """Aggregate ``(date, cost nano, dev-days)`` rows per date → ``(date, cost per dev-day)``,
     days without developer-days dropped, in date order."""
     acc: dict[str, list[int]] = {}
-    for item in series:
+    try:
+        items = list(series)
+    except TypeError:
+        raise UsageError("a series is a sequence of (date, cost_nano, active_dev_days)") from None
+    for item in items:
         if not isinstance(item, (tuple, list)) or len(item) != 3:
             raise UsageError("series items must be (date, cost_nano, active_dev_days)")
         date, cost, devs = item
         if type(cost) is not int or type(devs) is not int or devs < 0:
             raise UsageError("series cost and dev-days must be ints (dev-days ≥ 0)")
-        try:
-            _dt.date.fromisoformat(date)
-        except (TypeError, ValueError):
-            raise UsageError("series dates must be YYYY-MM-DD") from None
+        if not isinstance(date, str) or date not in acc:
+            iso_date(date, "series dates")
         a = acc.setdefault(date, [0, 0])
         a[0] += cost
         a[1] += devs
@@ -110,10 +112,7 @@ def _shift(points: Sequence[tuple[_dt.date, float]], step: _dt.date, hac_lag: in
 
 
 def _date(value: str, name: str) -> _dt.date:
-    try:
-        return _dt.date.fromisoformat(value)
-    except (TypeError, ValueError):
-        raise UsageError(f"{name} must be a YYYY-MM-DD date") from None
+    return iso_date(value, name)
 
 
 def its_point(series: Sequence[tuple[str, int, int]], *, change_date: str,

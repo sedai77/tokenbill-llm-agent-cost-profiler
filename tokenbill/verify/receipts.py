@@ -78,6 +78,12 @@ NAMESPACE = "tokenbill-receipt"
 SIGNABLE_LABELS = frozenset({"measured", "verified"})
 _MAX_INT = 2**53 - 1
 _SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
+#: ``created``: a UTC date, or an ISO 8601 date-time with optional seconds, fraction (≤ 6 digits)
+#: and offset (``Z`` / ``±HH:MM``; none = UTC). Parsed by hand so Python 3.10 and 3.11+ agree.
+_CREATED_RE = re.compile(
+    r"([0-9]{4})-([0-9]{2})-([0-9]{2})"
+    r"(?:[T ]([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:\.([0-9]{1,6}))?)?"
+    r"(Z|[+-][0-9]{2}:[0-9]{2})?)?\Z")
 _TIMEOUT_S = 120
 
 Runner = Callable[..., Any]
@@ -122,8 +128,11 @@ def canonical_bytes(receipt: Mapping[str, object]) -> bytes:
     if not isinstance(receipt, Mapping):
         raise UsageError("a receipt is a JSON object")
     data = dict(receipt)
-    _check(data, "$")
-    text = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    try:
+        _check(data, "$")
+        text = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    except RecursionError:
+        raise UsageError("receipt nesting too deep") from None
     try:
         return text.encode("utf-8")
     except UnicodeEncodeError:
@@ -178,7 +187,10 @@ def build_receipt(m: MeasurementResult, *, lever_id: str, patch_sha256: str,
         if not isinstance(value, str) or not value:
             raise UsageError(f"{name} must be a non-empty string")
     _created_ms(created)
-    cal = Calibration(calibration)
+    try:
+        cal = Calibration(calibration)
+    except ValueError:
+        raise UsageError("calibration must be calibrated, uncalibrated or n/a") from None
     if m.projected is not None and m.projected.calibration is not Calibration.CALIBRATED:
         cal = Calibration.UNCALIBRATED   # never record a projection as stronger than it is
     predicate: dict[str, object] = {
@@ -359,7 +371,7 @@ def envelope_receipt(envelope: Mapping[str, object]) -> dict:
         raise UsageError("the envelope payload is not base64")
     try:
         data = json.loads(body.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError):
+    except (UnicodeDecodeError, ValueError, RecursionError):
         raise UsageError("the envelope payload is not JSON") from None
     if not isinstance(data, dict):
         raise UsageError("the envelope payload is not a receipt")
@@ -373,19 +385,22 @@ def envelope_receipt(envelope: Mapping[str, object]) -> dict:
 
 
 def _created_ms(created: str) -> int:
-    text = created.strip()
-    if text.endswith("Z"):
-        text = text[:-1] + "+00:00"
+    match = _CREATED_RE.match(created) if isinstance(created, str) else None
+    if match is None:
+        raise UsageError("created must be an ISO 8601 date or date-time")
+    year, month, day, hour, minute, second, frac, offset = match.groups()
     try:
-        if len(text) == 10:
-            moment = _dt.datetime.combine(_dt.date.fromisoformat(text), _dt.time(),
-                                          tzinfo=_dt.timezone.utc)
-        else:
-            moment = _dt.datetime.fromisoformat(text)
+        tz = _dt.timezone.utc
+        if offset not in (None, "Z"):
+            sign = -1 if offset[0] == "-" else 1
+            hours, minutes = int(offset[1:3]), int(offset[4:6])
+            if minutes > 59:
+                raise ValueError("offset minutes")
+            tz = _dt.timezone(sign * _dt.timedelta(hours=hours, minutes=minutes))
+        moment = _dt.datetime(int(year), int(month), int(day), int(hour or 0), int(minute or 0),
+                              int(second or 0), int((frac or "0").ljust(6, "0")), tzinfo=tz)
     except ValueError:
         raise UsageError("created must be an ISO 8601 date or date-time") from None
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=_dt.timezone.utc)
     delta = moment - _dt.datetime(1970, 1, 1, tzinfo=_dt.timezone.utc)
     return (delta.days * 86_400 + delta.seconds) * 1000 + delta.microseconds // 1000
 

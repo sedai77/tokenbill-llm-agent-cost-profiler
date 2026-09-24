@@ -72,11 +72,16 @@ Markers: `slow` (50-seed recovery), `gate`, `needs_ssh_keygen`.
    are never treated; without a date, treatment starts on the first day the cluster's telemetry
    carries its assigned arm tag; treatment is absorbing (ITT). `outcome_prs` = the largest
    `pull_requests` per team-day across outcome sources. Lanes with cache scope `"unknown"` are
-   skipped by `cache_scope_clusters`.
+   skipped by `cache_scope_clusters`. Active developer-days come from `cluster_days`, which splits
+   a cluster-day by arm/wave tag; a developer whose requests carry two tags on one day (the MDM
+   payload landing mid-day, tagged and untagged sources) is counted once when every active request
+   of that cluster-day still carries its principal (else, identity purged, the per-tag counts are
+   summed).
 4. **Labels.** `decide` returns ESTIMATED ("not a measurement") when no label applies — an ITS
-   whose placebo fails, or no CI. SPEC §13.4 says `measure` "never emits EXACT or ESTIMATED";
-   read literally that leaves a failed-placebo ITS without a label, so VERIFY labels it ESTIMATED
-   with the note `not a measurement: …`, never signable. A spend-targeted or user-supplied
+   whose placebo fails, or no CI. SPEC §13.4: `measure` "never emits EXACT or ESTIMATED", and
+   `MeasurementResult.estimate` is MEASURED or VERIFIED; so `label_policy.measure` raises
+   `NotAMeasurement` (a `GateFailed`: CLI exit 3) whose `guards` and `estimate` (the unlabeled
+   ESTIMATED saving with its interval) carry the diagnostics. A spend-targeted or user-supplied
    assignment is MEASURED at best (no logged seed; guard `assignment_not_spend_targeted`).
 5. **`plan` extensions** (keyword-only, defaults keep the SPEC signature): `change_date` (ITS; default
    the day after the pre-period panel) and `rate_card_sha256` (recorded in the pre-registration).
@@ -109,13 +114,22 @@ Markers: `slow` (50-seed recovery), `gate`, `needs_ssh_keygen`.
     clusters); with an effect proportional to cluster level its CI need not bracket the in-sample
     truth, so its tests check accuracy, not in-sample coverage.
 12. Contract gap filed: `CONTRACT-CHANGE-VERIFY-1.md` (`cluster_days` kind `gateway`).
+13. **Input validation.** Every date VERIFY reads is strict `YYYY-MM-DD` (`stats.iso_date`):
+    Python 3.11+ `date.fromisoformat` also accepts `YYYYMMDD` and ISO week dates, which would make
+    3.10 and 3.12 disagree and break the string ordering of dates. Receipt `created` is parsed by
+    hand (date, or date-time with optional seconds, ≤ 6-digit fraction and `Z`/`±HH:MM`; no offset
+    = UTC). `panel.check_rows` validates `PanelRow`s for every consumer (int money and dev-days,
+    bool `treated`); `guards` type-checks `result_inputs`. Malformed input raises `UsageError`. The
+    reconciliation window is compared by the `YYYY-MM-DD` its bounds start with (a date or an ISO
+    date-time); anything else fails the guard as "not comparable".
 
 ## Facts
 
 - Kiefer–Vogelsang (2005) fixed-b 0.975 quantile for the Bartlett kernel,
   `1.9600 + 2.9694 b + 0.4160 b² − 0.5324 b³` — **verified 2026-09-23** against
   <https://www.york.ac.uk/media/economics/documents/discussionpapers/2015/1515.pdf> (which quotes
-  KV 2005).
+  KV 2005; re-checked in review on 2026-09-23: the paper prints α0 = 1.9600, α1 = 2.9694,
+  α2 = 0.4160, α3 = −0.5324 for the 0.975 quantile).
 - DSSE PAE and the OpenSSH `-Y sign/verify` invocations are SPEC §19.7 facts; the DSSE example
   vector `DSSEv1 29 http://example.com/HelloWorld 11 hello world` is pinned in
   `test_receipts.py`.
