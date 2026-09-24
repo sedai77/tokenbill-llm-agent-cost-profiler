@@ -920,7 +920,9 @@ def seat_months(cost_lines: Iterable[CostLine], licenses: Iterable[LicenseSnapsh
 
     Per entity the first source with seats wins: seat SKU cost lines (Σ ``quantity``; the unit is
     assumed to be seat-months, **VERIFY** addendum §19.5 #10) → run flags
-    ``pool_seats.<entity>.<plan>`` → licenses (the snapshot date with the most seats; plan
+    ``pool_seats.<entity>.<plan>`` (a statement for a smaller scope — ``org:<o>`` in enterprise
+    mode, an uncapped ``cc:<n>`` — adds into its pool entity unless that entity has its own) →
+    licenses (the snapshot date with the most seats; plan
     ``unknown`` allowed) → ``seat_counts`` configuration rows (aggregate-only bundles) →
     ``report_users`` (distinct principals with ``ai_credit.user`` rows: a **lower bound**) → none.
     The returned source is the lowest-precedence source any entity used (it qualifies the whole map;
@@ -1153,9 +1155,13 @@ def detect_plans(cost_lines: Iterable[CostLine], licenses: Iterable[LicenseSnaps
     ``plan_type`` (``org_settings`` snapshots, applied to that org's seats); (4) report quota
     (``plan_quota`` rows emitted by CP-BILL under ``copilot-report-quota``, mapped by
     ``facts.copilot.plan_quota_map`` — counts, not seats); (5) the admin statement (run flags
-    ``plan.<entity>`` or ``pool_seats.<entity>.<plan>``). The first source with evidence places
-    seats; the others confirm or conflict (``conflict=True`` plus an evidence line naming
-    ``dq.copilot_plan_conflict``). Data always beats a statement; a statement is used only when
+    ``pool_seats.<entity>.<plan>``, else ``plan.<entity>``, else the per-org ``plan.org:<o>``
+    applied to each org's seats, else ``plan.enterprise`` for an org or cost center). The first
+    source with evidence places seats (seat lines speak for every seat only when every seat SKU maps
+    to a plan); the others confirm or conflict (``conflict=True`` plus an evidence line naming
+    ``dq.copilot_plan_conflict``): a conflict is a plan outside a source that speaks for every seat,
+    or claimed counts no assignment of the seats satisfies. Data always beats a statement; a
+    statement is used only when
     (1)–(4) are silent. ``plan`` is ``business`` / ``enterprise`` when every seat is known and
     equal, ``mixed`` when known and both, else ``unknown``. Fractional seat-months count as whole
     seats here (ceiling); pool figures keep them exact.
