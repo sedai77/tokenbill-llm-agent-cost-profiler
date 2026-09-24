@@ -47,7 +47,7 @@ from tokenbill.core.evidence import (
 )
 from tokenbill.core.ids import stable_id
 from tokenbill.core.labels import Basis, Calibration, Evidence, Figure, zero
-from tokenbill.core.policy import EFFORT_LEVELS, lane_matches, selector_terms
+from tokenbill.core.policy import EFFORT_LEVELS, lane_matches, selector_terms, to_spec
 from tokenbill.core.protocols import CacheRulesProvider, Pricer
 from tokenbill.core.records import (
     Inference,
@@ -476,88 +476,45 @@ def _blend(hit: _Priced | None, nohit: _Priced | None, rho: Fraction) -> _Priced
 # ---------------------------------------------------------------------------------------------
 
 
-def _entries(items: Iterable[tuple], what: str) -> list[tuple]:
+def _entries(items: Iterable[tuple]) -> list[tuple]:
     """Selector-keyed entries sorted most specific first (more selector terms), then in policy
     order: the first entry whose selector matches a lane applies to it."""
-    out = []
-    for order, item in enumerate(items):
-        if not isinstance(item, tuple) or not item or not isinstance(item[0], str):
-            raise UsageError(f"policy: malformed {what} entry")
-        out.append((-len(selector_terms(item[0])), order, item))
+    out = [(-len(selector_terms(item[0])), order, item) for order, item in enumerate(items)]
     out.sort(key=lambda e: (e[0], e[1]))
     return [item for _n, _o, item in out]
 
 
+_REPAIRS = frozenset({"restore_caching", "stagger_fanout", "retry_backoff_cap",
+                      "fallback_credit", "shared_ci_prefix"})
+
+
 class _Compiled:
-    """A validated view of a :class:`Policy` for the engine."""
+    """A validated view of a :class:`Policy` for the engine. Validation is the grammar's: a policy
+    that ``core.policy.to_spec`` cannot express raises ``UsageError``."""
 
     def __init__(self, policy: Policy) -> None:
         if not isinstance(policy, Policy):
             raise UsageError("replay: policy must be a Policy")
+        try:  # the grammar's canonical form validates every field (SPEC §9.5)
+            to_spec(policy)
+        except (TokenbillError, TypeError, ValueError, AttributeError):
+            raise UsageError("replay: the policy is not expressible in the policy grammar") \
+                from None
         self.policy = policy
-        ttl = []
-        for entry in _entries(policy.ttl, "ttl"):
-            if len(entry) != 2 or entry[1] not in ("5m", "1h"):
-                raise UsageError("policy: ttl must be 5m or 1h")
-            ttl.append((entry[0], 300 if entry[1] == "5m" else 3600))
-        self.ttl = ttl
-        self.keepalive: tuple[str, int, int] | None = None
-        if policy.keepalive is not None:
-            ka = policy.keepalive
-            if (not isinstance(ka, tuple) or len(ka) != 3 or type(ka[1]) is not int
-                    or type(ka[2]) is not int or ka[1] <= 0 or ka[2] < 0):
-                raise UsageError("policy: keepalive must be (selector, interval_s, max_idle_s)")
-            selector_terms(ka[0])
-            self.keepalive = (ka[0], ka[1] * 1000, ka[2] * 1000)
-        self.cw: tuple[int, int | None] | None = None
-        if policy.compaction_window is not None:
-            cw = policy.compaction_window
-            if (not isinstance(cw, tuple) or len(cw) != 2 or type(cw[0]) is not int
-                    or (cw[1] is not None and type(cw[1]) is not int)):
-                raise UsageError("policy: compaction_window must be (window, summary | None)")
-            self.cw = (cw[0], cw[1])
-        self.cr: tuple[str, int] | None = None
-        if policy.cold_resume is not None:
-            cr = policy.cold_resume
-            if (not isinstance(cr, tuple) or len(cr) != 2 or cr[0] not in ("compact", "clear")
-                    or type(cr[1]) is not int):
-                raise UsageError("policy: cold_resume must be ('compact'|'clear', min_context)")
-            self.cr = (cr[0], cr[1])
-        self.remap = [(e[0], e[1]) for e in _entries(policy.model_remap, "model_remap")
-                      if len(e) == 2 and isinstance(e[1], str) and e[1]]
-        if len(self.remap) != len(policy.model_remap):
-            raise UsageError("policy: model_remap entries must be (selector, model id)")
-        effort = []
-        for entry in _entries(policy.effort, "effort"):
-            if len(entry) != 3 or entry[1] not in _EFFORT_RANK:
-                raise UsageError("policy: unknown effort level")
-            try:
-                scale = Fraction(Decimal(entry[2]))
-            except (ArithmeticError, TypeError, ValueError):
-                raise UsageError("policy: effort scale must be a decimal string") from None
-            if not 0 <= scale <= 1:
-                raise UsageError("policy: effort scale must be in [0, 1]")
-            effort.append((entry[0], _EFFORT_RANK[entry[1]], scale))
-        self.effort = effort
-        self.fast_off = bool(policy.fast_off)
-        self.geo_global = bool(policy.geo_global)
-        self.regional_to_global = bool(policy.regional_to_global)
-        if policy.batch not in (None, "eligible"):
-            raise UsageError("policy: batch must be 'eligible' or None")
+        self.ttl = [(sel, 300 if ttl == "5m" else 3600) for sel, ttl in _entries(policy.ttl)]
+        ka = policy.keepalive
+        self.keepalive = None if ka is None else (ka[0], ka[1] * 1000, ka[2] * 1000)
+        self.cw = policy.compaction_window
+        self.cr = policy.cold_resume
+        self.remap = [(sel, target) for sel, target in _entries(policy.model_remap)]
+        self.effort = [(sel, _EFFORT_RANK[level], Fraction(Decimal(scale)))
+                       for sel, level, scale in _entries(policy.effort)]
+        self.fast_off = policy.fast_off
+        self.geo_global = policy.geo_global
+        self.regional_to_global = policy.regional_to_global
         self.batch = policy.batch == "eligible"
-        repairs = set()
-        block = []
-        for repair in policy.repairs:
-            if not isinstance(repair, str):
-                raise UsageError("policy: repairs must be strings")
-            if repair.startswith("block:"):
-                block.append(repair)
-            elif repair in ("restore_caching", "stagger_fanout", "retry_backoff_cap",
-                            "fallback_credit", "shared_ci_prefix"):
-                repairs.add(repair)
-            else:
-                raise UsageError("policy: unknown repair")
-        self.repairs = frozenset(repairs)
+        self.repairs = frozenset(r for r in policy.repairs if r in _REPAIRS)
+        block = [r for r in policy.repairs if r not in _REPAIRS]       # "block:<id>"
         if policy.breakpoint_policy not in (None, "observed"):
             block.append(f"breakpoints={policy.breakpoint_policy}")
         self.block = tuple(block)
@@ -620,7 +577,8 @@ class _State:
     band: str | None = None
     extras: list[tuple[InferenceKind, tuple, PricingContext, int, str]] = \
         dataclasses.field(default_factory=list)
-    others: list[tuple[tuple, PricingContext, int] | None] | None = None  # None: unchanged
+    # passthrough (usage, context, ts, output upper) or None when dropped; None: unchanged
+    others: list[tuple[tuple, PricingContext, int, int | None] | None] | None = None
     changed: bool = False
 
 
@@ -869,8 +827,6 @@ class _Run:
     def _lane_cfg(self, lane: Lane, steps: list[_Req]) -> _LaneCfg:
         c = self.c
         cfg = _LaneCfg()
-        if not lane.requests:
-            return cfg
         rules = self.rules
         # (1) rate transforms
         for selector, target in c.remap:
@@ -1103,10 +1059,8 @@ class _Run:
             if cfg.ttl_s is not None:
                 return self._decide(gap, cfg.ttl_s * 1000, side, cfg)
             ob = trans.get(i)
-            if ob is None:
-                return False
-            if ob.ttl_s is None:
-                return not ob.is_miss_event
+            if ob is None or ob.ttl_s is None:    # τ unknown: the observed outcome stands
+                return ob is not None and not ob.is_miss_event
             return self._decide(gap, ob.ttl_s * 1000, side, cfg)
 
         for i, st in enumerate(steps):
@@ -1303,7 +1257,7 @@ class _Run:
                     drop = frozenset(range(2, n_att - 1))
             if not rate_ctx and not drop and cfg.remap is None:
                 continue
-            others: list[tuple[tuple, PricingContext, int] | None] = []
+            others: list[tuple[tuple, PricingContext, int, int | None] | None] = []
             any_changed = False
             for pos, inf, ts in rq.others:
                 if pos in drop:
@@ -1312,11 +1266,15 @@ class _Run:
                     continue
                 octx = self._xctx(inf.pricing, cfg, cfg.batch) if rate_ctx else inf.pricing
                 ot = _tup(inf.usage)
-                nt = self._scaled(ot, inf.pricing, cfg, ts, side) if cfg.remap is not None \
-                    else ot
+                upper = inf.output_upper
+                nt = ot
+                if cfg.remap is not None:
+                    nt = self._scaled(ot, inf.pricing, cfg, ts, side)
+                    if upper is not None:
+                        upper = self._scaled_int(upper, inf.pricing, cfg, ts, side)
                 if octx != inf.pricing or nt != ot:
                     any_changed = True
-                others.append((nt, octx, ts))
+                others.append((nt, octx, ts, upper))
             if any_changed:
                 state = states.get(k)
                 if state is None:
@@ -1435,13 +1393,10 @@ class _Run:
                 if other is None:
                     continue
                 _pos, inf, _ts = rq.others[j]
-                nt, octx, ts = other
+                nt, octx, ts, upper = other
                 if octx == inf.pricing and nt == _tup(inf.usage):
                     p = rq.base_others[j]
                 else:
-                    upper = inf.output_upper
-                    if upper is not None and nt[_O] > upper:
-                        upper = nt[_O]
                     p = book.price(nt, octx, ts, inf.billable, inf.usage_source, upper)
                 total = _add_priced(total, p)
         for _kind, et, ectx, ets, _eid in state.extras:
@@ -1579,6 +1534,8 @@ class _Run:
     @staticmethod
     def _combine(priced: list[_Priced | None]) -> _Priced | None:
         """Point of the point pass; bounds over every pass (each contains its point)."""
+        if len(priced) == 1:
+            return priced[0]
         if any(p is None for p in priced):
             return None
         first = priced[0]
