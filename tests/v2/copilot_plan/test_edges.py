@@ -163,3 +163,25 @@ def test_helpers() -> None:
     assert cp._tokens_nano(rates, UsageBuckets(web_search_requests=2)) == 2 * rates.web_search_nano
     assert cp._round(7) == 7
     assert cp._pct(cp.Fraction(1, 8)) == "12%"          # half-even: 12.5 → 12
+
+
+def test_plan_text_names_no_person_and_no_team() -> None:
+    """R14 / DC7: notes carry entity ids and model ids only — never a ``p_`` pseudonym, the canary
+    login or a team label (teams below k are merged elsewhere; the plan never needs them)."""
+    import re
+
+    team = "Payments Squad 7"
+    w = p1_world(2_600_000, team=team).usage(100_000, model="Claude Opus 4.8 (fast mode)",
+                                              output_tokens=20_000_000, team=team)
+    w.ide(team, {"ide:intellij": 1, "ide:vscode": 3})
+    fs = [idle(20, unknown=2, team=team), finding("auto-adoption", team=team),
+          finding("fast-mode", team=team)]
+    plan = plan_for(w, fs)
+    texts = [plan.sample, plan.joint_saving.note, plan.headline_monthly.note,
+             plan.pool_headroom_monthly.note]
+    for lv in plan.levers:
+        texts += [lv.params, lv.standalone.note, lv.shapley.note, lv.projected_monthly.note]
+    blob = "\n".join(texts)
+    assert team not in blob and "Payments" not in blob
+    assert not re.search(r"p_[0-9a-f]{20}", blob)
+    assert b.CANARY_LOGIN not in blob
