@@ -11,8 +11,10 @@ What becomes what:
 * ``claude_code.api_request`` log events → one :class:`Request` each (fidelity NO_TTL_SPLIT,
   convention ``claude_code.otel``: writes → ``cache_write_unknown`` with ``dq.no_ttl_split``;
   ``cost_usd`` → ``provider_reported_cost_nano`` on basis ``provider_estimate``, never billed);
-  ``ts_start_ms = time − duration_ms``; lanes from ``session.id`` + ``query_source`` (``main`` →
-  MAIN, ``subagent`` → SUBAGENT, ``auxiliary`` → HELPER), refined by the beta
+  ``ts_start_ms = time − duration_ms``; lanes from ``session.id`` + ``query_source`` (the
+  requesting subsystem: ``repl_main_thread`` / ``sdk`` → MAIN, ``agent:…`` → SUBAGENT with the
+  built-in agent type in clear, ``compact`` → COMPACTION, any other subsystem → HELPER; the metric
+  categories ``main`` / ``subagent`` / ``auxiliary`` are accepted too), refined by the beta
   ``claude_code.llm_request`` span of the same ``request_id`` (``agent_id`` → exact subagent
   lanes, ``ttft_ms``). Without spans, all subagent calls of a session share one lane with
   ``lane_exact=False`` (``dq.lanes_inferred``). An ``llm_request`` span with no matching event in
@@ -149,11 +151,27 @@ _COST_METRIC = "claude_code.cost.usage"
 _GENAI_OPERATIONS = frozenset({"chat", "generate_content", "text_completion"})
 _GENAI_AGENT_OPERATIONS = frozenset({"invoke_agent", "create_agent"})
 
-#: ``query_source`` → lane kind (Claude Code documents main / subagent / auxiliary).
-_LANE_KIND_BY_QUERY_SOURCE: Mapping[str, LaneKind] = {
-    "main": LaneKind.MAIN, "subagent": LaneKind.SUBAGENT, "auxiliary": LaneKind.HELPER,
-    "compaction": LaneKind.COMPACTION,
+#: ``query_source`` → (lane kind, ``Attribution.query_source``). The ``claude_code.api_request``
+#: event (and the beta ``llm_request`` span) carry the requesting *subsystem* (``repl_main_thread``,
+#: ``sdk``, ``compact``, ``agent:builtin:Explore`` / ``agent:<name>``, ``away_summary``,
+#: ``prompt_suggestion``, ``web_search_tool`` …, sometimes with a ``:outputStyle:<style>`` suffix);
+#: only the token/cost *metrics* use the ``main`` / ``subagent`` / ``auxiliary`` categories (the
+#: monitoring reference as quoted in anthropics/claude-code#82274 and #92057, 2026). Both
+#: vocabularies are accepted: exact names first, then prefixes; any other non-empty subsystem is
+#: an auxiliary (helper) call; a missing value leaves the lane kind unknown.
+_QUERY_SOURCE_EXACT: Mapping[str, tuple[LaneKind, str]] = {
+    "main": (LaneKind.MAIN, "main"), "repl_main_thread": (LaneKind.MAIN, "main"),
+    "sdk": (LaneKind.MAIN, "main"), "subagent": (LaneKind.SUBAGENT, "subagent"),
+    "auxiliary": (LaneKind.HELPER, "auxiliary"), "compaction": (LaneKind.COMPACTION, "compaction"),
+    "compact": (LaneKind.COMPACTION, "compaction"),
 }
+_QUERY_SOURCE_PREFIXES: tuple[tuple[str, tuple[LaneKind, str]], ...] = (
+    ("repl_main_thread:", (LaneKind.MAIN, "main")), ("sdk:", (LaneKind.MAIN, "main")),
+    ("agent:", (LaneKind.SUBAGENT, "subagent")), ("compact:", (LaneKind.COMPACTION, "compaction")),
+)
+_AUXILIARY = (LaneKind.HELPER, "auxiliary")
+_BUILTIN_AGENT = "agent:builtin:"
+_STYLE_SUFFIX = ":outputStyle:"
 #: metric ``type`` attribute → bucket of claude_code.token.usage.
 _METRIC_BUCKET = {"input": "uncached_input", "output": "output", "cacheRead": "cache_read",
                   "cacheCreation": "cache_write_unknown"}
@@ -210,7 +228,11 @@ def _decode(value: object, depth: int = 0) -> Any:
     if "doubleValue" in value:
         x = value["doubleValue"]
         if isinstance(x, (int, float)) and type(x) is not bool:
-            return float(x) if math.isfinite(x) else None
+            try:  # a JSON integer literal beyond the float range is one bad value, not a bad line
+                f = float(x)
+            except OverflowError:
+                return None
+            return f if math.isfinite(f) else None
         return None
     if "boolValue" in value:
         x = value["boolValue"]
@@ -633,11 +655,8 @@ class _Reader:
                  from_span: bool) -> _CcCall:
         attrs = rec.attrs
         sattrs = span.attrs if span is not None else {}
-        qs_raw = attrs.get("query_source") or sattrs.get("query_source")
-        query_source = qs_raw if isinstance(qs_raw, str) and qs_raw in _LANE_KIND_BY_QUERY_SOURCE \
-            else None
+        kind = _query_source(_query_source_value(attrs, sattrs))[0]
         agent_id = key_part(sattrs.get("agent_id"))
-        kind = _LANE_KIND_BY_QUERY_SOURCE.get(query_source or "", LaneKind.UNKNOWN)
         if agent_id is not None:
             kind = LaneKind.SUBAGENT
         session_id = self._cc_session(attrs)
@@ -673,9 +692,7 @@ class _Reader:
             call.failures.append((rec.ts_ms, rec))
             lane = call.lane_key
         else:
-            qs = attrs.get("query_source")
-            kind = _LANE_KIND_BY_QUERY_SOURCE.get(qs if isinstance(qs, str) else "",
-                                                  LaneKind.UNKNOWN)
+            kind = _query_source(_query_source_value(attrs, {}))[0]
             lane = self._cc_lane(self._cc_session(attrs), kind, None, None,
                                  self._cc_channel(clean_label(attrs.get("model")))[0])
             self.scan.count("api_errors_unjoined")
@@ -757,6 +774,9 @@ class _Reader:
                         LaneKind.HELPER: "auxiliary", LaneKind.COMPACTION: "compaction"}.get(
                             call.kind)
         attribution = self._attribution(merged, product="claude_code", query_source=query_source)
+        agent_type = _agent_type(opts, _query_source_value(attrs, sattrs))
+        if agent_type is not None and attribution.agent_type is None:
+            attribution = dataclasses.replace(attribution, agent_type=agent_type)
         params = RequestParams(model_requested=model_raw, effort=effort,
                                speed="fast" if fast else None)
         end = call.ts_start + (call.duration or 0)
@@ -1055,6 +1075,41 @@ class _Reader:
                 reported_cost_basis="provider_estimate" if group["cost"] is not None else None,
                 fetched_ms=opts.now_ms if opts.now_ms >= 0 else 0))
         return out
+
+
+def _query_source_value(attrs: Mapping[str, Any], sattrs: Mapping[str, Any]) -> str | None:
+    """The raw ``query_source`` of an event (else its span's, else the span's bounded
+    ``query_source_safe``). Never stored: only its category leaves the adapter."""
+    for value in (attrs.get("query_source"), sattrs.get("query_source"),
+                  sattrs.get("query_source_safe")):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _query_source(value: str | None) -> tuple[LaneKind, str | None]:
+    """(lane kind, ``Attribution.query_source``) of a ``query_source`` value (table-driven)."""
+    if not value:
+        return LaneKind.UNKNOWN, None
+    hit = _QUERY_SOURCE_EXACT.get(value)
+    if hit is not None:
+        return hit
+    for prefix, category in _QUERY_SOURCE_PREFIXES:
+        if value.startswith(prefix):
+            return category
+    return _AUXILIARY
+
+
+def _agent_type(opts: IngestOptions, value: str | None) -> str | None:
+    """The subagent type named by an ``agent:…`` query source: built-in agents
+    (``agent:builtin:Explore``) in clear, any other agent name as its ``h_`` (unless
+    allowlisted); None for non-agent sources. An output-style suffix is ignored."""
+    if not value or not value.startswith("agent:"):
+        return None
+    value = value.split(_STYLE_SUFFIX, 1)[0]
+    if value.startswith(_BUILTIN_AGENT):
+        return clean_label(value[len(_BUILTIN_AGENT):], enum=True)
+    return name_or_hash(opts, value[len("agent:"):])
 
 
 def _identities(attrs: Mapping[str, Any]) -> tuple[list[str], str | None]:

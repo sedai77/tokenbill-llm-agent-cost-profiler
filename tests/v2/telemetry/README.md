@@ -47,7 +47,8 @@ asserts the canary never reaches an output.
 * Claude Code OTel (<https://code.claude.com/docs/en/monitoring-usage>): events
   `claude_code.{api_request, api_error, tool_result, user_prompt, api_request_body,
   api_response_body}` with `event.name`; `api_request` attributes `request_id`,
-  `client_request_id`, `model`, `query_source` (`main` / `subagent` / `auxiliary`), `speed`,
+  `client_request_id`, `model`, `query_source` (the requesting subsystem, see the erratum below),
+  `speed`,
   `effort`, `duration_ms`, `input_tokens`, `output_tokens`, `cache_read_tokens`,
   `cache_creation_tokens`, `cost_usd`, `attempt`, `stop_reason`; `api_error` `status_code`,
   `attempt`, `error`; standard attributes `session.id`, `user.id` (random), `user.account_uuid`,
@@ -95,6 +96,18 @@ asserts the canary never reaches an output.
   keeps the provider label verbatim.
 * `claude_code.tool_result` no longer documents `tool_result_size_bytes` — see
   `CONTRACT-CHANGE-TELEM-1.md`.
+* **`query_source` has two vocabularies** (review, 2026-09-23; the monitoring reference as quoted
+  in <https://github.com/anthropics/claude-code/issues/82274>, observed values in
+  <https://github.com/anthropics/claude-code/issues/92057>, Claude Code 2.1.259): only the
+  `claude_code.cost.usage` / `claude_code.token.usage` *metrics* carry the categories `main` /
+  `subagent` / `auxiliary`; the `api_request` *event* carries the requesting subsystem
+  (`repl_main_thread`, sometimes `repl_main_thread:outputStyle:<style>`, `sdk`, `compact`,
+  `agent:builtin:Explore`, `agent:<name>`, `away_summary`, `agent_summary`, `prompt_suggestion`,
+  `web_search_tool` …) and is missing on some events. SPEC §5.9 maps the event value as if it were
+  the category. `otel.py` accepts both (table `_QUERY_SOURCE_EXACT` / `_QUERY_SOURCE_PREFIXES`:
+  main thread and `sdk` → MAIN, `agent:` → SUBAGENT with the built-in agent type in clear and
+  custom names as `h_`, `compact` → COMPACTION, any other subsystem → HELPER, missing → UNKNOWN);
+  raw values are never stored. The fixture uses the event vocabulary.
 
 ## Unverified (shipped conservatively; for the release notes)
 
@@ -111,6 +124,9 @@ asserts the canary never reaches an output.
   `diagnostics`, as in transcripts); unknown types map to `unavailable` with the label kept.
 * Chat Completions `prompt_tokens_details.cache_write_tokens` on GPT-5.6+ (SPEC §5.2; the verified
   pages show it for Responses); read when present.
+* The complete list of `api_request` `query_source` subsystems (only examples are published) and
+  that `sdk` is the main loop of headless / Agent SDK sessions; unlisted subsystems are treated as
+  auxiliary (HELPER) calls. The format of custom subagent names after `agent:`.
 
 ## Design notes
 

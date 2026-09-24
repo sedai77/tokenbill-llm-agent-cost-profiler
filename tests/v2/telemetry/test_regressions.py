@@ -1,6 +1,7 @@
-"""Regression tests for defects found in the adversarial review of TELEM (identity as reported,
-channels named by Bedrock/Vertex model ids, lane/session consistency, request order, range
-clamping, undated spans, nested model spans, team-level metric rows, path/email labels)."""
+"""Regression tests for defects found in the adversarial review of TELEM (Claude Code
+``query_source`` subsystem values, identity as reported, channels named by Bedrock/Vertex model
+ids, lane/session consistency, request order, range clamping, undated spans, nested model spans,
+team-level metric rows, path/email labels)."""
 
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ from tokenbill.adapters import conventions_ext as ext
 from tokenbill.adapters.anthropic_responses import AnthropicResponsesAdapter
 from tokenbill.adapters.bedrock import BedrockAdapter
 from tokenbill.adapters.openai import OpenAIUsageAdapter
-from tokenbill.adapters.otel import OtlpJsonAdapter
+from tokenbill.adapters.otel import OtlpJsonAdapter, _query_source
 from tokenbill.core.models import normalize_model
 from tokenbill.core.records import MAX_TOKENS, Attribution, LaneKind
 from tokenbill.core.types import IngestResult
@@ -38,6 +39,62 @@ def lanes(result: IngestResult) -> dict[str, Any]:
 
 def ctx_of(req: Any) -> Any:
     return req.final_attempt.inferences[0].pricing
+
+
+# ---------------------------------------------------------------------------------------------
+# Claude Code query_source: events carry the requesting subsystem, metrics the category
+# ---------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("value, kind, category", [
+    ("repl_main_thread", LaneKind.MAIN, "main"),
+    ("repl_main_thread:outputStyle:Concise", LaneKind.MAIN, "main"),
+    ("sdk", LaneKind.MAIN, "main"),
+    ("agent:builtin:Explore", LaneKind.SUBAGENT, "subagent"),
+    ("agent:reviewer", LaneKind.SUBAGENT, "subagent"),
+    ("compact", LaneKind.COMPACTION, "compaction"),
+    ("away_summary", LaneKind.HELPER, "auxiliary"),
+    ("prompt_suggestion", LaneKind.HELPER, "auxiliary"),
+    ("web_search_tool", LaneKind.HELPER, "auxiliary"),
+    ("main", LaneKind.MAIN, "main"), ("subagent", LaneKind.SUBAGENT, "subagent"),
+    ("auxiliary", LaneKind.HELPER, "auxiliary"), ("compaction", LaneKind.COMPACTION, "compaction"),
+    (None, LaneKind.UNKNOWN, None), ("", LaneKind.UNKNOWN, None),
+])
+def test_query_source_vocabularies(value: str | None, kind: LaneKind,
+                                   category: str | None) -> None:
+    assert _query_source(value) == (kind, category)
+
+
+def test_real_query_sources_give_lanes_ttl_hints_and_agent_types(tmp_path: Path) -> None:
+    path = h.write_lines(tmp_path / "o.jsonl", [h.logs([
+        cc_request(h.T0, "m1", query_source="repl_main_thread", cache_creation_tokens=500),
+        cc_request(h.T0 + 10, "m2", query_source="repl_main_thread:outputStyle:Concise",
+                   cache_creation_tokens=500),
+        cc_request(h.T0 + 20, "s1", query_source="agent:builtin:Explore",
+                   cache_creation_tokens=100),
+        cc_request(h.T0 + 30, "s2", query_source="agent:secret-reviewer"),
+        cc_request(h.T0 + 40, "x1", query_source="away_summary"),
+        cc_request(h.T0 + 50, "c1", query_source="compact"),
+        cc_request(h.T0 + 60, "u1", query_source=""),
+    ])])
+    result = OTLP.read(path, h.central(attribution=Attribution(billing_path="subscription")))
+    req = {r.final_attempt.provider_request_id: r for r in result.requests}
+    lane_map = lanes(result)
+    kinds = {rid: lane_map[r.lane_key].kind for rid, r in req.items()}
+    assert kinds == {"m1": LaneKind.MAIN, "m2": LaneKind.MAIN, "s1": LaneKind.SUBAGENT,
+                     "s2": LaneKind.SUBAGENT, "x1": LaneKind.HELPER,
+                     "c1": LaneKind.COMPACTION, "u1": LaneKind.UNKNOWN}
+    assert req["m1"].lane_key == req["m2"].lane_key and lane_map[req["m1"].lane_key].lane_exact
+    assert req["s1"].lane_key == req["s2"].lane_key  # no spans: one shared, inexact lane
+    assert not lane_map[req["s1"].lane_key].lane_exact
+    hints = {rid: ctx_of(r).write_ttl_hint for rid, r in req.items()}
+    assert hints["m1"] == hints["m2"] == "1h" and hints["s1"] == hints["c1"] == "5m"
+    assert {rid: r.attribution.query_source for rid, r in req.items()} == {
+        "m1": "main", "m2": "main", "s1": "subagent", "s2": "subagent", "x1": "auxiliary",
+        "c1": "compaction", "u1": None}
+    assert req["s1"].attribution.agent_type == "Explore"  # built-in agent, in clear
+    assert req["s2"].attribution.agent_type.startswith("h_")  # a custom agent name is hashed
+    text = h.blob(result)
+    assert "secret-reviewer" not in text and "Concise" not in text and "away_summary" not in text
 
 
 # ---------------------------------------------------------------------------------------------
@@ -200,6 +257,21 @@ def test_boundary_numbers_never_abort_a_lenient_read(tmp_path: Path) -> None:
                     node[path[-1]] = value
                     target.write_text("\n".join(json.dumps(r) for r in mutated) + "\n")
                     adapter.read(target, h.central())  # must not raise
+
+
+def test_an_out_of_float_range_double_is_one_bad_value_not_a_bad_line(tmp_path: Path) -> None:
+    rec = h.event("api_request", h.T0, {"session.id": "s", "request_id": "r1", "input_tokens": 1})
+    rec["attributes"].append({"key": "cost_usd", "value": {"doubleValue": "@HUGE@"}})
+    other = h.event("api_request", h.T0, {"session.id": "s", "request_id": "r2",
+                                          "input_tokens": 2})
+    line = json.dumps(h.logs([rec, other])).replace('"@HUGE@"', "1" + "0" * 400)
+    path = tmp_path / "o.jsonl"
+    path.write_text(line + "\n")
+    result = OTLP.read(path, h.central())
+    assert sorted(r.final_attempt.provider_request_id for r in result.requests) == ["r1", "r2"]
+    assert result.quarantined == []
+    r1 = next(r for r in result.requests if r.final_attempt.provider_request_id == "r1")
+    assert r1.final_attempt.inferences[0].provider_reported_cost_nano is None
 
 
 def test_spans_without_a_start_time_are_quarantined(tmp_path: Path) -> None:
