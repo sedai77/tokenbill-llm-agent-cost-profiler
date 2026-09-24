@@ -103,3 +103,12 @@ group's first member and of the gap to the previous CI run respectively (`restor
 applies ρ only to transitions with a gap (`i ≥ 1`), so on lane-first repairs it keeps the
 documented hit. The merge-gate differential runs in documented mode only, so this does not decide
 the gate. **Proposed ruling:** REPLAY's reading (the SPEC names repairs without exception).
+
+## 9. The model gate cannot report how many transitions it could not price (additive proposal)
+
+A transition whose billed or predicted serving usage is unpriced (no rate row) is left out of the
+cost comparison and of the ρ counts (§9.6 #2 prices both sides; there is nothing to compare), but
+`CalibrationPartial` / `CalibrationReport` have no field to count them, and a count must merge by
+addition for any batching, so it cannot live in the free-text `notes` of a partial. REPLAY skips
+them (documented in the README). **Proposed additive change:** `unpriced: int = 0` on both
+dataclasses (summed by `merge_partials`, echoed in `notes` when non-zero).

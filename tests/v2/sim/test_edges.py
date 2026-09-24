@@ -143,10 +143,15 @@ def test_batch_with_a_calibrated_flip() -> None:
     res = replay([a, b], "batch=eligible;repair=stagger_fanout", mode="calibrated",
                  calibration=report)
     second = outcomes(res)[b.requests[0].request_id]
-    # batch tier (0.5×): half-credit ρ = 0.5 between the read (h-banded) and the rewrite
-    assert second.changed and second.low_nano <= second.cost_nano <= second.high_nano
-    full = usd("0.05")                                   # 20,000 × $2.50/M at the batch tier
-    assert second.cost_nano < full
+    # batch tier (0.5×: read $0.10, 5m write $2.50 per MTok); ρ(0s-60s) = 0.5 between the
+    # fan-out hit (20,000 reads, h-banded: 0.64 → 12,800 reads + 7,200 5m writes) and the
+    # observed rewrite (20,000 5m writes = $0.05); bounds use h = 0.98 / 0.30
+    assert second.changed
+    full = usd("0.05")
+    hit = {"point": usd("0.00128") + usd("0.018"), "low": usd("0.00196") + usd("0.001"),
+           "high": usd("0.0006") + usd("0.035")}
+    assert (second.cost_nano, second.low_nano, second.high_nano) == \
+        ((hit["point"] + full) // 2, (hit["low"] + full) // 2, (hit["high"] + full) // 2)
 
 
 def test_passthrough_placeholder_output_scales_with_the_band() -> None:
