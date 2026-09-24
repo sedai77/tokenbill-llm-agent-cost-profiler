@@ -465,7 +465,7 @@ class _In:
             self.pools[(pm.entity_id, pm.month)].append(pm)
         self.activity = tuple(a for a in ctx.activity if isinstance(a, ActivityDay))
         self._reach: dict[str | None, Reach] = {}
-        self._rates: dict[tuple, tuple[_Triple, bool] | None] = {}
+        self._rates: dict[tuple[str, ...], tuple[UnitRates, bool] | None] = {}
 
     # --- context ---------------------------------------------------------------------------
 
@@ -653,19 +653,15 @@ class _In:
                              if unknown else ""))
                 parts.append((_estimated(direct, Basis.LIST, d_note,
                                          upper=unknown or savings.upper),
-                              Figure(nano=0, evidence=Evidence.ESTIMATED,
-                                     basis=Basis.LIST_EQUIVALENT,
-                                     calibration=Calibration.UNCALIBRATED,
-                                     note="no pool headroom for direct-org credits")))
+                              _estimated([0, 0, 0], Basis.LIST_EQUIVALENT,
+                                         "no pool headroom for direct-org credits")))
             for inv, head in parts:
                 invoice = inv if invoice is None else add(invoice, inv)
                 headroom = head if headroom is None else add(headroom, head)
         if invoice is None or headroom is None:
-            zero_note = "no saving in any pool month"
-            return (Figure(nano=0, evidence=Evidence.ESTIMATED, basis=Basis.LIST,
-                           calibration=Calibration.UNCALIBRATED, note=zero_note),
-                    Figure(nano=0, evidence=Evidence.ESTIMATED, basis=Basis.LIST_EQUIVALENT,
-                           calibration=Calibration.UNCALIBRATED, note=zero_note))
+            none = "no saving in any pool month"
+            return (_estimated([0, 0, 0], Basis.LIST, none),
+                    _estimated([0, 0, 0], Basis.LIST_EQUIVALENT, none))
         return invoice, headroom
 
 
@@ -734,22 +730,20 @@ def _gated(inp: _In, f: Finding, *extra_nano: int | None) -> bool:
                                             for n in extra_nano)
 
 
-def _team_groups(cells: Iterable[pool.Cell]) -> dict[tuple[str, str | None], list[pool.Cell]]:
+def _team_groups(cells: Iterable[pool.Cell]) -> list[tuple[tuple[str, str | None],
+                                                           list[pool.Cell]]]:
+    """Cells per (entity, team), sorted (an unattributed team sorts first)."""
     groups: dict[tuple[str, str | None], list[pool.Cell]] = defaultdict(list)
     for c in cells:
         groups[(c.entity_id, c.team)].append(c)
-    return groups
+    return sorted(groups.items(), key=lambda kv: (kv[0][0], kv[0][1] or ""))
 
 
 def _entity_groups(cells: Iterable[pool.Cell]) -> dict[str, list[pool.Cell]]:
     groups: dict[str, list[pool.Cell]] = defaultdict(list)
     for c in cells:
         groups[c.entity_id].append(c)
-    return groups
-
-
-def _group_key(key: tuple[str, str | None]) -> tuple[str, str]:
-    return (key[0], key[1] or "")
+    return dict(sorted(groups.items()))
 
 
 def _gross(cells: Iterable[pool.Cell]) -> int:
@@ -816,9 +810,8 @@ def _remap_saving(inp: _In, c: pool.Cell) -> tuple[_Triple | None, str | None]:
 
 def _premium_model_share(inp: _In, skipped: dict[str, str]) -> list[Finding]:
     out: list[Finding] = []
-    team_totals = {k: _gross(v) for k, v in _team_groups(inp.credit_cells).items()}
-    groups = _team_groups(c for c in inp.credit_cells if _is_premium(c))
-    for (entity, team), cells in sorted(groups.items(), key=lambda kv: _group_key(kv[0])):
+    team_totals = {k: _gross(v) for k, v in _team_groups(inp.credit_cells)}
+    for (entity, team), cells in _team_groups(c for c in inp.credit_cells if _is_premium(c)):
         credits = _gross(cells)
         if credits <= 0:
             continue
@@ -865,9 +858,8 @@ def _is_fast(c: pool.Cell | _Row) -> bool:
 
 def _fast_mode(inp: _In, skipped: dict[str, str]) -> list[Finding]:
     out: list[Finding] = []
-    groups = _team_groups(c for c in inp.credit_cells if _is_fast(c))
     uncertain = inp.convention_state == "uncertain"
-    for (entity, team), cells in sorted(groups.items(), key=lambda kv: _group_key(kv[0])):
+    for (entity, team), cells in _team_groups(c for c in inp.credit_cells if _is_fast(c)):
         savings = _Savings()
         premium = [0, 0, 0]
         all_exact = True
@@ -903,7 +895,7 @@ def _fast_mode(inp: _In, skipped: dict[str, str]) -> list[Finding]:
         spec = _Spec(
             kind="fast-mode", category="premium", entity=entity, team=team,
             title=f"Fast mode premium in {_label(team)} Copilot usage",
-            summary=(f"Fast-mode requests of team {_label(team)} cost {fmt_usd(premium[1])} "
+            summary=(f"Fast-mode requests of team {_label(team)} cost {fmt_usd(cost.nano)} "
                      f"list-equivalent more than the same tokens at standard speed (pure rate "
                      f"arithmetic). Disabling the fast-mode model saves the invoice part per the "
                      f"pool rule; the rest is pool headroom (list-equivalent, not invoice "
@@ -946,8 +938,8 @@ def _policy_fix(reach: Reach) -> Fix:
 
 def _auto_adoption(inp: _In, skipped: dict[str, str]) -> list[Finding]:
     out: list[Finding] = []
-    groups = _team_groups(c for c in inp.credit_cells if _is_auto_eligible(c))
-    for (entity, team), cells in sorted(groups.items(), key=lambda kv: _group_key(kv[0])):
+    for (entity, team), cells in _team_groups(c for c in inp.credit_cells
+                                               if _is_auto_eligible(c)):
         credits = _gross(cells)
         if credits <= 0:
             continue
@@ -1115,7 +1107,7 @@ def _forced_migration(inp: _In, skipped: dict[str, str]) -> list[Finding]:
             proj = [_round(Fraction(v * 30, span)) for v in delta]
             projected = _estimated(proj, Basis.LIST_EQUIVALENT,
                                    f"x 30 / {span} observed days at unchanged use")
-        compare = (f"than {_label(alt, 'model')}, the cheaper same-vendor option,"
+        compare = (f"than the cheaper same-vendor {_label(alt, 'model')}"
                    if alt != model else f"than {_label(model, 'model')} today")
         items = (_item(f"model:{model}", retire_on=retire_on, successor=successor,
                        alternative=alt, credits_nano=credits, delta_nano=delta[1],
@@ -1126,7 +1118,7 @@ def _forced_migration(inp: _In, skipped: dict[str, str]) -> list[Finding]:
             title=f"{_label(model, 'model')} retires on {retire_on}: choose the successor",
             summary=(f"{_label(model, 'model')} retires on {retire_on}; GitHub suggests "
                      f"{_label(successor, 'model')}. On the same tokens it costs "
-                     f"{fmt_usd(delta[1])} more {compare} (list-equivalent, not invoice "
+                     f"{fmt_usd(cost.nano)} more {compare} (list-equivalent, not invoice "
                      f"dollars; projection estimated at unchanged use). Choose deliberately "
                      f"before the date."),
             cost=cost, projected=projected, n_events=len(cells),
@@ -1143,7 +1135,7 @@ def _compliance_uplift(inp: _In, skipped: dict[str, str]) -> list[Finding]:
     if inp.compliance is None:
         return []
     out: list[Finding] = []
-    for entity, cells in sorted(_entity_groups(inp.credit_cells).items()):
+    for entity, cells in _entity_groups(inp.credit_cells).items():
         observed = _gross(cells)
         if observed <= 0:
             continue
@@ -1197,22 +1189,41 @@ def _dollar_text(fig: Figure) -> str:
     return f"{fmt_usd(fig.nano)} ({label})"
 
 
-def _review_entities(inp: _In) -> list[str]:
-    ents = {c.entity_id for c in inp.credit_cells if _is_review(c)}
-    ents |= {e for e, line in inp.actions if line.workload == "copilot_code_review"}
-    return sorted(ents)
+@dataclass
+class _Spend:
+    """A workload's AI-credit cells and Copilot-workload Actions lines of one entity: credits
+    (LIST_EQUIVALENT) and Actions dollars (R16) are two figures, never added."""
+
+    cells: list[pool.Cell]
+    actions: list[CostLine]
+    credits: int
+    dollars: Figure | None
+
+    @property
+    def cost(self) -> Figure:
+        """The credits, or the Actions dollars when there are no credits."""
+        if self.credits > 0 or self.dollars is None:
+            return exact(self.credits, Basis.LIST_EQUIVALENT)
+        return self.dollars
+
+
+def _spends(inp: _In, pred: Callable[[pool.Cell], bool], workload: str) -> dict[str, _Spend]:
+    ents = {c.entity_id for c in inp.credit_cells if pred(c)}
+    ents |= {e for e, line in inp.actions if line.workload == workload}
+    out: dict[str, _Spend] = {}
+    for entity in sorted(ents):
+        cells = [c for c in inp.credit_cells if c.entity_id == entity and pred(c)]
+        actions = _actions_of(inp, entity, workload)
+        out[entity] = _Spend(cells, actions, _gross(cells),
+                             inp.dollars(entity, actions) if actions else None)
+    return out
 
 
 def _review_cost(inp: _In, skipped: dict[str, str]) -> list[Finding]:
     out: list[Finding] = []
-    for entity in _review_entities(inp):
-        cells = [c for c in inp.credit_cells if c.entity_id == entity and _is_review(c)]
-        credits = _gross(cells)
-        actions = _actions_of(inp, entity, "copilot_code_review")
-        dollars = inp.dollars(entity, actions) if actions else None
+    for entity, sp in _spends(inp, _is_review, "copilot_code_review").items():
+        cells, credits, actions, dollars = sp.cells, sp.credits, sp.actions, sp.dollars
         minutes = _minutes(actions)
-        cost = (exact(credits, Basis.LIST_EQUIVALENT) if credits > 0 or dollars is None
-                else dollars)
         act = (f" and {minutes.normalize():f} Actions minutes costing {_dollar_text(dollars)}"
                if dollars is not None and minutes is not None else
                f" and Actions costing {_dollar_text(dollars)}" if dollars is not None else "")
@@ -1229,7 +1240,7 @@ def _review_cost(inp: _In, skipped: dict[str, str]) -> list[Finding]:
                      f"({fmt_usd(credits)} list-equivalent){act}. Credits and dollars are "
                      f"separate figures, never added. Review the effort, triggers, MCP tools "
                      f"and custom instructions."),
-            cost=cost, lever_ids=("copilot.review_effort_lite", "copilot.review_triggers"),
+            cost=sp.cost, lever_ids=("copilot.review_effort_lite", "copilot.review_triggers"),
             n_events=len(cells) + len(actions), n_users=inp.users(entity, _is_review),
             first_seen_ms=_first_seen([c.date_utc for c in cells]
                                       + [line.date_utc for line in actions]),
@@ -1258,9 +1269,8 @@ def _review_default_balanced(inp: _In, skipped: dict[str, str]) -> list[Finding]
              f"{balanced.verified_on}); context only, never projected.")
     when = ("becomes Balanced on" if inp.today < flip else "has been Balanced since")
     out: list[Finding] = []
-    for entity in sorted({c.entity_id for c in inp.credit_cells if _is_review(c)}):
-        cells = [c for c in inp.credit_cells if c.entity_id == entity and _is_review(c)
-                 and c.date_utc is not None and c.date_utc >= since]
+    for entity, all_cells in _entity_groups(c for c in inp.credit_cells if _is_review(c)).items():
+        cells = [c for c in all_cells if c.date_utc is not None and c.date_utc >= since]
         credits = _gross(cells)
         if credits <= 0:
             continue
@@ -1287,8 +1297,7 @@ def _review_default_balanced(inp: _In, skipped: dict[str, str]) -> list[Finding]
 
 def _review_drivers(inp: _In, skipped: dict[str, str]) -> list[Finding]:
     out: list[Finding] = []
-    for entity in sorted({c.entity_id for c in inp.credit_cells if _is_review(c)}):
-        cells = [c for c in inp.credit_cells if c.entity_id == entity and _is_review(c)]
+    for entity, cells in _entity_groups(c for c in inp.credit_cells if _is_review(c)).items():
         credits = _gross(cells)
         direct = sum(c.gross_nano for c in cells if c.cost_type == _DIRECT)
         items = (_item("review:credits", credits_nano=credits, direct_nano=direct,
@@ -1369,15 +1378,16 @@ def _unattributed_spend(inp: _In, skipped: dict[str, str]) -> list[Finding]:
         no_user = sum(line.amount_nano for line in lines if line.principal is None)
         no_cc = sum(line.amount_nano for line in lines if not line.cost_center)
         share = Fraction(net, total)
+        dollars = inp.dollars(entity, loose)
         items = (_item("unattributed", share=_dec(share), no_username_nano=no_user,
                        no_cost_center_nano=no_cc, total_net_nano=total, magnitude=net),)
         f = _build(_Spec(
             kind="unattributed-spend", category="attribution", entity=entity,
             title=f"{_pct(share)} of Copilot net spend has no user or cost center",
-            summary=(f"{_dollar_text(inp.dollars(entity, loose))} of {fmt_usd(total)} AI-credit "
+            summary=(f"{_dollar_text(dollars)} of {fmt_usd(total)} AI-credit "
                      f"net spend has no username or no cost center, so showback cannot assign "
                      f"it. Assign users, organizations and repositories to cost centers."),
-            cost=inp.dollars(entity, loose), n_events=len(loose),
+            cost=dollars, n_events=len(loose),
             n_users=len({ln.principal for ln in loose if ln.principal}),
             first_seen_ms=_first_seen(line.date_utc for line in loose), evidence=items,
             confidence="high"))
@@ -1554,22 +1564,15 @@ def _prs_merged(inp: _In, entity: str) -> int | None:
 
 
 def _cloud_agent_cost(inp: _In, skipped: dict[str, str]) -> list[Finding]:
-    ents = {c.entity_id for c in inp.credit_cells if _is_cloud_agent(c)}
-    ents |= {e for e, line in inp.actions if line.workload == "copilot_cloud_agent"}
     out: list[Finding] = []
-    for entity in sorted(ents):
-        cells = [c for c in inp.credit_cells if c.entity_id == entity and _is_cloud_agent(c)]
-        credits = _gross(cells)
-        actions = _actions_of(inp, entity, "copilot_cloud_agent")
-        dollars = inp.dollars(entity, actions) if actions else None
+    for entity, sp in _spends(inp, _is_cloud_agent, "copilot_cloud_agent").items():
+        cells, credits, actions, dollars = sp.cells, sp.credits, sp.actions, sp.dollars
         prs = _prs_merged(inp, entity)
         per_pr = None
         if prs is None:
             skipped["cloud-agent-cost (PR ratio)"] = "no usage-metrics outcomes"
         elif prs > 0:
             per_pr = _round(Fraction(credits, prs))
-        cost = (exact(credits, Basis.LIST_EQUIVALENT) if credits > 0 or dollars is None
-                else dollars)
         ratio = (f"; about {fmt_usd(per_pr)} of credits per merged Copilot-authored pull "
                  f"request (estimated: windows differ)" if per_pr is not None else "")
         act = f" and Actions {_dollar_text(dollars)}" if dollars is not None else ""
@@ -1584,7 +1587,7 @@ def _cloud_agent_cost(inp: _In, skipped: dict[str, str]) -> list[Finding]:
             title="Copilot cloud agent cost: credits and Actions minutes",
             summary=(f"The cloud agent used {_credits(credits)} AI credits (list-equivalent)"
                      f"{act}{ratio}. Credits and dollars are separate figures, never added."),
-            cost=cost, n_events=len(cells) + len(actions),
+            cost=sp.cost, n_events=len(cells) + len(actions),
             n_users=inp.users(entity, _is_cloud_agent),
             first_seen_ms=_first_seen([c.date_utc for c in cells]
                                       + [line.date_utc for line in actions]),
