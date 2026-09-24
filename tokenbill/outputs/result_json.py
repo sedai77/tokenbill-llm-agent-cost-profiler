@@ -27,6 +27,7 @@ The helpers :func:`require_billed`, :func:`require_allowance`, :func:`require_pu
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as _dt
 import hashlib
 import json
@@ -37,9 +38,9 @@ from typing import Any
 
 from tokenbill.core import extensions
 from tokenbill.core.errors import ContractViolation
-from tokenbill.core.kanon import row_notes
-from tokenbill.core.labels import Basis, Evidence, Figure, estimated, exact, figure_json
-from tokenbill.core.money import nano_to_usd_str
+from tokenbill.core.kanon import USERS_UNKNOWN, row_notes
+from tokenbill.core.labels import Basis, Evidence, Figure, add, estimated, exact, figure_json
+from tokenbill.core.money import nano_to_usd_str, ratio
 from tokenbill.core.records import UsageBuckets
 from tokenbill.core.textsafe import sanitize
 from tokenbill.core.types import (
@@ -70,6 +71,7 @@ __all__ = [
     "TOOL_NAME",
     "canonical_dumps",
     "date_of",
+    "display_rows",
     "dumps_result",
     "extension_slots_present",
     "money_json",
@@ -145,6 +147,64 @@ def require_published(agg: object, what: str) -> PublishedAggregate:
         raise ContractViolation(f"{what}: renderers accept only PublishedAggregate "
                                 "(core.kanon.publish)")
     return agg
+
+
+def _add_opt(a: Figure | None, b: Figure | None) -> Figure | None:
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return add(a, b)
+
+
+def _add_priced(a: PricedTotal, b: PricedTotal, tokens_a: int, tokens_b: int) -> PricedTotal:
+    unpriced = a.unpriced_tokens + b.unpriced_tokens
+    total = tokens_a + tokens_b
+    cov = ratio(max(total - unpriced, 0), total) if total > 0 else None
+    return PricedTotal(
+        exact=add(a.exact, b.exact), estimated=_add_opt(a.estimated, b.estimated),
+        allowance=_add_opt(a.allowance, b.allowance),
+        priced_inferences=a.priced_inferences + b.priced_inferences,
+        unpriced_inferences=a.unpriced_inferences + b.unpriced_inferences,
+        unpriced_tokens=unpriced,
+        coverage="1" if cov is None else format(cov.normalize(), "f"),
+        pool=_add_opt(a.pool, b.pool))
+
+
+def display_rows(agg: PublishedAggregate) -> tuple[AggRow, ...]:
+    """The rows of *agg* as renderers show them (ruling R-E30): cells whose user count is unknown
+    (``users_unknown``, e.g. from sources without per-cell user counts) are shown at team level
+    only — in a grouping finer than ``team`` they are folded into one row per team, the other dims
+    printed as ``"(all)"``. Every other row is shown as published."""
+    require_published(agg, "aggregate")
+    group_by = agg.group_by
+    if "team" not in group_by or len(group_by) == 1:
+        return agg.rows
+    ti = group_by.index("team")
+    kept: list[AggRow] = []
+    folded: dict[str | None, AggRow] = {}
+    for row in agg.rows:
+        if USERS_UNKNOWN not in row_notes(row, group_by=group_by):
+            kept.append(row)
+            continue
+        team = row.dims[ti][1]
+        dims = tuple((k, v if k == "team" else "(all)") for k, v in row.dims)
+        prev = folded.get(team)
+        if prev is None:
+            folded[team] = AggRow(dims=dims, n_users=0, n_requests=row.n_requests,
+                                  usage=row.usage, priced=row.priced)
+            continue
+        tokens = (prev.usage.total_input + prev.usage.output, row.usage.total_input
+                  + row.usage.output)
+        try:
+            usage = prev.usage + row.usage
+        except ContractViolation:   # two different other-write TTLs: keep the first, informational
+            usage = prev.usage + dataclasses.replace(
+                row.usage, cache_write_other_ttl_s=prev.usage.cache_write_other_ttl_s)
+        folded[team] = AggRow(dims=dims, n_users=0, n_requests=prev.n_requests + row.n_requests,
+                              usage=usage, priced=_add_priced(prev.priced, row.priced, *tokens))
+    order = sorted(folded, key=lambda t: (t is None, t or ""))
+    return tuple(kept) + tuple(folded[t] for t in order)
 
 
 def extension_slots_present(result: RunResult) -> bool:
@@ -235,7 +295,8 @@ def _published(key: str, agg: PublishedAggregate) -> dict[str, object]:
         "k": agg.k,
         "suppressed_rows": agg.suppressed_rows,
         "suppressed_users": agg.suppressed_users,
-        "rows": [_agg_row(r, agg.group_by, f"bill.breakdowns[{key}]") for r in agg.rows],
+        "rows": [_agg_row(r, agg.group_by, f"bill.breakdowns[{key}]")
+                 for r in display_rows(agg)],
         "evidence": _EXACT,
     }
 

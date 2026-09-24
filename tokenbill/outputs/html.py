@@ -34,6 +34,7 @@ from decimal import Decimal
 from tokenbill.core import evidence as _evidence
 from tokenbill.core import extensions
 from tokenbill.core.errors import ContractViolation
+from tokenbill.core.facts import load
 from tokenbill.core.kanon import USERS_UNKNOWN, row_notes
 from tokenbill.core.labels import Basis, Evidence, Figure
 from tokenbill.core.money import ratio
@@ -49,6 +50,7 @@ from tokenbill.core.types import (
 from tokenbill.outputs.result_json import (
     check_median,
     date_of,
+    display_rows,
     extension_slots_present,
     policy_spec,
     require_allowance,
@@ -290,7 +292,7 @@ def _context_tax(agg: PublishedAggregate) -> str:
 
 def _breakdown(key: str, agg: PublishedAggregate) -> str:
     require_published(agg, f"html breakdown {key}")
-    rows = list(agg.rows)
+    rows = list(display_rows(agg))
     rows.sort(key=lambda r: -(r.priced.exact.nano or 0))
     shown = rows[:TOP_ROWS]
     items, cells = [], []
@@ -512,6 +514,7 @@ def _data_quality(r: RunResult) -> str:
 def _methodology(r: RunResult) -> str:
     rc = r.rate_card
     rows = [["rate card", rc.sha256 if rc else "none"],
+            ["facts verified as of", load().as_of],
             ["layers", ", ".join(rc.layers) if rc else "none"],
             ["contract", (rc.contract or "none") if rc else "none"]]
     sources = table("Sources", ["adapter", "source", "records", "quarantined"],

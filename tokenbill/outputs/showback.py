@@ -293,6 +293,19 @@ _BENCHMARKS = (
 )
 
 
+_ANCHOR_TEXT = (
+    f"published: about ${_evidence.CC_FLEET_USD_PER_ACTIVE_DAY.value} per active day, 90% below "
+    f"${_evidence.CC_FLEET_USD_PER_ACTIVE_DAY_P90_UNDER.value} (source "
+    f"{_evidence.CC_FLEET_USD_PER_ACTIVE_DAY.source_url}, checked "
+    f"{_evidence.CC_FLEET_USD_PER_ACTIVE_DAY.checked_on}; a benchmark, not a prediction)")
+_BENCHMARK_TEXT = (
+    f"published median {pct(str(_evidence.CACHE_READ_SHARE_MEDIAN.value))}, top decile "
+    f"{pct(str(_evidence.CACHE_READ_SHARE_TOP_DECILE.value))}, investigate below "
+    f"{pct(str(_evidence.CACHE_READ_SHARE_INVESTIGATE_BELOW.value))} (source "
+    f"{_evidence.CACHE_READ_SHARE_MEDIAN.source_url}, checked "
+    f"{_evidence.CACHE_READ_SHARE_MEDIAN.checked_on})")
+
+
 def _users(t: _Team) -> str:
     return "users unknown" if t.users_unknown else f"{t.users:,}"
 
@@ -342,8 +355,10 @@ def _team_page(t: _Team, plan: ActionPlan | None, k: int) -> str:
             f"active developers · {t.requests:,} requests · {t.dev_days:,} developer-days</p>"
             '<p><a href="index.html">All teams</a></p></header>',
             f'<section><h2>Spend</h2><ul>{"".join(spend)}</ul>'
-            f"<p>Cost per active developer-day: {money(pdd) if pdd else 'n/a'}{daily}</p>"
-            f"<p>Cache-read share: {esc(pct(share))} — {esc(_cache_verdict(share))}</p>"
+            f"<p>Cost per active developer-day: {money(pdd) if pdd else 'n/a'}{daily} — "
+            f"{esc(_ANCHOR_TEXT)}</p>"
+            f"<p>Cache-read share: {esc(pct(share))} — {esc(_cache_verdict(share))}; "
+            f"{esc(_BENCHMARK_TEXT)}</p>"
             f"<p>Context per request: {esc(' · '.join(ctx))}</p></section>",
             "<section><h2>Top findings (Shapley-ranked)</h2>"
             + table("Findings", ["finding", "monthly / Shapley", "observed", "kind"],

@@ -41,6 +41,7 @@ from tokenbill.core.types import (
 from tokenbill.outputs.result_json import (
     check_median,
     date_of,
+    display_rows,
     extension_slots_present,
     policy_spec,
     require_allowance,
@@ -252,7 +253,8 @@ def _breakdown(out: _Out, key: str, agg: PublishedAggregate) -> None:
     require_published(agg, f"bill breakdown {key}")
     out.line(f"by {key} (k={agg.k}; {agg.suppressed_rows} rows merged or withheld)", indent=2)
     rows = []
-    for row in agg.rows[:_TOP_N * 2]:
+    shown = display_rows(agg)
+    for row in shown[:_TOP_N * 2]:
         require_billed(row.priced.exact, f"breakdown {key} exact")
         dims = " ".join(f"{v}" if v is not None else "(none)" for _k, v in row.dims)
         users = "users unknown" if USERS_UNKNOWN in row_notes(row, group_by=agg.group_by) \
@@ -266,8 +268,8 @@ def _breakdown(out: _Out, key: str, agg: PublishedAggregate) -> None:
                      extra])
     out.table([key, "users", "requests", "bill", "allowance"], rows, right=(1, 2), indent=4,
               keep=(3, 4))
-    if len(agg.rows) > _TOP_N * 2:
-        out.line(f"(+{len(agg.rows) - _TOP_N * 2} more rows; see --format json)", indent=4)
+    if len(shown) > _TOP_N * 2:
+        out.line(f"(+{len(shown) - _TOP_N * 2} more rows; see --format json)", indent=4)
 
 
 def _bill(out: _Out, r: RunResult, bill: BillSummary) -> None:

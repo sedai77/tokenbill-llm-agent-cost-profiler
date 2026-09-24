@@ -263,3 +263,33 @@ def test_validator_never_raises(value: object) -> None:
     assert isinstance(errors, list)
     if isinstance(value, float):
         assert errors
+
+
+def test_users_unknown_cells_finer_than_team_fold_into_the_team_cell() -> None:
+    """Ruling R-E30: cells without a per-cell user count are shown at team level only."""
+    from tokenbill.core.kanon import publish
+    from tokenbill.core.types import RawAggregate as Raw
+
+    from .sample import T0, T1, agg_row
+
+    raw = Raw(group_by=("team", "model"), window=(T0, T1), rows=(
+        agg_row((("team", "ops"), ("model", "claude-opus-5-5")), 0, "10"),
+        agg_row((("team", "ops"), ("model", "claude-sonnet-5")), 0, "5", allowance="1"),
+        agg_row((("team", None), ("model", "claude-opus-5-5")), 0, "2"),
+        agg_row((("team", "payments"), ("model", "claude-opus-5-5")), 8, "100")))
+    pub = publish(raw, k=5)
+    rows = rj.display_rows(pub)
+    assert [r.dims for r in rows] == [
+        (("team", "payments"), ("model", "claude-opus-5-5")),
+        (("team", "ops"), ("model", "(all)")), (("team", None), ("model", "(all)"))]
+    ops = rows[1]
+    assert ops.priced.exact.nano == usd("15") and ops.priced.allowance.nano == usd("1")
+    assert ops.n_requests == 0 and ops.n_users == 0
+    d = rj.to_result_json(full_result(bill=dataclasses.replace(
+        bill(), breakdowns=(("team,model", pub),))), deterministic=True)
+    assert rj.validate_result_json(d) == []
+    (b,) = d["bill"]["breakdowns"]
+    assert {r["dims"]["model"] for r in b["rows"]} == {"claude-opus-5-5", "(all)"}
+    team_only = publish(Raw(group_by=("team",), window=(T0, T1), rows=(
+        agg_row((("team", "ops"),), 0, "10"),)), k=5)
+    assert rj.display_rows(team_only) == team_only.rows
