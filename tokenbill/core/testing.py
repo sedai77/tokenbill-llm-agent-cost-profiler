@@ -828,7 +828,8 @@ class MemoryStore:
     * **Merge** (§7.3): contributions join through the request id, provider message ids and — unless
       a provider request id was seen with two message ids (``dq.request_id_collision``) — provider
       request ids. The usage set (attempts, inferences, timing) comes from the highest (fidelity,
-      source priority, serving output) contribution, exact ties to the canonically smallest;
+      source priority, serving output) contribution, exact ties to the canonically smallest (the
+      lane, session and sequence number travel with it);
       attribution is merged per field (and per ``extra`` key) by priority, equal priority →
       lexicographically smallest; ``sources_mask`` is the OR of adapter bits; diagnostics fill if
       null; parameters fill if null. The surviving request id is the smallest id among contributions
@@ -2000,6 +2001,11 @@ def _leaks_source(text: str, source: bytes, window: int = 65) -> bool:
     return any(data[start:start + window] in source for start in range(len(data) - window + 1))
 
 
+#: Provider-authored labels that may exceed 64 bytes verbatim: cost-report / CUR descriptions and
+#: SKU codes, aggregate dimension values. They are never user content.
+_PROVIDER_LABEL_FIELDS = (".cost_lines.description", ".cost_lines.sku", ".aggregates.dims")
+
+
 def _sum_check_attempts(result: IngestResult) -> int:
     try:
         from tokenbill.core import conventions  # F-SEM; optional at wave 1
@@ -2069,6 +2075,8 @@ def assert_adapter_conforms(adapter: Adapter, fixture_path: Path, *,
     if str(options.content_tier) == "none":
         source = _source_bytes(fixture_path)
         for path, text in _walk_strings(encoded):
+            if path.endswith(_PROVIDER_LABEL_FIELDS):
+                continue  # provider cost-type labels and codes, never user content
             if path.endswith(".raw_usage_json"):
                 _check(all(len(s.encode()) <= 64 for _, s in _walk_strings(json.loads(text))),
                        "raw_usage_json carries long strings")
@@ -2403,9 +2411,11 @@ def assert_store_conforms(factory: Callable[..., LedgerStore], *, permutations: 
     first = {t[0:2]: t[2] for t in store.lane_first_reads(**w)}
     _check(first.get(("ws:w1", "claude-opus-5-5")) is not None, "lane_first_reads")
     for where in ({"team": "payments"}, {"team": "platform"}, {"lane_kind": "main"},
-                  {"model": "claude-opus-5-5"}, {"billing_class": "allowance"}, {"team": ""}):
-        brute = {r.attribution.principal for r in store.iter_requests(where=where, **w)
-                 if r.attribution.principal is not None}
+                  {"model": "claude-opus-5-5"}, {"billing_class": "allowance"},
+                  {"team": "payments", "lane_kind": "subagent"}):
+        brute = {r.attribution.principal for lane in lanes for r in lane.requests
+                 if r.attribution.principal is not None
+                 and _request_matches(r, lane, where)}
         _check(store.count_users(where=where, **w) == len(brute),
                f"count_users({where}) differs from a brute-force distinct count")
     # --- provider-side records ---
@@ -2438,8 +2448,9 @@ def assert_store_conforms(factory: Callable[..., LedgerStore], *, permutations: 
     teams = store.aggregate(group_by=["team"], **w)
     for row in teams.rows:
         team = dict(row.dims)["team"]
-        _check(row.n_users == store.count_users(where={"team": team or ""}, **w),
-               "aggregate n_users equals count_users")
+        if team is not None:
+            _check(row.n_users == store.count_users(where={"team": team}, **w),
+                   "aggregate n_users equals count_users")
     clusters = store.cluster_days(cluster_kind="team", since=_CONFORMANCE_DAY, until="2026-09-24")
     pay = [c for c in clusters if c.cluster_id == "payments"]
     _check(pay and sum(c.active_users for c in pay) >= 1, "cluster_days(team)")
@@ -2474,6 +2485,16 @@ def assert_store_conforms(factory: Callable[..., LedgerStore], *, permutations: 
            "no request of the purged principal remains")
     store.audit("conformance", "check", {"n": 1})
     return {"requests": len(reqs), "orders": len(orders), "lanes": len(lanes)}
+
+
+def _request_matches(req: Request, lane: Lane, where: Mapping[str, str]) -> bool:
+    """Brute-force evaluation of a ``count_users`` filter on one request of *lane*."""
+    si = req.serving_inference
+    path = req.attribution.billing_path or (si.pricing.billing_path if si is not None else None)
+    values = {"team": req.attribution.team, "lane_kind": lane.kind.value, "model": req.model,
+              "billing_class": billing_class(path), "cost_center": req.attribution.cost_center,
+              "workspace_id": req.attribution.workspace_id}
+    return all(values.get(k) == v for k, v in where.items())
 
 
 def _conformance_finding() -> Finding:

@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from tokenbill.core import testing as kit
-from tokenbill.core.builders import CANARY, lane_from_table, make_request
+from tokenbill.core.builders import CANARY, lane_from_table, make_cost_line, make_request
 from tokenbill.core.errors import UsageError
 from tokenbill.core.ids import key_id, pseudonym
 from tokenbill.core.labels import Basis, estimated, exact
@@ -362,6 +362,20 @@ def test_adapter_conformance_catches_source_text_and_undeclared_capabilities(
                                                                         principal_key_id=None))
     with pytest.raises(AssertionError, match="Adapter"):
         kit.assert_adapter_conforms(object(), path, expect_capabilities=EXPECT)  # type: ignore
+
+
+def test_provider_labels_may_be_long(tmp_path: Path) -> None:
+    label = "$5.00 per million input tokens for Claude Opus 5 in US East (N. Virginia), global CRIS"
+
+    class CostAdapter(JsonlAdapter):
+        def read(self, path, opts):
+            res = super().read(path, opts)
+            res.cost_lines = [make_cost_line(1, description=label, sku=label)]
+            return res
+
+    path = tmp_path / "cur.jsonl"
+    path.write_text(json.dumps({"id": "r0", "team": "t", "in": 1, "out": 1, "text": label}))
+    kit.assert_adapter_conforms(CostAdapter(), path, expect_capabilities=EXPECT)
 
 
 def test_conformance_ingest_options() -> None:

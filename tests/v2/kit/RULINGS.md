@@ -80,7 +80,8 @@ them to data-quality codes).
 **K-11 — store merge determinism** (`MemoryStore`, the executable specification of §7.3). The merged
 ledger is a function of the set of contributions: the surviving request id is the smallest id among
 contributions carrying a provider message id (else the smallest id); exact usage-set ties go to the
-canonically smallest contribution ("keep the existing set" is order-dependent); a provider request id
+canonically smallest contribution ("keep the existing set" is order-dependent), and the lane, session
+and sequence number travel with the winning usage set; a provider request id
 seen with two message ids anywhere is never a join key. `assert_store_conforms` keeps each collision
 pair and split-entry pair inside one source, so an incremental store that pre-scans each batch for
 collisions passes; it fixes the store's name key id up front through the factory so that h_ nulling
