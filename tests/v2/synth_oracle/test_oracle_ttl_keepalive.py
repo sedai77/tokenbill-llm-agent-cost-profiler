@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from tokenbill.core.builders import make_inference
-from tokenbill.core.records import InferenceKind, LaneKind, RequestParams
+from tokenbill.core.records import InferenceKind, LaneKind, RequestParams, UsageSource
 from tokenbill.core.types import Policy
 
 from .helpers import bounds, costs, lane, lane_of, replay, req
@@ -140,6 +140,27 @@ def test_selector_scoped_ttl_leaves_other_lanes_unchanged() -> None:
     assert dict(res.per_lane)["Lsub"] == 202_000 * W5
     assert dict(res.per_lane)["Lmain"] == 100_000 * W1 + 100_000 * READ + 2_000 * W1
     assert [o.changed for o in res.outcomes or ()] == [True, True, False, False]
+
+
+def test_saving_is_per_request_so_unaffected_ranges_never_leak() -> None:
+    # SPEC §3.5 "per request then summed" and §9.1 #1: the subagent lane's placeholder-output
+    # range is unaffected by a main-lane TTL policy, so it saves exactly 0 (no range)
+    main = lane([(0, 0, 100_000, 0, 0, 0), (420, 0, 102_000, 0, 0, 0)], lane_key="Lmain")
+    sub = lane_of([req("Lsub", 0, 0, {"cache_write_5m": 10_000, "output": 5},
+                       usage_source=UsageSource.MESSAGE_START_ONLY, output_upper=400)],
+                  kind=LaneKind.SUBAGENT)
+    main_saving = 202_000 * W5 - (100_000 * W1 + 100_000 * READ + 2_000 * W1)
+    scoped = replay([main, sub], "ttl=1h@lane_kind:main")
+    assert bounds(scoped.baseline) == (212_000 * W5 + 5 * OUT, 212_000 * W5 + 5 * OUT,
+                                       212_000 * W5 + 400 * OUT)
+    assert bounds(scoped.saving) == (main_saving,) * 3 and scoped.saving.low_nano is None
+    # the same placeholder request changed by the policy: its range enters crosswise
+    # (observed [5, 400] output at 5m writes, policy [5, 400] at 1h writes)
+    every = replay([main, sub], "ttl=1h")
+    sub_saving = (10_000 * (W5 - W1),
+                  10_000 * W5 + 5 * OUT - (10_000 * W1 + 400 * OUT),
+                  10_000 * W5 + 400 * OUT - (10_000 * W1 + 5 * OUT))
+    assert bounds(every.saving) == tuple(main_saving + s for s in sub_saving)
 
 
 # ---------------------------------------------------------------------------------------------

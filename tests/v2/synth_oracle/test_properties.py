@@ -2,8 +2,9 @@
 
 * identity (SPEC §9.1 #2): the observed policy returns ``cost == baseline`` to the nano, ranges
   included, with every outcome unchanged — on random lanes of every family;
-* every outcome and figure has ``low ≤ point ≤ high``; ``saving = baseline − cost`` with ranges
-  crosswise; Σ outcomes = Σ per-lane = cost;
+* every outcome and figure has ``low ≤ point ≤ high``; ``saving = baseline − cost`` per request
+  then summed (unchanged requests save exactly 0, changed ones with ranges crosswise);
+  Σ outcomes = Σ per-lane = cost;
 * shard additivity (§9.1 #6): replaying two disjoint halves and merging with
   ``core.shards.merge_replay`` equals one replay (families without cross-lane repairs);
 * the small exact helpers and the generators' input handling.
@@ -47,16 +48,28 @@ def test_bounds_order_and_saving_arithmetic(seed: int, family: str, which: int) 
     policies = family_policies(family)
     policy = policies[1 + which % (len(policies) - 1)]   # a non-observed policy
     res = replay(lanes, policy)
+    observed = {o.request_id: outcome_bounds(o.cost_nano, o.low_nano, o.high_nano)
+                for o in replay(lanes, Policy.observed()).outcomes or ()}
     total = 0
+    per_request = [0, 0, 0]
     for o in res.outcomes or ():
         point, low, high = outcome_bounds(o.cost_nano, o.low_nano, o.high_nano)
         assert point is not None and low <= point <= high  # type: ignore[operator]
         total += point
+        b_pt, b_lo, b_hi = observed[o.request_id]
         if not o.changed:
-            assert o.extra == ()
+            assert o.extra == () and (point, low, high) == (b_pt, b_lo, b_hi)
+            continue
+        # saving per request, then summed; ranges crosswise (SPEC §3.5, §9.1 #1)
+        per_request[0] += b_pt - point  # type: ignore[operator]
+        per_request[1] += b_lo - high  # type: ignore[operator]
+        per_request[2] += b_hi - low  # type: ignore[operator]
     assert total == res.cost.nano == sum(v for _k, v in res.per_lane)
     b, c, s = bounds(res.baseline), bounds(res.cost), bounds(res.saving)
-    assert s == (b[0] - c[0], b[1] - c[2], b[2] - c[1])  # type: ignore[operator]
+    assert s == tuple(per_request)
+    assert s[0] == b[0] - c[0]  # type: ignore[operator]
+    # unaffected traffic never widens the saving: it is at most the aggregate crosswise range
+    assert b[1] - c[2] <= s[1] and s[2] <= b[2] - c[1]  # type: ignore[operator]
     assert replay(lanes, policy).outcomes == res.outcomes   # deterministic
 
 

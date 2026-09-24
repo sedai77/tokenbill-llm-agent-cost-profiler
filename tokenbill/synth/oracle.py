@@ -422,6 +422,10 @@ class ReferenceReplay:
         points: list[int | None] = []
         lows: list[int | None] = []
         highs: list[int | None] = []
+        # saving per request, then summed (§3.5, §9.1 #1): an unchanged request saves exactly 0,
+        # so the ranges of unaffected traffic never leak into the saving; a changed one saves
+        # observed − policy with the ranges crosswise
+        saving_sum: list[int] | None = [0, 0, 0]
         pure_rate_exact = self._pure_rate_policy(policy)
         for lane in ordered:
             plan = plans[lane.lane_key]
@@ -438,6 +442,8 @@ class ReferenceReplay:
                 obs = run.observed[p_out.request.request_id]
                 obs_bounds = outcome_bounds(obs.nano, obs.low_nano, obs.high_nano)
                 changed = p_out.changed or (point, low, high) != obs_bounds
+                saving_sum = _add_request_saving(saving_sum, obs_bounds, (point, low, high),
+                                                 changed=changed)
                 pure_rate_exact = pure_rate_exact and not p_out.flipped
                 points.append(point)
                 lows.append(low)
@@ -456,7 +462,7 @@ class ReferenceReplay:
 
         cost = self._cost_figure(points, lows, highs, baseline, basis, label, policy,
                                  exact=pure_rate_exact and baseline.evidence is Evidence.EXACT)
-        saving = self._saving_figure(baseline, cost, policy)
+        saving = self._saving_figure(baseline, cost, policy, saving_sum)
         if policy.keepalive is not None:
             run.assumptions.add("keepalive hindsight minimum pings (lower bound): "
                                 f"{run.hindsight_pings}")
@@ -1295,25 +1301,28 @@ class ReferenceReplay:
                       calibration=label, upper_bound=False, provenance=("oracle",), note=note)
 
     @staticmethod
-    def _saving_figure(baseline: Figure, cost: Figure, policy: Policy) -> Figure:
-        """``baseline − cost`` with ranges crosswise; trajectory levers are upper bounds."""
-        if baseline.nano is None or cost.nano is None:
+    def _saving_figure(baseline: Figure, cost: Figure, policy: Policy,
+                       per_request: Sequence[int] | None) -> Figure:
+        """``baseline − cost``, per request then summed (*per_request*: the summed ``(point,
+        low, high)`` of the changed requests, None when one is unpriced); trajectory levers are
+        upper bounds."""
+        if baseline.nano is None or cost.nano is None or per_request is None:
             return Figure(nano=None, evidence=Evidence.ESTIMATED, basis=baseline.basis,
                           calibration=cost.calibration if cost.calibration is not Calibration.NA
                           else Calibration.UNCALIBRATED,
                           note="unpriced: baseline or policy cost unpriced")
+        # an unchanged request has the observed point (``changed`` compares the bounds), so the
+        # summed point is exactly baseline − cost
+        point, low, high = per_request
         if cost.evidence is Evidence.EXACT and baseline.evidence is Evidence.EXACT:
-            return Figure(nano=baseline.nano - cost.nano, evidence=Evidence.EXACT,
-                          basis=baseline.basis, provenance=("oracle",))
-        b_lo, b_hi = outcome_bounds(baseline.nano, baseline.low_nano, baseline.high_nano)[1:]
-        c_lo, c_hi = outcome_bounds(cost.nano, cost.low_nano, cost.high_nano)[1:]
-        ranged = baseline.low_nano is not None or cost.low_nano is not None
+            return Figure(nano=point, evidence=Evidence.EXACT, basis=baseline.basis,
+                          provenance=("oracle",))
+        ranged = (low, high) != (point, point)
         upper = (policy.compaction_window is not None or policy.cold_resume is not None
                  or bool(policy.effort) or any(r in _TRAJECTORY_REPAIRS for r in policy.repairs))
         return Figure(
-            nano=baseline.nano - cost.nano, evidence=Evidence.ESTIMATED, basis=baseline.basis,
-            low_nano=b_lo - c_hi if ranged else None,  # type: ignore[operator]
-            high_nano=b_hi - c_lo if ranged else None,  # type: ignore[operator]
+            nano=point, evidence=Evidence.ESTIMATED, basis=baseline.basis,
+            low_nano=low if ranged else None, high_nano=high if ranged else None,
             calibration=cost.calibration if cost.calibration is not Calibration.NA
             else Calibration.UNCALIBRATED,
             upper_bound=upper, provenance=("oracle",),
@@ -1359,6 +1368,22 @@ def outcome_bounds(nano: int | None, low: int | None, high: int | None
     if nano is None:
         return None, None, None
     return nano, low if low is not None else nano, high if high is not None else nano
+
+
+def _add_request_saving(total: list[int] | None,
+                        observed: tuple[int | None, int | None, int | None],
+                        policy: tuple[int | None, int | None, int | None], *,
+                        changed: bool) -> list[int] | None:
+    """Add one request's saving to *total* (``[point, low, high]``; None once anything is
+    unpriced): 0 when the request is unchanged, else ``observed − policy`` with the ranges
+    crosswise (low = observed low − policy high)."""
+    if total is None or not changed:
+        return total
+    (o_pt, o_lo, o_hi), (c_pt, c_lo, c_hi) = observed, policy
+    if o_pt is None or c_pt is None:
+        return None
+    return [total[0] + o_pt - c_pt, total[1] + o_lo - c_hi,  # type: ignore[operator]
+            total[2] + o_hi - c_lo]  # type: ignore[operator]
 
 
 def request_costs(result: ReplayResult) -> dict[str, tuple[int | None, int | None, int | None]]:
