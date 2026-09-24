@@ -125,9 +125,11 @@ def build_world() -> SimpleNamespace:
                                       input_tokens=1000, output_tokens=100)
         lines.append(line)
         aggs.append(agg)
+    # six more people on cost lines (for the scope counts) with zero credits, so the September
+    # consumption stays exactly the C.P9 series (2,000,000 observed credits)
     for i, team in enumerate(("platform", "platform", "data", "data", "data", "infra")):
         line, agg = make_ai_usage_row(date_utc="2026-09-10", principal=p(f"dev{i}"),
-                                      credits="1", team=team, cost_center="cc-eng",
+                                      credits="0", team=team, cost_center="cc-eng",
                                       model="GPT-5.5", finality="final")
         lines.append(line)
         aggs.append(agg)
@@ -352,6 +354,51 @@ def gate_finding(detector_id: str, kind: str, dims: dict[str, str], n_users: int
         n_lanes=0, n_users=n_users, first_seen_ms=0,
         cost_observed=exact(nano, Basis.LIST_EQUIVALENT if copilot_scope else Basis.LIST),
         recoverable=None, references=("gate",))
+
+
+class GatePlainLaneDetector:
+    """A lane detector with no family filter (runs per shard, never in the aggregate phase)."""
+
+    id = "gate.plain-lane"
+    version = "1"
+    kinds = ("plain",)
+    requires = frozenset({"usage_sequence"})
+    runs = 0
+
+    def detect(self, lanes: Sequence[Lane], ctx: AnalysisContext) -> list:
+        type(self).runs += 1
+        return []
+
+
+def test_world_reproduces_the_p9_consumption() -> None:
+    w = build_world()
+    pooled = [c for c in w.store.cost_lines(**W) if c.cost_type == "ai_credit.user"]
+    assert sum(Decimal(c.quantity or "0") for c in pooled) == Decimal(2_000_000)
+    assert len({c.principal for c in pooled}) == 7
+
+
+def test_run_detectors_aggregate_phase(monkeypatch: pytest.MonkeyPatch) -> None:
+    """R-E17 on F-CORE-C + F-KIT-C alone: the aggregate detector runs only in the once-per-run
+    call and silently not at all without ``ext:copilot``; lane detectors only per shard."""
+    w = build_world()
+    monkeypatch.setattr(reg, "BUILTIN_DETECTORS", {GatePlainLaneDetector.id:
+                                                   GatePlainLaneDetector})
+    monkeypatch.setattr(reg, "_PLUGIN_DETECTORS", {GateAggregateDetector.id:
+                                                   GateAggregateDetector})
+    GateAggregateDetector.runs = GatePlainLaneDetector.runs = 0
+    ctx = AnalysisContext(pricer=w.pricer, rules=None, replayer=None, calibration=None,
+                          window=(0, 2**53),
+                          capabilities=frozenset({"usage_sequence", "ext:copilot"}),
+                          cost_lines=tuple(w.store.cost_lines(**W)))
+    assert reg.run_detectors(list(w.store.iter_lanes(**W)), ctx, aggregates_only=False) == []
+    assert (GateAggregateDetector.runs, GatePlainLaneDetector.runs) == (0, 1)
+    (once,) = reg.run_detectors([], ctx, aggregates_only=True)
+    assert (GateAggregateDetector.runs, GatePlainLaneDetector.runs) == (1, 1)
+    assert once.detector_id == GateAggregateDetector.id and once.kind == "pool-regime"
+    assert once.cost_observed.nano == 2_000_000 * CREDIT_NANO  # C.P9 observed credits
+    silent = reg.run_detectors([], dataclasses.replace(ctx, capabilities=frozenset(
+        {"usage_sequence"})), aggregates_only=True)
+    assert silent == [] and GateAggregateDetector.runs == 1  # skipped silently
 
 
 def test_run_detectors_phases_families_and_exclusions(monkeypatch: pytest.MonkeyPatch) -> None:
