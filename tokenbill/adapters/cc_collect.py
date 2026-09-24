@@ -5,11 +5,13 @@ The on-device collector (``tokenbill collect claude-code``, wired by CLI-LEDGER)
 
 * a file is re-read from ``offset`` when ``size ≥ offset`` and the head hash is unchanged, else from
   the start (rotation / truncation: fresh parser state);
-* the offset advances only to the start of the earliest assistant group that is not yet closed
-  (closed = a non-null ``stop_reason`` or followed by a non-assistant entry) or of an unterminated
-  last line, so in-flight calls are re-read — and are **not emitted** — until they close. A file
-  whose mtime is at least :data:`QUIESCENT_MS` old is final: its open groups are emitted as they
-  are and the offset moves to the end;
+* the offset never passes an unclosed assistant group (§5.3: closed = a non-null ``stop_reason``
+  or followed by a non-assistant entry) nor an unterminated last line. It stops at the start of
+  the earliest *trailing* group — one not yet followed by a conversation entry, even when its last
+  line carries a stop reason — so those calls are re-read, and **not emitted**, until the next
+  entry closes them: a one-shot import finalizes them at that point too, which keeps both paths
+  record-for-record identical. A quiescent file (untouched for :data:`QUIESCENT_MS`), or any file
+  with ``final=True``, is emitted to its end;
 * the set of recent uuids (duplicate-line detection) is bounded to the last 2,000.
 
 Besides the cursors, :class:`CollectorState` keeps each file's content-free parser context (the
@@ -47,6 +49,7 @@ from tokenbill.core.errors import SourceError
 from tokenbill.core.types import DataQualityNote, IngestOptions, IngestResult
 
 __all__ = [
+    "CLOCK_SKEW_MS",
     "HEAD_SHA_BYTES",
     "QUIESCENT_MS",
     "RECENT_UUIDS",
@@ -62,6 +65,8 @@ logger = logging.getLogger("tokenbill.adapters.cc_collect")
 STATE_SCHEMA = "tokenbill/cc-collector@1"
 #: A transcript untouched for this long is final: in-flight groups are emitted as they are.
 QUIESCENT_MS = 10 * 60_000
+#: An mtime this far after ``now_ms`` means the clock was injected (tests, replays): final.
+CLOCK_SKEW_MS = 60_000
 #: Recent uuids kept per file for duplicate-line detection (SPEC §5.3).
 RECENT_UUIDS = 2000
 HEAD_SHA_BYTES = jsonl.HEAD_SHA_BYTES
@@ -178,14 +183,17 @@ def retention_check(root: Path, now_ms: int) -> DataQualityNote | None:
 
 
 def collect_incremental(root: Path, state: CollectorState, opts: IngestOptions, *,
-                        now_ms: int) -> Iterator[IngestResult]:
+                        now_ms: int, final: bool = False) -> Iterator[IngestResult]:
     """One :class:`IngestResult` per transcript under *root* with new, closed records since the
     last run, updating *state* in place (the caller saves it after consuming the iterator).
 
     Unchanged files (same size and mtime) are skipped, as are files whose new bytes are still
-    in flight; a file with withheld in-flight bytes is processed again once it is quiescent
-    (:data:`QUIESCENT_MS`, measured against *now_ms*). The first result also carries
-    ``dq.retention_warning`` when transcripts approach ``cleanupPeriodDays``.
+    in flight (a trailing message group, or an unterminated last line); a file with withheld bytes
+    is processed again once it is quiescent — untouched for :data:`QUIESCENT_MS` before *now_ms*,
+    or with an mtime more than :data:`CLOCK_SKEW_MS` after *now_ms* (an injected clock behind the
+    file system: the file is treated as final) — or when *final* is true (e.g. a last collection
+    at shutdown). The first result also carries ``dq.retention_warning`` when transcripts approach
+    ``cleanupPeriodDays``.
     """
     check_options(opts)
     opts = dataclasses.replace(opts, now_ms=now_ms) if opts.now_ms != now_ms else opts
@@ -193,7 +201,7 @@ def collect_incremental(root: Path, state: CollectorState, opts: IngestOptions, 
     retention = retention_note(files, now_ms)
     first = True
     for path in files:
-        result = _collect_file(path, state, opts, now_ms)
+        result = _collect_file(path, state, opts, now_ms, final)
         if result is None:
             continue
         if first and retention is not None:
@@ -204,14 +212,15 @@ def collect_incremental(root: Path, state: CollectorState, opts: IngestOptions, 
 
 
 def _collect_file(path: Path, state: CollectorState, opts: IngestOptions,
-                  now_ms: int) -> IngestResult | None:
+                  now_ms: int, final: bool) -> IngestResult | None:
     key = source_id_for(opts, path)
     try:
         st = os.stat(path)
     except OSError:
         return None
     size, mtime_ns = st.st_size, st.st_mtime_ns
-    quiescent = now_ms - mtime_ns // 1_000_000 >= QUIESCENT_MS
+    age_ms = now_ms - mtime_ns // 1_000_000
+    quiescent = final or age_ms >= QUIESCENT_MS or age_ms < -CLOCK_SKEW_MS
     cur = state.cursors.get(key)
     context = state.contexts.get(key)
     if cur is not None:

@@ -399,3 +399,16 @@ def test_random_sessions_collected_in_pieces_equal_one_shot(
     assert store_dump(_store(results)) == store_dump(_store([one]))
     assert len(one.requests) == len({r for res in results for r in
                                      (q.request_id for q in res.requests)})
+
+
+def test_final_flag_and_injected_clock_behind_the_file(tmp_path: Path) -> None:
+    t = bf.Tx("33333333-0000-4000-8000-000000000003")
+    t.human("go")
+    t.call("msg_f", OPUS, inp=5, outputs=(3, 9), stop="end_turn")
+    path = _file(tmp_path)
+    _write(path, t.text().encode(), NOW)
+    assert _collect(tmp_path, CollectorState(), NOW)[0].requests == []       # trailing: withheld
+    [r] = list(collect_incremental(tmp_path, CollectorState(), opts(), now_ms=NOW, final=True))
+    assert set(by_message(r)) == {"msg_f"}
+    [r] = _collect(tmp_path, CollectorState(), NOW - 3_600_000)     # clock behind the file
+    assert set(by_message(r)) == {"msg_f"}
