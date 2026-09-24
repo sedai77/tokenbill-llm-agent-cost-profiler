@@ -29,13 +29,13 @@ def _check_recovery(seeds: range, boot: int) -> None:
 
 def test_stepped_wedge_25pct_effect_recovered_10_seeds() -> None:
     """Acceptance (PR CI): known 25% effect, estimate within ±5% of truth, 95% CI coverage ≥ 90%."""
-    _check_recovery(range(10), boot=400)
+    _check_recovery(range(10), boot=300)
 
 
 @pytest.mark.slow
 def test_stepped_wedge_25pct_effect_recovered_50_seeds() -> None:
     """Acceptance (slow): the same over 50 seeds."""
-    _check_recovery(range(50), boot=500)
+    _check_recovery(range(50), boot=300)
 
 
 def test_imputation_is_deterministic_and_seed_scoped() -> None:

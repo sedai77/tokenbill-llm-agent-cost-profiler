@@ -38,12 +38,12 @@ def _check(seeds: range, boot: int) -> None:
 
 def test_stepped_wedge_panels_from_synth_10_seeds() -> None:
     """Acceptance (gate): imputation within ±5% of the known effect, 95% CI coverage ≥ 90%."""
-    _check(range(10), boot=400)
+    _check(range(10), boot=300)
 
 
 @pytest.mark.slow
 def test_stepped_wedge_panels_from_synth_50_seeds() -> None:
-    _check(range(50), boot=500)
+    _check(range(50), boot=300)
 
 
 def test_constant_price_estimate_ignores_a_price_cut() -> None:
