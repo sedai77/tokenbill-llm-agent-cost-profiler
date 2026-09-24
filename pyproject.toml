@@ -60,6 +60,8 @@ artifacts = [
   "tokenbill/core/facts.json",
   "tokenbill/rates/data/**",
   "tokenbill/plan/templates/**",
+  "tokenbill/copilot/data/**",
+  "tokenbill/copilot/handoff_data/**",
 ]
 
 [tool.pytest.ini_options]

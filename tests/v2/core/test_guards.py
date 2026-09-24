@@ -173,7 +173,8 @@ def test_toml_subset_parser_fuzz(text: str) -> None:
 
 def test_ownership_table_mirrors_appendix_o() -> None:
     own = check_ownership.load_ownership(REPO / "OWNERSHIP.toml")
-    assert len(own.packages) == 23  # 22 work packages + INTEGRATION
+    # 22 work packages + INTEGRATION + (C-32) F-EXT, F-POOL and the 19 Copilot packages
+    assert len(own.packages) == 44
     assert own.owners_of("tokenbill/core/records.py") == ["F-CORE"]
     assert own.owners_of("tokenbill/core/policy.py") == ["F-SEM"]
     assert own.owners_of("tokenbill/core/testing.py") == ["F-KIT"]
@@ -186,6 +187,9 @@ def test_ownership_table_mirrors_appendix_o() -> None:
     assert own.owners_of("tokenbill/rates/data/anthropic.json") == ["RATES"]
     assert own.owners_of("tokenbill/plan/templates/tokenbill_session_start.py") == ["PLAN"]
     assert own.owners_of("somewhere/else.txt") == []
+    # C-32 (SPEC-v0.2-COPILOT §21.3): moved and new rows
+    assert own.owners_of("tokenbill/outputs/ccusage.py") == ["CLI-LEDGER"]
+    assert own.owners_of("tokenbill/copilot/__init__.py") == ["F-CORE"]
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git not available")
