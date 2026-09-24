@@ -124,10 +124,10 @@ def _counter(f: Finding, scope: Scope) -> int:
     return 3 if team == "tiny" else 6 if team else 40
 
 
-def test_small_team_rescoped_whatever_its_category() -> None:
+def test_small_team_rescoped_although_category_aggregate() -> None:
     findings = run(rich_world().ctx(min_usd="0.01"))
     tiny = [f for f in findings if dict(f.scope.dims).get("team") == "tiny"]
-    assert {f.category for f in tiny} >= {"aggregate", "premium"}      # editor-mix, premium
+    assert len(tiny) >= 3 and {f.category for f in tiny} == {"aggregate"}   # R-E16
     assert all(f.n_users == 3 for f in tiny)
     published = kanon.rescope_findings(findings, k=5, count_users=_counter)
     assert not [f for f in published if dict(f.scope.dims).get("team") == "tiny"]

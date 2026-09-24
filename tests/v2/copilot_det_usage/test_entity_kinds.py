@@ -35,7 +35,7 @@ def test_forced_migration_gpt54_sol_vs_terra_hand_arithmetic() -> None:
                                                                   "gpt-5.6-terra")
     # vs GPT-5.4 today (1M×$2.50 + 0.5M×$0.25 + 0.1M×$15 = $4.125): +$2.075 per row
     assert a["delta_vs_current_nano"] == 6_225_000_000
-    assert f.recoverable is None and f.category == "premium"
+    assert f.recoverable is None and f.category == "aggregate"
     assert dict(f.scope.dims) == {"product": "copilot", "entity": "enterprise",
                                   "model": "gpt-5.4"}
     assert f.projected_monthly.nano == 30 * 8_700_000_000       # one observed day
@@ -237,7 +237,7 @@ def test_agent_failed_sessions_provider_estimate_only_in_evidence() -> None:
               reported=amount * CREDIT)
     f = one(run(w.ctx()), "agent-failed-sessions")
     assert f.cost_observed.nano is None and "provider estimate only" in f.cost_observed.note
-    assert f.cost_observed.basis is Basis.LIST_EQUIVALENT and f.category == "failure"
+    assert f.cost_observed.basis is Basis.LIST_EQUIVALENT and f.category == "aggregate"
     a = attrs(f, "agent-tasks")
     assert a["provider_estimate_nano"] == 60 * CREDIT and a["sessions_total"] == 5
     assert (a["sessions_failed"], a["sessions_timed_out"], a["sessions_cancelled"]) == (1, 1, 1)
@@ -253,7 +253,7 @@ def test_unattributed_spend_share() -> None:
     w.row(unattributed=True, cost_center="cc-1", date_utc="2026-09-10",
           model="Claude Sonnet 5", credits="100")                       # no username
     f = one(run(w.ctx()), "unattributed-spend")
-    assert f.cost_observed.nano == 200 * CREDIT and f.category == "attribution"
+    assert f.cost_observed.nano == 200 * CREDIT and f.category == "aggregate"
     a = attrs(f, "unattributed")
     assert (a["share"], a["no_username_nano"], a["no_cost_center_nano"]) == (
         "0.4", 100 * CREDIT, 100 * CREDIT)

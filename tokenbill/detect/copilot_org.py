@@ -27,10 +27,12 @@ channel, else EXACT LIST with "unreconciled" / "provisional"; mixed sets go thro
 :data:`KIND_REQUIRES` (alternative capability sets, each all-of) and by its own inputs; every kind
 that cannot run is named once in a single ``dq.skipped-kinds`` data-quality finding.
 
-**Privacy.** Scopes carry ``product: copilot``, ``entity`` and ``team`` / ``model`` /
-``plan_scenario`` only; no principal, login or ``p_`` value ever reaches a finding (people are
-only counted for ``n_users``); publication is ``core.kanon.rescope_findings`` with the catalog's
-count sources (R-E16: team-scoped findings are never exempt, whatever their category).
+**Privacy.** Scopes carry ``product: copilot``, ``entity``, ``team`` (or ``cost_center`` for
+report rows without a team), ``model`` and ``plan_scenario`` only; no principal, login or ``p_``
+value ever reaches a finding (people are only counted for ``n_users``). Every finding is category
+``aggregate`` (the brief; the skipped-kinds note is ``data-quality``), and publication is
+``core.kanon.rescope_findings`` with the catalog's count sources (R-E16: team-scoped findings are
+never exempt, whatever their category).
 
 **Thresholds** (``ctx.thresholds["copilot.org-scan.<name>"]``, decimal strings): ``min_usd``
 (the shared one), ``jetbrains_policy_share`` (0.5), ``mcp_heavy_distinct`` (5), ``mcp_heavy_share``
@@ -504,12 +506,12 @@ class _In:
     # --- people, dates ---------------------------------------------------------------------
 
     def users(self, entity: str, pred: Callable[[_Row], bool], *,
-              team: object = ...) -> int:
+              unit: _Unit | None = None) -> int:
         """Distinct principals of the AI-credit cost lines of *entity* matching *pred* (and
-        *team*): counted, never exported."""
+        *unit*): counted, never exported."""
         return len({line.principal for row, line in self.lines
                     if line.principal is not None and row.entity_id == entity
-                    and (team is ... or row.team == team) and pred(row)})
+                    and (unit is None or _unit_of(row) == unit) and pred(row)})
 
     def month_closed(self, entity: str, month: str) -> bool:
         pms = self.pools.get((entity, month))
@@ -679,6 +681,7 @@ class _Spec:
     cost: Figure
     entity: str | None = None
     team: str | None = None
+    cost_center: str | None = None
     model: str | None = None
     scenario: str | None = None
     recoverable: Figure | None = None
@@ -695,10 +698,11 @@ class _Spec:
 
 
 def _scope_dims(spec: _Spec) -> dict[str, str | None]:
-    """``product: copilot`` plus entity, team, model and plan scenario (None values dropped: an
-    unattributed team has no team dim)."""
+    """``product: copilot`` plus entity, team (or cost center), model and plan scenario (None
+    values dropped: unattributed usage has neither a team nor a cost-center dim)."""
     return {"product": "copilot", "entity": spec.entity, "team": spec.team,
-            "model": spec.model, "plan_scenario": spec.scenario}
+            "cost_center": spec.cost_center, "model": spec.model,
+            "plan_scenario": spec.scenario}
 
 
 def _build(spec: _Spec) -> Finding:
@@ -730,13 +734,27 @@ def _gated(inp: _In, f: Finding, *extra_nano: int | None) -> bool:
                                             for n in extra_nano)
 
 
-def _team_groups(cells: Iterable[pool.Cell]) -> list[tuple[tuple[str, str | None],
-                                                           list[pool.Cell]]]:
-    """Cells per (entity, team), sorted (an unattributed team sorts first)."""
-    groups: dict[tuple[str, str | None], list[pool.Cell]] = defaultdict(list)
+_Unit = tuple[str, "str | None", "str | None"]   # (entity, team, cost center if no team)
+
+
+def _unit_of(c: pool.Cell | _Row) -> _Unit:
+    return (c.entity_id, c.team, c.cost_center if c.team is None else None)
+
+
+def _team_groups(cells: Iterable[pool.Cell]) -> list[tuple[_Unit, list[pool.Cell]]]:
+    """Cells per unit — (entity, team), or (entity, cost center) for rows without a team —
+    sorted (unattributed first)."""
+    groups: dict[_Unit, list[pool.Cell]] = defaultdict(list)
     for c in cells:
-        groups[(c.entity_id, c.team)].append(c)
-    return sorted(groups.items(), key=lambda kv: (kv[0][0], kv[0][1] or ""))
+        groups[_unit_of(c)].append(c)
+    return sorted(groups.items(), key=lambda kv: tuple(v or "" for v in kv[0]))
+
+
+def _who(team: str | None, cost_center: str | None) -> str:
+    """The unit for generated text: ``team <t>``, ``cost center <c>`` or ``unattributed``."""
+    if team:
+        return f"team {_label(team)}"
+    return f"cost center {_label(cost_center)}" if cost_center else "unattributed usage"
 
 
 def _entity_groups(cells: Iterable[pool.Cell]) -> dict[str, list[pool.Cell]]:
@@ -810,8 +828,9 @@ def _remap_saving(inp: _In, c: pool.Cell) -> tuple[_Triple | None, str | None]:
 
 def _premium_model_share(inp: _In, skipped: dict[str, str]) -> list[Finding]:
     out: list[Finding] = []
-    team_totals = {k: _gross(v) for k, v in _team_groups(inp.credit_cells)}
-    for (entity, team), cells in _team_groups(c for c in inp.credit_cells if _is_premium(c)):
+    unit_totals = {k: _gross(v) for k, v in _team_groups(inp.credit_cells)}
+    for unit, cells in _team_groups(c for c in inp.credit_cells if _is_premium(c)):
+        entity, team, cc = unit
         credits = _gross(cells)
         if credits <= 0:
             continue
@@ -827,7 +846,7 @@ def _premium_model_share(inp: _In, skipped: dict[str, str]) -> list[Finding]:
             per_model[c.model][1] += tri[1]
         if savings.unpriced is None and savings.total()[1] <= 0:
             continue
-        share = Fraction(credits, team_totals[(entity, team)] or credits)
+        share = Fraction(credits, unit_totals[unit] or credits)
         items = tuple(_item(f"model:{m}", credits_nano=v[0], saving_nano=v[1],
                             target=catalog.copilot_remap(m)[0],  # type: ignore[index]
                             magnitude=v[0]) for m, v in sorted(per_model.items()))
@@ -837,15 +856,16 @@ def _premium_model_share(inp: _In, skipped: dict[str, str]) -> list[Finding]:
         note = (f"price-only remap to the same-vendor model-policy target on identical tokens; "
                 f"{_convention_note(inp)}")
         spec = _Spec(
-            kind="premium-model-share", category="premium", entity=entity, team=team,
-            title=f"Premium models carry {_pct(share)} of {_label(team)} Copilot credits",
+            kind="premium-model-share", category="aggregate", entity=entity, team=team,
+            cost_center=cc,
+            title=f"Premium models carry {_pct(share)} of {_who(team, cc)} Copilot credits",
             summary=(f"{_credits(credits)} AI credits ({fmt_usd(credits)} list-equivalent) of "
-                     f"team {_label(team)} ran on Powerful models with a cheaper same-vendor "
+                     f"{_who(team, cc)} ran on Powerful models with a cheaper same-vendor "
                      f"option ({models}). Price-only estimate: quality unvalidated, evaluate "
                      f"before a model policy; the invoice part follows the pool rule, the rest "
                      f"is pool headroom (list-equivalent, not invoice dollars)."),
             cost=exact(credits, Basis.LIST_EQUIVALENT), lever_ids=("copilot.model_policy",),
-            n_events=len(cells), n_users=inp.users(entity, _is_premium, team=team),
+            n_events=len(cells), n_users=inp.users(entity, _is_premium, unit=unit),
             first_seen_ms=_first_seen(c.date_utc for c in cells), evidence=items,
             confidence="medium", needs_eval=True)
         out.extend(_pooled_findings(inp, spec, savings, note))
@@ -859,7 +879,8 @@ def _is_fast(c: pool.Cell | _Row) -> bool:
 def _fast_mode(inp: _In, skipped: dict[str, str]) -> list[Finding]:
     out: list[Finding] = []
     uncertain = inp.convention_state == "uncertain"
-    for (entity, team), cells in _team_groups(c for c in inp.credit_cells if _is_fast(c)):
+    for unit, cells in _team_groups(c for c in inp.credit_cells if _is_fast(c)):
+        entity, team, cc = unit
         savings = _Savings()
         premium = [0, 0, 0]
         all_exact = True
@@ -893,15 +914,15 @@ def _fast_mode(inp: _In, skipped: dict[str, str]) -> list[Finding]:
         items = tuple(_item(f"model:{m}", premium_nano=v, magnitude=v)
                       for m, v in sorted(per_model.items()))
         spec = _Spec(
-            kind="fast-mode", category="premium", entity=entity, team=team,
-            title=f"Fast mode premium in {_label(team)} Copilot usage",
-            summary=(f"Fast-mode requests of team {_label(team)} cost {fmt_usd(cost.nano)} "
+            kind="fast-mode", category="aggregate", entity=entity, team=team,
+            cost_center=cc, title=f"Fast mode premium in {_who(team, cc)} Copilot usage",
+            summary=(f"Fast-mode requests of {_who(team, cc)} cost {fmt_usd(cost.nano)} "
                      f"list-equivalent more than the same tokens at standard speed (pure rate "
                      f"arithmetic). Disabling the fast-mode model saves the invoice part per the "
                      f"pool rule; the rest is pool headroom (list-equivalent, not invoice "
                      f"dollars)."),
             cost=cost, lever_ids=("copilot.fast_mode_off",), n_events=len(cells),
-            n_users=inp.users(entity, _is_fast, team=team),
+            n_users=inp.users(entity, _is_fast, unit=unit),
             first_seen_ms=_first_seen(c.date_utc for c in cells), evidence=items,
             confidence="high" if all_exact else "medium")
         out.extend(_pooled_findings(inp, spec, savings,
@@ -930,16 +951,16 @@ def _policy_fix(reach: Reach) -> Fix:
     doc = base.doc_url if base is not None else None
     return Fix(text=(f"JetBrains carries {_pct(reach.jetbrains_share)} of this team's "
                      "interactions and the managed model key does not reach JetBrains: set the "
-                     "server-side model policy first (every editor, reach 1) and communicate "
-                     "the Auto tiers (Efficiency for routine work) to JetBrains users; use "
-                     "managed \"model\": \"auto\" for the VS Code and CLI part."),
+                     "server-side model policy (every editor, reach 1) instead of relying on "
+                     "the managed key, and communicate the Auto tiers (Efficiency for routine "
+                     "work) to JetBrains users."),
                config_patch=None, target="github-copilot", doc_url=doc)
 
 
 def _auto_adoption(inp: _In, skipped: dict[str, str]) -> list[Finding]:
     out: list[Finding] = []
-    for (entity, team), cells in _team_groups(c for c in inp.credit_cells
-                                               if _is_auto_eligible(c)):
+    for unit, cells in _team_groups(c for c in inp.credit_cells if _is_auto_eligible(c)):
+        entity, team, cc = unit
         credits = _gross(cells)
         if credits <= 0:
             continue
@@ -970,15 +991,16 @@ def _auto_adoption(inp: _In, skipped: dict[str, str]) -> list[Finding]:
         levers = (("copilot.model_policy", "copilot.auto_tier", "copilot.default_model_auto")
                   if heavy else ("copilot.default_model_auto", "copilot.auto_tier"))
         spec = _Spec(
-            kind="auto-adoption", category="lever", entity=entity, team=team,
-            title=f"Auto model selection unused on {_label(team)} Copilot credits",
-            summary=(f"{_credits(credits)} AI credits of team {_label(team)} were directly "
+            kind="auto-adoption", category="aggregate", entity=entity, team=team,
+            cost_center=cc,
+            title=f"Auto model selection unused on {_who(team, cc)} Copilot credits",
+            summary=(f"{_credits(credits)} AI credits of {_who(team, cc)} were directly "
                      f"routed; Auto is billed 10% lower on paid plans. Estimate: 10% x credits x "
                      f"{reach_text}; which model Auto picks is not modeled (evaluate). Invoice "
                      f"part per the pool rule; the rest is pool headroom (list-equivalent, not "
                      f"invoice dollars)."),
             cost=exact(credits, Basis.LIST_EQUIVALENT), lever_ids=levers,
-            n_events=len(cells), n_users=inp.users(entity, _is_auto_eligible, team=team),
+            n_events=len(cells), n_users=inp.users(entity, _is_auto_eligible, unit=unit),
             first_seen_ms=_first_seen(c.date_utc for c in cells), evidence=items,
             fix=_policy_fix(reach) if heavy else None,
             confidence="medium" if reach.known else "low", needs_eval=True)
@@ -991,20 +1013,21 @@ def _auto_adoption(inp: _In, skipped: dict[str, str]) -> list[Finding]:
 
 def _cache_health(inp: _In, skipped: dict[str, str]) -> list[Finding]:
     """Per team × model read share ``R / (U + R + W)`` below the org's median for the model."""
-    groups: dict[tuple[str, str | None, str], list[pool.Cell]] = defaultdict(list)
+    groups: dict[tuple[_Unit, str], list[pool.Cell]] = defaultdict(list)
     for c in inp.credit_cells:
         if c.pseudo is None and c.model and c.usage.total_input > 0:
-            groups[(c.entity_id, c.team, c.model)].append(c)
-    shares: dict[tuple[str, str | None, str], tuple[int, int]] = {}
+            groups[(_unit_of(c), c.model)].append(c)
+    shares: dict[tuple[_Unit, str], tuple[int, int]] = {}
     by_model: dict[str, list[Fraction]] = defaultdict(list)
     for key, cells in groups.items():
         total = sum(c.usage.total_input for c in cells)
         read = sum(c.usage.cache_read for c in cells)
         shares[key] = (read, total)
-        by_model[key[2]].append(Fraction(read, total))
+        by_model[key[1]].append(Fraction(read, total))
     out: list[Finding] = []
-    for key in sorted(groups, key=lambda k: (k[0], k[1] or "", k[2])):
-        entity, team, model = key
+    for key in sorted(groups, key=lambda k: (*(v or "" for v in k[0]), k[1])):
+        unit, model = key
+        entity, team, cc = unit
         read, total = shares[key]
         median = _median(by_model[model])
         own = Fraction(read, total)
@@ -1031,10 +1054,12 @@ def _cache_health(inp: _In, skipped: dict[str, str]) -> list[Finding]:
         items = (_item(f"model:{model}", read_share=_dec(own), org_median=_dec(median),
                        input_tokens=total, read_tokens=read, magnitude=spend),)
         spec = _Spec(
-            kind="cache-health", category="lever", entity=entity, team=team, model=model,
-            title=f"Low cache-read share for {_label(model, 'model')} in {_label(team)}",
-            summary=(f"Team {_label(team)} read {_pct(own)} of its {_label(model, 'model')} "
-                     f"input from cache vs the organization's median {_pct(median)}. Upper "
+            kind="cache-health", category="aggregate", entity=entity, team=team,
+            cost_center=cc, model=model,
+            title=f"Low cache-read share for {_label(model, 'model')} in {_who(team, cc)}",
+            summary=(f"{_who(team, cc).capitalize()} read {_pct(own)} of its "
+                     f"{_label(model, 'model')} input from cache vs the organization's "
+                     f"median {_pct(median)}. Upper "
                      f"bound (median share x input - reads) x (write - read rate), estimated; "
                      f"install collectors or OpenTelemetry for causes. Invoice part per the pool "
                      f"rule; the rest is pool headroom (list-equivalent, not invoice dollars)."),
@@ -1042,7 +1067,7 @@ def _cache_health(inp: _In, skipped: dict[str, str]) -> list[Finding]:
             lever_ids=("copilot.telemetry_on", "copilot.vscode_traces_optin"),
             n_events=len(cells),
             n_users=inp.users(entity, lambda r, m=model: r.model == m and r.pseudo is None,
-                              team=team),
+                              unit=unit),
             first_seen_ms=_first_seen(c.date_utc for c in cells), evidence=items)
         out.extend(_pooled_findings(inp, spec, savings,
                                     "cache-health upper bound to the org median read share"))
@@ -1114,7 +1139,7 @@ def _forced_migration(inp: _In, skipped: dict[str, str]) -> list[Finding]:
                        delta_vs_current_nano=vs_current if alt != model else None,
                        magnitude=credits),)
         f = _build(_Spec(
-            kind="forced-migration", category="premium", entity=entity, model=model,
+            kind="forced-migration", category="aggregate", entity=entity, model=model,
             title=f"{_label(model, 'model')} retires on {retire_on}: choose the successor",
             summary=(f"{_label(model, 'model')} retires on {retire_on}; GitHub suggests "
                      f"{_label(successor, 'model')}. On the same tokens it costs "
@@ -1147,7 +1172,7 @@ def _compliance_uplift(inp: _In, skipped: dict[str, str]) -> list[Finding]:
         items = (_item("compliance", policy=str(flag), observed_nano=observed,
                        uplift_nano=uplift, magnitude=uplift),)
         f = _build(_Spec(
-            kind="compliance-uplift", category="premium", entity=entity,
+            kind="compliance-uplift", category="aggregate", entity=entity,
             title=f"Compliance policy uplift: {_credits(uplift)} AI credits",
             summary=(f"A restrict-to-compliant-models policy ({sanitize(str(flag))}) adds 10% "
                      f"to AI credits: of {_credits(observed)} observed credits about "
@@ -1382,7 +1407,7 @@ def _unattributed_spend(inp: _In, skipped: dict[str, str]) -> list[Finding]:
         items = (_item("unattributed", share=_dec(share), no_username_nano=no_user,
                        no_cost_center_nano=no_cc, total_net_nano=total, magnitude=net),)
         f = _build(_Spec(
-            kind="unattributed-spend", category="attribution", entity=entity,
+            kind="unattributed-spend", category="aggregate", entity=entity,
             title=f"{_pct(share)} of Copilot net spend has no user or cost center",
             summary=(f"{_dollar_text(dollars)} of {fmt_usd(total)} AI-credit "
                      f"net spend has no username or no cost center, so showback cannot assign "
@@ -1536,7 +1561,7 @@ def _larger_runner(inp: _In, skipped: dict[str, str]) -> list[Finding]:
                             net_nano=sku_net[sku], magnitude=sku_net[sku])
                       for sku in sorted(sku_net))
         f = _build(_Spec(
-            kind="larger-runner", category="lever", entity=entity,
+            kind="larger-runner", category="aggregate", entity=entity,
             title="Copilot workloads on larger Actions runners",
             summary=(f"Copilot code review, cloud agent or agentic workflows ran on larger "
                      f"runners: {_dollar_text(net)}. Larger runners never use included minutes; "
@@ -1618,7 +1643,7 @@ def _agent_failed_sessions(inp: _In, skipped: dict[str, str]) -> list[Finding]:
                        sessions_total=totals[entity], magnitude=len(aggs),
                        **{f"sessions_{s}": n for s, n in by_state.items()}),)
         out.append(_build(_Spec(
-            kind="agent-failed-sessions", category="failure", entity=entity,
+            kind="agent-failed-sessions", category="aggregate", entity=entity,
             title=f"{len(aggs)} cloud agent sessions failed after consuming credits",
             summary=(f"{by_state['failed']} failed, {by_state['timed_out']} timed-out and "
                      f"{by_state['cancelled']} cancelled cloud agent sessions consumed credits. "
@@ -1683,7 +1708,7 @@ def _mcp_sprawl(inp: _In, skipped: dict[str, str]) -> list[Finding]:
                        p90_distinct=_rank(values, Fraction(9, 10)), heavy_share=_dec(share),
                        heavy_threshold=str(heavy), magnitude=n_heavy),)
         out.append(_build(_Spec(
-            kind="mcp-sprawl", category="lever", entity=_team_entity(inp, team), team=team,
+            kind="mcp-sprawl", category="aggregate", entity=_team_entity(inp, team), team=team,
             title=f"MCP server sprawl in {_label(team)}",
             summary=(f"Team {_label(team)}: median {median} distinct MCP servers per user; "
                      f"{_pct(share)} of users use {heavy} or more. Tool definitions are sent "
@@ -1715,7 +1740,7 @@ def _context_heavy_cli(inp: _In, skipped: dict[str, str]) -> list[Finding]:
         items = (_item("cli", users=len(ratios), prompt_tokens_per_request_p50=p50,
                        prompt_tokens_per_request_p90=p90, threshold=limit, magnitude=p90),)
         out.append(_build(_Spec(
-            kind="context-heavy-cli", category="lever", entity=_team_entity(inp, team),
+            kind="context-heavy-cli", category="aggregate", entity=_team_entity(inp, team),
             team=team, title=f"Heavy Copilot CLI context in {_label(team)}",
             summary=(f"Copilot CLI users of team {_label(team)} send p50 {p50} / p90 {p90} "
                      f"prompt tokens per request. Use /compact at task boundaries and the "

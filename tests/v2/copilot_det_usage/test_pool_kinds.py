@@ -40,7 +40,7 @@ def test_c_p5_premium_model_share_per_regime(consumed: int, invoice: int, headro
     assert (f.recoverable.basis, f.recoverable.evidence) == (Basis.LIST, Evidence.ESTIMATED)
     assert f.headroom.basis is Basis.LIST_EQUIVALENT
     assert f.needs_eval and f.lever_ids == ("copilot.model_policy",)
-    assert f.category == "premium" and f.lever_class == "trajectory"
+    assert f.category == "aggregate" and f.lever_class == "trajectory"
     assert dict(f.scope.dims) == {"product": "copilot", "entity": "enterprise",
                                   "team": "payments"}
     assert f.fix is not None and f.fix.target == "github-copilot"
@@ -183,7 +183,7 @@ def test_auto_reach_from_metrics_scales_exactly() -> None:
     assert (a["reach"], a["jetbrains_share"], a["reach_source"]) == ("0.8", "0.2", "metrics")
     assert f.lever_ids[0] == "copilot.default_model_auto" and f.needs_eval
     assert f.fix is not None and f.fix.config_patch == (("copilot.managed.model", '"auto"'),)
-    assert f.category == "lever"
+    assert f.category == "aggregate"
 
 
 def test_auto_no_metrics_point_zero_range_to_full() -> None:
@@ -261,3 +261,16 @@ def test_cache_health_team_below_the_org_median() -> None:
     assert f.cost_observed.nano == 100 * CREDIT
     assert attrs(f, "model:claude-sonnet-5")["org_median"] == "0.8"
     assert not only(found, "cache-health", team="good")
+
+
+def test_rows_without_team_are_scoped_by_cost_center() -> None:
+    w = World().rows(2, team=None, prefix="cc", cost_center="cc-eng", **P5_ROW)
+    w.row(principal=b.make_principal("loose"), **P5_ROW)            # no team, no cost center
+    w.pools.append(pool_month(3_100_000))
+    found = only(run(w.ctx()), "premium-model-share")
+    by_cc = {dict(f.scope.dims).get("cost_center"): f for f in found}
+    assert set(by_cc) == {"cc-eng", None}
+    assert "team" not in dict(by_cc["cc-eng"].scope.dims)
+    assert by_cc["cc-eng"].n_users == 2 and by_cc[None].n_users == 1
+    assert "cost center cc-eng" in by_cc["cc-eng"].title
+    assert "unattributed usage" in by_cc[None].summary
