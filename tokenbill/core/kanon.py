@@ -563,7 +563,7 @@ def _counter_arity(count_users: Callable[..., int]) -> int:
                   if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
                   and p.default is p.empty]
     if any(p.kind is p.VAR_POSITIONAL for p in params):
-        return 2 if len(positional) >= 1 else 1
+        return 2  # accepts (finding, scope)
     return 2 if len(positional) >= 2 else 1
 
 
