@@ -91,6 +91,8 @@ def test_label_chips_follow_the_spec_examples() -> None:
     assert T.chip(measured) == "$2.00 measured·list (90% CI $1.00–$3.00) provisional"
     assert T.chip(exact(1_500_000, Basis.INVOICE)) == "$0.0015 exact·invoice"
     assert T.chip(exact(-1_500_000, Basis.LIST)) == "-$0.0015 exact·list"
+    assert T.chip(exact(usd("3"), Basis.PROVIDER_ESTIMATE)) == (
+        "$3.00 provider estimate (not billed)")
     with pytest.raises(ContractViolation):
         T.chip(5)  # type: ignore[arg-type]
 

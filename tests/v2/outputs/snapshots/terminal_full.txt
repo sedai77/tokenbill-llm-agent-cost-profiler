@@ -37,8 +37,7 @@ DATA QUALITY
 --------------------
   [info] dq.naive_line_sum_ratio ×103,607 · 5,000,000 tokens — naive line sum is 2.33x the
          de-duplicated ledger
-  [info] dq.provider_estimate ×1 · $27,100.00 exact·provider estimate (not billed) — OTel cost_usd
-         total
+  [info] dq.provider_estimate ×1 · $27,100.00 provider estimate (not billed) — OTel cost_usd total
 
 CALIBRATION (MODEL GATE)
 --------------------------------

@@ -116,7 +116,9 @@ def chip(fig: Figure, *, per: str = "", range_label: str = "range", kind: str | 
     basis = _BASIS_LABEL[fig.basis]
     ev = fig.evidence
     rng = fig.low_nano is not None and fig.high_nano is not None
-    if ev is Evidence.EXACT:
+    if fig.basis is Basis.PROVIDER_ESTIMATE and ev is Evidence.EXACT:
+        text = f"{usd(fig.nano)}{per} {basis}"      # a reported number, never a bill (R4)
+    elif ev is Evidence.EXACT:
         text = f"{usd(fig.nano)}{per} {kind or 'exact'}·{basis}"
     elif ev is Evidence.ESTIMATED:
         whole = _whole(fig.nano, fig.low_nano, fig.high_nano)
