@@ -4,6 +4,7 @@ and the brief's P14b / P15b through ``build_cells`` + ``pool_months``."""
 from __future__ import annotations
 
 import dataclasses
+import datetime as dt
 from decimal import Decimal
 
 import pytest
@@ -113,7 +114,7 @@ def test_p6_promo_cliff() -> None:
     sept = {}
     for day in range(1, 30):
         date = f"2026-09-{day:02d}"
-        weekend = dt_weekday(date) >= 5
+        weekend = dt.date.fromisoformat(date).weekday() >= 5
         sept[date] = 3_750 if weekend else 10_000
     sept_cost, sept_aggs = daily(sept)
     july_pm, sept_pm = _months(seats + july + sept_cost, july_aggs + sept_aggs,
@@ -129,12 +130,6 @@ def test_p6_promo_cliff() -> None:
     no_promo = _months(seats + july, july_aggs, [], [flags({"promo_eligible": False})],
                        today="2026-10-02")
     assert (no_promo[0].pool_credits, no_promo[0].promo) == ("190000", None)
-
-
-def dt_weekday(date: str) -> int:
-    import datetime as dt
-
-    return dt.date.fromisoformat(date).weekday()
 
 
 def _p7(policy: str | None) -> tuple[list, list, list]:
