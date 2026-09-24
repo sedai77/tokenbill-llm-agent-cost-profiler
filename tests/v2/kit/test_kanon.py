@@ -311,7 +311,32 @@ def test_rescope_is_deterministic_and_keeps_big_findings() -> None:
     a = kanon.rescope_findings(fs, k=K)
     b = kanon.rescope_findings(list(reversed(fs)), k=K)
     assert a == b
-    assert sum(1 for f in a if f.scope.dims != ()) == 4  # teams t5..t8 stay
+    # t1..t4 cannot reach k alone; at the org level they absorb the smallest published team
+    # finding (t5, complementary suppression), and t6..t8 stay
+    assert sorted(dict(f.scope.dims).get("team", "org") for f in a) == ["org", "t6", "t7", "t8"]
+    org = next(f for f in a if f.scope.dims == ())
+    assert org.n_users == 5 and org.n_events == 2 * 5 and org.cost_observed.nano == 5 * 1000
+
+
+def test_rescoped_children_are_never_published_alone_beside_their_siblings() -> None:
+    small = finding({"team": "t", "lane_kind": "subagent"}, 2, recoverable=7)
+    main = finding({"team": "t", "lane_kind": "main"}, 9, recoverable=100)
+    batch = finding({"team": "t", "lane_kind": "api_run"}, 12, recoverable=50)
+    other_kind = finding({"team": "t", "lane_kind": "helper"}, 6, kind="cold-resume")
+    counts = {(("lane_kind", "subagent"), ("team", "t")): 2, (("team", "t"),): 20}
+    out = kanon.rescope_findings([small, main, batch, other_kind], k=K,
+                                 count_users=lambda s: counts[s.dims])
+    by_scope = {(f.kind, f.scope.dims): f for f in out}
+    team = by_scope[("ttl-expiry", (("team", "t"),))]
+    # the subagent finding (2 users) was merged with the smallest sibling (main, 9 users)
+    assert team.recoverable.nano == 107 and team.n_users == 20 and team.n_events == 4
+    assert ("ttl-expiry", (("lane_kind", "main"), ("team", "t"))) not in by_scope
+    assert by_scope[("ttl-expiry", (("lane_kind", "api_run"), ("team", "t")))] == batch
+    assert by_scope[("cold-resume", (("lane_kind", "helper"), ("team", "t")))] == other_kind
+    assert "subagent" not in team.title and "main" not in team.summary
+    # no sibling published: the small children alone form the parent finding
+    alone = kanon.rescope_findings([small], k=K, count_users=lambda s: counts[s.dims])
+    assert alone[0].scope.dims == (("team", "t"),) and alone[0].recoverable.nano == 7
 
 
 # ---------- guards ----------
@@ -372,3 +397,45 @@ def test_rescoped_text_never_names_the_dropped_child_scope() -> None:
         [finding({"team": "payments", "lane_kind": "main", "model": "m1"}, 2,
                  title="payments main m1")], k=K, count_users=lambda s: 9)
     assert kept[0].title == "payments main (other)"
+
+
+def test_rescope_property_500_seeded_fleets() -> None:
+    """Random findings over (team, lane kind, model) cells with known user sets: every published
+    org finding has >= k distinct users by an exact recount of its scope, finding ids are unique,
+    every input finding lands in exactly one published finding unless the whole org is below k,
+    and no published text names a dropped scope value."""
+    for seed in range(500):
+        rnd = random.Random(seed)
+        cells = {}
+        for team in ("a", "b", "c"):
+            for lane in ("main", "subagent"):
+                for model in ("x", "y"):
+                    if rnd.random() < 0.7:
+                        cells[(team, lane, model)] = set(rnd.sample(range(30), rnd.randint(1, 9)))
+        findings = []
+        for i, ((team, lane, model), users) in enumerate(sorted(cells.items())):
+            scope = {"team": team, "lane_kind": lane, "model": model}
+            f = finding(scope, len(users), kind=rnd.choice(["k1", "k2"]), recoverable=i + 1,
+                        title=f"{team} {lane} {model}")
+            findings.append(dataclasses.replace(f, n_events=1 << i))
+
+        def count_users(s: Scope, cells: dict = cells) -> int:
+            want = dict(s.dims)
+            union = set()
+            for (team, lane, model), users in cells.items():
+                have = {"team": team, "lane_kind": lane, "model": model}
+                if all(have.get(k) == v for k, v in want.items()):
+                    union |= users
+            return len(union)
+
+        out = kanon.rescope_findings(findings, k=K, count_users=count_users)
+        assert len({f.finding_id for f in out}) == len(out), seed
+        seen = 0
+        for f in out:
+            assert f.n_users >= K and f.n_users == count_users(f.scope), seed
+            assert seen & f.n_events == 0, seed  # each input finding lands once
+            seen |= f.n_events
+            kept = {v for _, v in f.scope.dims}
+            assert all(word in kept or word == kanon.SCRUBBED for word in f.title.split()), seed
+        everything = (1 << len(findings)) - 1
+        assert seen == (everything if count_users(Scope(dims=())) >= K else 0), seed

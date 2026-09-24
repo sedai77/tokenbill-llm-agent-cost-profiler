@@ -364,6 +364,11 @@ def _merge_findings(children: Sequence[Finding], scope: Scope, n_users: int, k: 
     )
 
 
+def _smallness(f: Finding) -> tuple[int, int, str]:
+    cost = f.cost_observed.nano if f.cost_observed.nano is not None else 0
+    return (f.n_users, cost, f.finding_id)
+
+
 def _sort_key(f: Finding) -> tuple[int, str, str]:
     p50 = f.recoverable.nano if f.recoverable is not None and f.recoverable.nano is not None else 0
     return (-p50, f.detector_id, f.finding_id)
@@ -375,8 +380,11 @@ def rescope_findings(findings: Sequence[Finding], *, k: int = 5,
 
     An org finding whose scope has fewer than *k* users — or names a person or session — is
     re-scoped to its parent (team × lane kind → team → cost center → org, :data:`RESCOPE_LEVELS`),
-    merging the findings of the same detector and kind that land on the same parent (and an already
-    published finding with exactly that scope). The merged ``n_users`` is
+    merging the findings of the same detector and kind that land on the same parent. With
+    complementary suppression: when findings of that detector and kind under the same parent are
+    already published, the merge also absorbs the one at exactly the parent scope, else the
+    smallest of them (fewest users, then lowest cost), so the small children's figures are never
+    published alone beside their siblings. The merged ``n_users`` is
     ``count_users(parent_scope)`` — an exact distinct count from the store — or, without it, the
     largest child count (a lower bound, which can only suppress more). What stays below *k* at the
     org level is withheld. Generated text of a re-scoped finding has the values of the dropped
@@ -423,11 +431,18 @@ def rescope_findings(findings: Sequence[Finding], *, k: int = 5,
             detector_id, kind, dims = key
             parent = Scope(dims=dims)
             children = sorted(groups[key], key=lambda f: f.finding_id)
-            same_scope = [f for f in out if f.detector_id == detector_id and f.kind == kind
-                          and f.scope == parent and f.audience == "org" and not _exempt(f)]
-            if same_scope:
-                out = [f for f in out if f not in same_scope]
-                children = sorted(children + same_scope, key=lambda f: f.finding_id)
+            peers = [f for f in out if f.detector_id == detector_id and f.kind == kind
+                     and f.audience == "org" and not _exempt(f)
+                     and _parent_scope(f.scope, keep) == parent]
+            same_scope = [f for f in peers if f.scope == parent]
+            # Complementary suppression: the re-scoped finding must not carry the small children
+            # alone next to published siblings under the same parent (their data would be
+            # isolated under the parent's larger user count), so it absorbs the finding at the
+            # parent scope itself or else the smallest published sibling.
+            absorbed = same_scope or sorted(peers, key=_smallness)[:1]
+            if absorbed:
+                out = [f for f in out if f not in absorbed]
+                children = sorted(children + absorbed, key=lambda f: f.finding_id)
             if count_users is not None:
                 n = int(count_users(parent))
             else:
