@@ -56,3 +56,15 @@ SPEC §5.1 hashes workspace ids only "with `--hash-workspaces`", but `IngestOpti
 field and the ADMIN brief requires workspaces `h_` under the name key. **Implemented:** workspace /
 project / account ids are always `h_` unless listed in `opts.name_allowlist`. **Proposed:** either
 add `hash_workspaces: bool = True` to `IngestOptions` or state the allowlist behavior in §5.1.
+
+## (f) k-anonymity of model cells inside a published team (privacy hardening, review)
+
+**What.** SPEC §5.11 applies `opts.k_anonymity` to `(date, team)` groups and then emits
+`UsageAggregate` rows with dims `(team, model)`. A published team of ≥ k people can still contain
+a model cell used by a single person (e.g. the only Sonnet user of a 6-person team), and that
+cell is one person's daily token usage. `UsageAggregate` carries no user count, so `core.kanon`
+cannot suppress it later (R-E10 publishes rows whose user count is unknown).
+**Implemented.** SPEC as written (k per `(date, team)`), documented in the README.
+**Proposed.** At ingest, fold `(team, model)` cells with fewer than k distinct users into the
+team's cell without a `model` dim (totals unchanged; the tokens stay available for team-day
+coverage), or add an optional `n_users` to `UsageAggregate` so `publish()` can suppress them.
