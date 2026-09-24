@@ -220,7 +220,6 @@ _FROM_SOURCE_RE = re.compile(r"(?:^|;)\s*date_source=([A-Z])")
 _TO_SOURCE_RE = re.compile(r"effective_to date_source=([A-Z])")
 _BUCKETS = ("uncached_input", "cache_read", "cache_write_5m", "cache_write_1h",
             "cache_write_other", "cache_write_unknown", "output")
-_OK = ("match", "within_tolerance")
 _DIRECTIONAL = ("directional_report_start", "directional_report_end")
 _PREVIEW_END = "aic_columns_zeroed"
 
@@ -682,7 +681,7 @@ def _l1(pcells: Sequence[_PCell], decisions: Mapping[str, _Decision],
     """L1 rows, gaps and fails; returns gross_is_list per (entity, month) and the |%| errors of
     the gate model-days."""
     utility = _utility_models()
-    rows: dict[tuple[str, str, str, str, str, str], _L1Acc] = {}
+    rows: dict[tuple[str, str, str, str, str, str, str], _L1Acc] = {}
     for pc in pcells:
         c = pc.cell
         date = c.date_utc or f"{c.month}-01"
