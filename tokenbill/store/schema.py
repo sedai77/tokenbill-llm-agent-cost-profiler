@@ -44,6 +44,8 @@ __all__ = [
 
 #: The schema version this module creates and understands.
 SCHEMA_VERSION = 2
+#: Page cache per connection (KiB).
+CACHE_KIB = 65_536
 
 #: SPEC §7.1, verbatim except for its SQL comments (the contract).
 SPEC_DDL = """
@@ -134,9 +136,9 @@ CREATE INDEX cl_date_channel ON cost_lines(date_utc, channel);
 
 #: STORE-private additions to the version-1 schema (CONTRACT-CHANGE-STORE-1). Column meanings:
 #:
-#: * ``requests.source_json`` — canonical JSON of ``Request.source`` (None → NULL); the SPEC keeps
-#:   only ``adapter`` / ``fidelity`` / ``source_priority`` of it, so ``source_id`` / ``locator``
-#:   would otherwise be lost.
+#: * ``requests.src_id`` / ``src_locator`` — ``Request.source.source_id`` / ``.locator`` (NULL when
+#:   the request has no ``SourceRef``); the SPEC columns keep only its ``adapter`` / ``fidelity`` /
+#:   ``source_priority``.
 #: * ``requests.req_model`` (``Request.model``), ``eff_billing_path`` (``attribution.billing_path``
 #:   or the serving inference's), ``serving_channel`` / ``serving_provider`` (the serving inference's
 #:   pricing context), ``serving_cache_read`` (its ``cache_read``, NULL without a serving
@@ -149,7 +151,8 @@ CREATE INDEX cl_date_channel ON cost_lines(date_utc, channel);
 #:   the whole set (§7.3 order independence); single-contribution requests are their own row.
 #: * index ``inf_att`` on ``inferences(attempt_id)`` — the ``ON DELETE CASCADE`` child key.
 STORE_EXTENSIONS = """
-ALTER TABLE requests ADD COLUMN source_json TEXT;
+ALTER TABLE requests ADD COLUMN src_id TEXT;
+ALTER TABLE requests ADD COLUMN src_locator TEXT;
 ALTER TABLE requests ADD COLUMN req_model TEXT;
 ALTER TABLE requests ADD COLUMN eff_billing_path TEXT;
 ALTER TABLE requests ADD COLUMN serving_channel TEXT;
@@ -236,6 +239,10 @@ def apply_pragmas(conn: sqlite3.Connection, *, read_only: bool = False) -> None:
         conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA synchronous=NORMAL")
+    # performance only (not persistent): a 64 MiB page cache keeps the random-key index inserts
+    # of an ingest in memory; temporary sort trees stay in memory
+    conn.execute(f"PRAGMA cache_size=-{CACHE_KIB}")
+    conn.execute("PRAGMA temp_store=MEMORY")
 
 
 def schema_version(conn: sqlite3.Connection) -> int | None:

@@ -166,10 +166,15 @@ _REQ_COLS = ("request_id", "lane_key", "session_key", "seq", "ts_start_ms", "dat
              "project", "repo", "workspace_id", "api_key_id", "agent_product", "agent_type",
              "query_source", "skill", "mcp_server", "plugin", "workload_class", "entrypoint",
              "client_version", "billing_path", "cwd_key", "arm", "wave", "attr_extra_json",
-             "attr_prio_json", "params_json", "appended_json", "fp_json", "source_json",
+             "attr_prio_json", "params_json", "appended_json", "fp_json", "src_id", "src_locator",
              "req_model", "eff_billing_path", "serving_channel", "serving_provider",
              "serving_cache_read")
-_ATTR_SLICE = slice(10, 31)          # principal … attr_extra_json
+#: Request columns read back into a ``Request`` (``_REQ_D_*`` index into rows of this list).
+_REQ_DECODE = ("request_id", "lane_key", "session_key", "seq", "fidelity", "source_priority",
+               "adapter", *_REQ_COLS[10:31], "params_json", "appended_json", "fp_json", "src_id",
+               "src_locator")
+_ATTR_SLICE = slice(7, 28)           # principal … attr_extra_json in _REQ_DECODE
+_ATTR_COLS = _REQ_COLS[10:31]
 _ATT_COLS = ("attempt_id", "request_id", "attempt_no", "ts_start_ms", "ttft_ms", "duration_ms",
              "outcome", "http_status", "error_type", "retry_layer", "retry_after_ms",
              "should_retry", "sdk_retry_count", "provider_request_id", "provider_message_id",
@@ -221,9 +226,15 @@ _REQ_INSERT = _insert_sql("requests", _REQ_COLS)
 _ATT_INSERT = _insert_sql("attempts", _ATT_COLS)
 _INF_INSERT = _insert_sql("inferences", _INF_COLS + _PRICED_COLS)
 _MEMBER_INSERT = _insert_sql("merge_members", _MEMBER_COLS)
-_REQ_SELECT = ", ".join(f"r.{c}" for c in _REQ_COLS)
-_ATT_SELECT = ", ".join(_ATT_COLS)
-_INF_SELECT = ", ".join(_INF_COLS)
+#: Inference columns read back into an ``Inference`` (``_codec.inference`` layout).
+_INF_DECODE = ("inference_id", "attempt_id", "kind", "usage_source", "billable",
+               "billing_rule_id", "output_upper", *_INF_COLS[12:25], *_INF_COLS[25:36],
+               "provider_cost_nano", "provider_cost_basis")
+_REQ_SELECT = ", ".join(f"r.{c}" for c in _REQ_DECODE)
+_ATT_SELECT = ", ".join(_ATT_COLS[:25])
+_INF_SELECT = ", ".join(_INF_DECODE)
+_INF_SELECT_I = ", ".join(f"i.{c}" for c in _INF_DECODE)
+_INF_N = len(_INF_DECODE)
 
 
 def _chunks(items: Sequence[Any], n: int = _IN) -> Iterator[Sequence[Any]]:
@@ -256,8 +267,14 @@ def _canonical_record(obj: Any) -> str:
 # ---------------------------------------------------------------------------------------------
 
 
-def _priced_tuple(p: PricedInference, sha: str | None) -> tuple[Any, ...]:
-    """The priced columns of one inference (``_PRICED_COLS`` order)."""
+def _priced_tuple(p: PricedInference, sha: str | None,
+                  usage: UsageBuckets | None = None) -> tuple[Any, ...]:
+    """The priced columns of one inference (``_PRICED_COLS`` order).
+
+    ``lines_json`` is ``"=<rate row id>"`` when every line is exact, on one rate row and in its own
+    bucket column (the lines are then exactly the set bits of ``exact_mask``, with the quantities of
+    the usage columns and the amounts of the bucket columns), else the JSON list of lines
+    ``[bucket, quantity, amount, low, high, exact, rate_row_id]``."""
     fig = p.figure
     if fig.nano is None:
         reason = p.unpriced_reason or fig.note.removeprefix("unpriced:").strip() or "unpriced"
@@ -267,25 +284,70 @@ def _priced_tuple(p: PricedInference, sha: str | None) -> tuple[Any, ...]:
     est_nano = est.nano if est is not None and est.nano is not None else 0
     est_low = est.low_nano if est is not None and est.low_nano is not None else 0
     est_high = est.high_nano if est is not None and est.high_nano is not None else 0
-    per: dict[str, int] = dict.fromkeys(_BUCKET_ORDER, 0)
-    inexact: set[str] = set()
-    seen: set[str] = set()
-    lines = []
+    per = dict.fromkeys(_BUCKET_ORDER, 0)
+    mask = 0
+    inexact = 0
+    simple = True
+    rows: set[str] = set()
     for ln in p.lines:
         col = schema.BUCKET_COLUMNS.get(ln.bucket)
-        if col is not None:
-            per[col] += ln.amount_nano
-            seen.add(col)
-            if not ln.exact:
-                inexact.add(col)
-        lines.append([ln.bucket, ln.quantity, ln.amount_nano, ln.low_nano, ln.high_nano,
-                      1 if ln.exact else 0, ln.rate_row_id])
-    mask = 0
-    for col in seen - inexact:
-        mask |= schema.EXACT_MASK_BITS[col]
+        rows.add(ln.rate_row_id)
+        if col is None:
+            simple = False
+            continue
+        usage_col = _SIMPLE_USAGE.get(ln.bucket)
+        if usage is None or usage_col is None or getattr(usage, usage_col) != ln.quantity:
+            simple = False
+        bit = schema.EXACT_MASK_BITS[col]
+        if mask & bit or inexact & bit:
+            simple = False          # two lines in one column (web search + web fetch)
+        per[col] += ln.amount_nano
+        if ln.exact:
+            mask |= bit
+        else:
+            inexact |= bit
+            simple = False
+    mask &= ~inexact
+    if simple and len(rows) == 1:
+        lines = "=" + next(iter(rows))
+    else:
+        lines = json.dumps([[ln.bucket, ln.quantity, ln.amount_nano, ln.low_nano, ln.high_nano,
+                             1 if ln.exact else 0, ln.rate_row_id] for ln in p.lines],
+                           separators=(",", ":"), ensure_ascii=False)
     return ((fig.nano, p.exact_nano, est_nano, est_low, est_high, fig.evidence.value,
-             fig.basis.value, None) + tuple(per[c] for c in _BUCKET_ORDER)
-            + (mask, sha, json.dumps(lines, separators=(",", ":"))))
+             fig.basis.value, None, *per.values(), mask, sha, lines))
+
+
+#: ``exact_mask`` bucket column → (line bucket, usage column) for the ``"=<row>"`` lines form.
+_SIMPLE_LINES = (("nano_uncached", "uncached_input", "uncached_input"),
+                 ("nano_read", "cache_read", "cache_read"),
+                 ("nano_w5m", "cache_write_5m", "cache_write_5m"),
+                 ("nano_w1h", "cache_write_1h", "cache_write_1h"),
+                 ("nano_wother", "cache_write_other", "cache_write_other"),
+                 ("nano_wunknown", "cache_write_unknown", "cache_write_unknown"),
+                 ("nano_output", "output", "output"),
+                 ("nano_server_tools", "web_search", "web_search_requests"))
+_LINE_SOURCE_COLS = tuple(dict.fromkeys(
+    [c for c, _, _ in _SIMPLE_LINES] + [u for _, _, u in _SIMPLE_LINES]))
+
+
+_SIMPLE_USAGE = {bucket: usage_col for _, bucket, usage_col in _SIMPLE_LINES}
+
+
+def _lines_of(lines_json: str | None, cols: Mapping[str, Any]) -> list[list[Any]]:
+    """The priced lines of a stored inference (see :func:`_priced_tuple`); *cols* maps the bucket
+    and usage column names to the row's values (``exact_mask`` too)."""
+    if not lines_json:
+        return []
+    if not lines_json.startswith("="):
+        return json.loads(lines_json)
+    row_id = lines_json[1:]
+    mask = cols["exact_mask"] or 0
+    out = []
+    for col, bucket, usage_col in _SIMPLE_LINES:
+        if mask & schema.EXACT_MASK_BITS[col]:
+            out.append([bucket, cols[usage_col], cols[col], None, None, 1, row_id])
+    return out
 
 
 def _no_pricer_tuple() -> tuple[Any, ...]:
@@ -296,6 +358,35 @@ def _no_pricer_tuple() -> tuple[Any, ...]:
 # ---------------------------------------------------------------------------------------------
 # the row codec (records ⇄ rows), with small caches for the values lanes repeat
 # ---------------------------------------------------------------------------------------------
+
+_new = object.__new__
+_set = object.__setattr__
+_KINDS = {k.value: k for k in InferenceKind}
+_SOURCES = {k.value: k for k in UsageSource}
+_OUTCOMES = {k.value: k for k in Outcome}
+_FIDELITIES = {int(k): k for k in Fidelity}
+_WORKLOADS = {k.value: k for k in WorkloadClass}
+_PARAM_DEFAULTS = {f.name: f.default for f in dataclasses.fields(RequestParams)
+                   if f.default is not dataclasses.MISSING}
+
+
+def _trusted_factory(cls: type) -> Any:
+    """A positional constructor of the frozen record *cls* that skips ``__post_init__``: the read
+    path rebuilds records from values that were validated when they were stored (tests pin
+    equality with validated construction)."""
+    names = [f.name for f in dataclasses.fields(cls)]
+    body = "".join(f"    _set(o, {n!r}, {n})\n" for n in names)
+    src = f"def make({', '.join(names)}):\n    o = _new(cls)\n{body}    return o\n"
+    scope: dict[str, Any] = {"_new": _new, "_set": _set, "cls": cls}
+    exec(src, scope)  # noqa: S102 (generated from dataclass field names only)
+    return scope["make"]
+
+
+_mk_usage = _trusted_factory(UsageBuckets)
+_mk_inference = _trusted_factory(Inference)
+_mk_attempt = _trusted_factory(Attempt)
+_mk_request = _trusted_factory(Request)
+_mk_source = _trusted_factory(SourceRef)
 
 
 class _Codec:
@@ -319,14 +410,17 @@ class _Codec:
     # ---- encode ----
 
     def params_json(self, params: RequestParams) -> str:
-        return self._cached(self._params, params, lambda: _canonical_record(params))
+        """Canonical JSON of the non-default fields of *params* (``from_json`` restores the
+        defaults)."""
+        got = self._params.get(params)
+        if got is not None:
+            return got
 
-    @staticmethod
-    def source_json(ref: SourceRef | None) -> str | None:
-        if ref is None:
-            return None
-        return json.dumps([ref.adapter, ref.source_id, ref.locator, int(ref.fidelity),
-                           ref.priority], separators=(",", ":"), ensure_ascii=False)
+        def build() -> str:
+            doc = to_json(params)
+            return canonical({k: v for k, v in doc.items()
+                              if k not in _PARAM_DEFAULTS or v != _enc_default(k)})
+        return self._cached(self._params, params, build)
 
     def request_row(self, req: Request, *, fidelity: int, priority: int, adapter: str, mask: int,
                     prio: Mapping[str, int] | None) -> tuple[Any, ...]:
@@ -335,6 +429,7 @@ class _Codec:
         ctx = si.pricing if si is not None else None
         eff = a.billing_path or (ctx.billing_path if ctx is not None else None)
         ts = req.ts_start_ms
+        src = req.source
         return (req.request_id, req.lane_key, req.session_key, req.seq, ts, rollups.date_of(ts),
                 fidelity, priority, adapter, mask, a.principal, a.team, a.cost_center, a.project,
                 a.repo, a.workspace_id, a.api_key_id, a.agent_product, a.agent_type,
@@ -345,7 +440,8 @@ class _Codec:
                 self.params_json(req.params),
                 _json_or_none([to_json(x) for x in req.appended]),
                 _canonical_record(req.fingerprint) if req.fingerprint is not None else None,
-                self.source_json(req.source), req.model, eff,
+                src.source_id if src is not None else None,
+                src.locator if src is not None else None, req.model, eff,
                 ctx.channel if ctx is not None else None,
                 ctx.provider if ctx is not None else None,
                 si.usage.cache_read if si is not None else None)
@@ -386,10 +482,17 @@ class _Codec:
     # ---- decode ----
 
     def params(self, text: str) -> RequestParams:
+        got = self._params_text.get(text)
+        if got is not None:
+            return got
         return self._cached(self._params_text, text,
                             lambda: from_json(RequestParams, json.loads(text)))
 
     def attribution(self, vals: tuple[Any, ...]) -> Attribution:
+        got = self._attr.get(vals)
+        if got is not None:
+            return got
+
         def build() -> Attribution:
             (principal, team, cost_center, project, repo, workspace_id, api_key_id,
              agent_product, agent_type, query_source, skill, mcp_server, plugin, workload,
@@ -399,22 +502,17 @@ class _Codec:
                 repo=repo, workspace_id=workspace_id, api_key_id=api_key_id,
                 agent_product=agent_product, agent_type=agent_type, query_source=query_source,
                 skill=skill, mcp_server=mcp_server, plugin=plugin,
-                workload_class=WorkloadClass(workload), entrypoint=entrypoint,
+                workload_class=_WORKLOADS[workload], entrypoint=entrypoint,
                 client_version=client_version, billing_path=billing_path, cwd_key=cwd_key,
                 arm=arm, wave=wave,
                 extra=tuple(tuple(p) for p in json.loads(extra)) if extra else ())
         return self._cached(self._attr, vals, build)
 
-    @staticmethod
-    def source(text: str | None) -> SourceRef | None:
-        if text is None:
-            return None
-        adapter, source_id, locator, fidelity, priority = json.loads(text)
-        return SourceRef(adapter=adapter, source_id=source_id, locator=locator,
-                         fidelity=Fidelity(fidelity), priority=priority)
-
     def context(self, row: Sequence[Any], at: int) -> PricingContext:
         vals = tuple(row[at:at + 13])
+        got = self._ctx.get(vals)
+        if got is not None:
+            return got
 
         def build() -> PricingContext:
             (provider, channel, model, model_raw, tier, speed, geo, scope, hint, path, routing,
@@ -427,17 +525,13 @@ class _Codec:
         return self._cached(self._ctx, vals, build)
 
     def inference(self, row: Sequence[Any]) -> Inference:
-        """An ``Inference`` from a row in ``_INF_COLS`` order."""
-        usage = UsageBuckets(uncached_input=row[25], cache_read=row[26], cache_write_5m=row[27],
-                             cache_write_1h=row[28], cache_write_other=row[29],
-                             cache_write_other_ttl_s=row[30], cache_write_unknown=row[31],
-                             output=row[32], output_reasoning=row[33],
-                             web_search_requests=row[34], web_fetch_requests=row[35])
-        return Inference(inference_id=row[0], kind=InferenceKind(row[7]), usage=usage,
-                         pricing=self.context(row, 12), usage_source=UsageSource(row[8]),
-                         billable=_int_bool(row[9]), billing_rule_id=row[10],
-                         output_upper=row[11], provider_reported_cost_nano=row[36],
-                         provider_reported_cost_basis=row[37])
+        """An ``Inference`` from a row in ``_INF_DECODE`` order."""
+        usage = _mk_usage(row[20], row[21], row[22], row[23], row[24], row[25], row[26],
+                          row[27], row[28], row[29], row[30])
+        billable = row[4]
+        return _mk_inference(row[0], _KINDS[row[2]], usage, self.context(row, 7),
+                             _SOURCES[row[3]], None if billable is None else bool(billable),
+                             row[5], row[6], row[31], row[32])
 
     @staticmethod
     def attempt(row: Sequence[Any], inferences: tuple[Inference, ...]) -> Attempt:
@@ -446,24 +540,30 @@ class _Codec:
             diag = CacheDiagnostic(reason=row[17], provider_reason=row[18],
                                    missed_input_tokens_estimate=row[19], source=row[20])
         edits = tuple((e[0], e[1]) for e in json.loads(row[21])) if row[21] else ()
-        return Attempt(attempt_id=row[0], attempt_no=row[2], ts_start_ms=row[3], ttft_ms=row[4],
-                       duration_ms=row[5], outcome=Outcome(row[6]), http_status=row[7],
-                       error_type=row[8], retry_layer=row[9], retry_after_ms=row[10],
-                       should_retry=_int_bool(row[11]), provider_request_id=row[13],
-                       provider_message_id=row[14], model_served=row[15], stop_reason=row[16],
-                       inferences=inferences, diagnostics=diag, applied_edits=edits,
-                       thinking_dropped=row[22], sdk_retry_count=row[12],
-                       raw_usage_json=row[23], convention_id=row[24])
+        should = row[11]
+        return _mk_attempt(row[0], row[2], row[3], row[4], row[5], _OUTCOMES[row[6]], row[7],
+                           row[8], row[9], row[10], None if should is None else bool(should),
+                           row[13], row[14], row[15], row[16], inferences, diag, edits, row[22],
+                           row[12], row[23], row[24])
 
     def request(self, row: Sequence[Any], attempts: tuple[Attempt, ...]) -> Request:
-        """A ``Request`` from a row in ``_REQ_COLS`` order and its attempts."""
-        appended = (tuple(from_json(AppendedItem, x) for x in json.loads(row[33]))
-                    if row[33] else ())
-        fp = from_json(ContentFingerprint, json.loads(row[34])) if row[34] else None
-        return Request(request_id=row[0], session_key=row[2], lane_key=row[1], seq=row[3],
-                       attribution=self.attribution(tuple(row[_ATTR_SLICE])),
-                       params=self.params(row[32]), attempts=attempts, fingerprint=fp,
-                       appended=appended, source=self.source(row[35]))
+        """A ``Request`` from a row in ``_REQ_DECODE`` order and its attempts."""
+        if not attempts:
+            raise ContractViolation("a stored request has no attempts (damaged ledger)")
+        appended = (tuple(from_json(AppendedItem, x) for x in json.loads(row[29]))
+                    if row[29] else ())
+        fp = from_json(ContentFingerprint, json.loads(row[30])) if row[30] else None
+        src = None
+        if row[32] is not None:
+            src = _mk_source(row[6], row[31], row[32], _FIDELITIES[row[4]], row[5])
+        return _mk_request(row[0], row[2], row[1], row[3],
+                           self.attribution(tuple(row[_ATTR_SLICE])), self.params(row[28]),
+                           attempts, fp, appended, src)
+
+
+def _enc_default(name: str) -> Any:
+    value = _PARAM_DEFAULTS[name]
+    return list(value) if isinstance(value, tuple) else value
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1026,7 +1126,7 @@ class SqliteStore:
     def _price(self, req: Request, pricer: Pricer | None) -> dict[str, tuple[Any, ...]]:
         """Priced columns of every inference of *req* (by inference id)."""
         out: dict[str, tuple[Any, ...]] = {}
-        if pricer is not None:
+        if pricer is not None and self._basis_seen.get(pricer.rate_card_sha256) is None:
             self._record_basis(pricer)
         for att in req.attempts:
             for inf in att.inferences:
@@ -1037,17 +1137,19 @@ class SqliteStore:
                 else:
                     out[inf.inference_id] = _priced_tuple(
                         pricer.price_inference(inf, ts_ms=att.ts_start_ms),
-                        pricer.rate_card_sha256)
+                        pricer.rate_card_sha256, inf.usage)
         return out
 
     # ---------- reading helpers ----------
 
     def _in_rows(self, sql: str, keys: Sequence[Any],
-                 params: tuple[Any, ...] = ()) -> Iterator[tuple[Any, ...]]:
-        """Rows of *sql* (with one ``{}`` for an IN list) over *keys* in chunks."""
+                 params: tuple[Any, ...] = ()) -> list[tuple[Any, ...]]:
+        """Rows of *sql* (with one ``{}`` for an IN list) over *keys*, queried in chunks."""
         conn = self.connection
+        out: list[tuple[Any, ...]] = []
         for chunk in _chunks(list(keys)):
-            yield from conn.execute(sql.format(_marks(len(chunk))), (*chunk, *params))
+            out.extend(conn.execute(sql.format(_marks(len(chunk))), (*chunk, *params)).fetchall())
+        return out
 
     def _children(self, request_ids: Sequence[str]) -> dict[str, tuple[Attempt, ...]]:
         """Attempts (with inferences) of *request_ids*."""
@@ -1232,26 +1334,27 @@ class SqliteStore:
         """One ``UsageRecord`` per billable inference (``billable`` not False) whose attempt starts
         in the window, ordered by request (ts, lane, seq, id) then attempt and inference order."""
         lo, hi = self._window(since_ms, until_ms)
-        cols = ", ".join(f"i.{c}" for c in _INF_COLS)
         cur = self.connection.execute(
-            f"SELECT {cols}, r.session_key, r.fidelity, {_LANE_KIND_SQL}, "
-            + ", ".join(f"r.{c}" for c in _REQ_COLS[_ATTR_SLICE]) +
+            f"SELECT {_INF_SELECT_I}, i.request_id, i.lane_key, i.ts_ms, i.date_utc,"
+            f" r.session_key, r.fidelity, {_LANE_KIND_SQL}, "
+            + ", ".join(f"r.{c}" for c in _ATTR_COLS) +
             " FROM inferences i JOIN requests r ON r.request_id = i.request_id"
             " JOIN attempts a ON a.attempt_id = i.attempt_id"
             " LEFT JOIN lanes l ON l.lane_key = r.lane_key"
             " WHERE i.billable IS NOT 0 AND i.ts_ms >= ? AND i.ts_ms < ?"
             " ORDER BY r.ts_start_ms, r.lane_key, r.seq, r.request_id, a.ord, i.ord", (lo, hi))
-        n = len(_INF_COLS)
+        n = _INF_N
         codec = self._codec
         for row in _fetch_iter(cur):
             inf = codec.inference(row)
             yield UsageRecord(
-                inference_id=inf.inference_id, request_id=row[2], attempt_id=row[1],
-                session_key=row[n], lane_key=row[3], lane_kind=LaneKind(row[n + 2]),
-                ts_ms=row[5], date_utc=row[6], kind=inf.kind, usage_source=inf.usage_source,
-                billable=inf.billable, billing_rule_id=inf.billing_rule_id, pricing=inf.pricing,
-                usage=inf.usage, attribution=codec.attribution(tuple(row[n + 3:])),
-                fidelity=Fidelity(row[n + 1]))
+                inference_id=inf.inference_id, request_id=row[n], attempt_id=row[1],
+                session_key=row[n + 4], lane_key=row[n + 1], lane_kind=LaneKind(row[n + 6]),
+                ts_ms=row[n + 2], date_utc=row[n + 3], kind=inf.kind,
+                usage_source=inf.usage_source, billable=inf.billable,
+                billing_rule_id=inf.billing_rule_id, pricing=inf.pricing, usage=inf.usage,
+                attribution=codec.attribution(tuple(row[n + 7:])),
+                fidelity=_FIDELITIES[row[n + 5]])
 
     def lane_index(self, *, since_ms: int, until_ms: int) -> Iterator[LaneIndexRow]:
         """One row per lane with requests in the window: team, kind and billing class (of the
@@ -1396,7 +1499,7 @@ class SqliteStore:
                       "i.cache_write_other, i.cache_write_other_ttl_s, i.cache_write_unknown, "
                       "i.output, i.output_reasoning, i.web_search_requests, "
                       "i.web_fetch_requests")
-        extra = (", " + ", ".join(f"i.{c}" for c in _INF_COLS)) if pricer is not None else ""
+        extra = f", {_INF_SELECT_I}, i.ts_ms" if pricer is not None else ""
         sql = (f"SELECT r.principal, i.request_id, {usage_cols}, i.billing_path, i.priced_nano,"
                " i.exact_nano, i.est_nano, i.est_low_nano, i.est_high_nano, i.evidence, i.basis,"
                f" i.rate_card_sha{', ' + dim_sql if dim_sql else ''}{extra}"
@@ -1422,8 +1525,8 @@ class SqliteStore:
                 g["total"].add(tokens, row[13], *row[14:22])
             else:
                 inf = self._codec.inference(row[22 + nd:])
-                p = pricer.price_inference(inf, ts_ms=row[22 + nd + 5])
-                cols = _priced_tuple(p, pricer.rate_card_sha256)
+                p = pricer.price_inference(inf, ts_ms=row[22 + nd + _INF_N])
+                cols = _priced_tuple(p, pricer.rate_card_sha256, inf.usage)
                 g["total"].add(tokens, row[13], cols[0], cols[1], cols[2], cols[3], cols[4],
                                cols[5], cols[6], pricer.rate_card_sha256)
         rows = []
@@ -1481,8 +1584,11 @@ class SqliteStore:
             raise UsageError(f"unknown cost-row dimension(s): {', '.join(unknown)}")
         lo, hi = self._window(since_ms, until_ms)
         dim_sql = "".join(", " + _INF_DIM_SQL[d] for d in dims_by)
+        src_cols = ", ".join(f"i.{c}" for c in (*_LINE_SOURCE_COLS, "exact_mask"))
+        nsrc = len(_LINE_SOURCE_COLS) + 1
+        names = (*_LINE_SOURCE_COLS, "exact_mask")
         cur = self.connection.execute(
-            f"SELECT r.principal, i.basis, i.lines_json{dim_sql}"
+            f"SELECT r.principal, i.basis, i.lines_json, {src_cols}{dim_sql}"
             " FROM inferences i JOIN requests r ON r.request_id = i.request_id"
             " LEFT JOIN lanes l ON l.lane_key = r.lane_key"
             " WHERE i.billable IS NOT 0 AND i.priced_nano IS NOT NULL"
@@ -1490,9 +1596,9 @@ class SqliteStore:
         cells: dict[tuple[Any, ...], list[Any]] = {}
         for row in _fetch_iter(cur):
             principal, basis, lines_json = row[0], row[1], row[2]
-            gkey = tuple(row[3:])
-            for line in json.loads(lines_json or "[]"):
-                bucket, qty, amount, low, high, is_exact, rate_row = line
+            gkey = tuple(row[3 + nsrc:])
+            lines = _lines_of(lines_json, dict(zip(names, row[3:3 + nsrc], strict=True)))
+            for bucket, qty, amount, low, high, is_exact, rate_row in lines:
                 c = cells.get((gkey, bucket, basis))
                 if c is None:
                     c = cells[(gkey, bucket, basis)] = [0, 0, 0, 0, set(), set()]
@@ -1533,13 +1639,13 @@ class SqliteStore:
         of the touched dates become stale."""
         conn = self._writable()
         lo, hi = self._window(since_ms, until_ms)
-        cols = ", ".join(f"i.{c}" for c in _INF_COLS)
         setter = ", ".join(f"{c}=?" for c in _PRICED_COLS)
         total = 0
         last = -1
         while True:
             rows = conn.execute(
-                f"SELECT i.rowid, r.date_utc, {cols} FROM inferences i JOIN requests r"
+                f"SELECT i.rowid, r.date_utc, i.ts_ms, {_INF_SELECT_I} FROM inferences i"
+                " JOIN requests r"
                 " ON r.request_id = i.request_id WHERE i.rowid > ? AND i.billable IS NOT 0"
                 " AND r.ts_start_ms >= ? AND r.ts_start_ms < ? ORDER BY i.rowid LIMIT ?",
                 (last, lo, hi, BATCH_ROWS)).fetchall()
@@ -1548,9 +1654,10 @@ class SqliteStore:
             last = rows[-1][0]
             updates = []
             for row in rows:
-                inf = self._codec.inference(row[2:])
-                p = pricer.price_inference(inf, ts_ms=row[2 + 5])
-                updates.append((*_priced_tuple(p, pricer.rate_card_sha256), inf.inference_id))
+                inf = self._codec.inference(row[3:])
+                p = pricer.price_inference(inf, ts_ms=row[2])
+                updates.append((*_priced_tuple(p, pricer.rate_card_sha256, inf.usage),
+                                inf.inference_id))
             with self._tx():
                 self._record_basis(pricer)
                 conn.executemany(f"UPDATE inferences SET {setter} WHERE inference_id=?", updates)
@@ -1806,9 +1913,7 @@ class _Work:
                 got = []
             else:
                 req = self.store._requests_of([row])[0]
-                src = req.source
-                got = [Contribution(req, row[8], Fidelity(row[6]), row[7],
-                                    src.source_id if src is not None else "")]
+                got = [Contribution(req, row[6], Fidelity(row[4]), row[5], row[31] or "")]
         cache[gid] = got
         return got
 

@@ -51,11 +51,20 @@ _RETAINED_KEY = "identity_retained_before"
 _CHUNK = 400
 
 
+_DATES: dict[int, str] = {}
+
+
 def date_of(ts_ms: int) -> str:
     """UTC date (``YYYY-MM-DD``) of *ts_ms*; ``UsageError`` past 9999-12-31."""
-    if not 0 <= ts_ms <= MAX_MS:
-        raise UsageError("timestamp outside 1970-01-01 … 9999-12-31")
-    return (_EPOCH + _dt.timedelta(days=ts_ms // DAY_MS)).isoformat()
+    day = ts_ms // DAY_MS
+    text = _DATES.get(day)
+    if text is None:
+        if not 0 <= ts_ms <= MAX_MS:
+            raise UsageError("timestamp outside 1970-01-01 … 9999-12-31")
+        if len(_DATES) > 100_000:
+            _DATES.clear()
+        text = _DATES[day] = (_EPOCH + _dt.timedelta(days=day)).isoformat()
+    return text
 
 
 def date_start_ms(date: str) -> int:
