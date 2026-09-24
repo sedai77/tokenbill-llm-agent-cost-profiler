@@ -1,0 +1,167 @@
+{
+  "data": [
+    {
+      "end_time": 1788307200,
+      "object": "bucket",
+      "results": [
+        {
+          "api_key_id": "key_01Search",
+          "batch": false,
+          "input_audio_tokens": 0,
+          "input_cache_write_tokens": 65571,
+          "input_cached_tokens": 245179,
+          "input_tokens": 536854,
+          "input_uncached_tokens": 226104,
+          "model": "gpt-5.6-sol",
+          "num_model_requests": 43,
+          "object": "organization.usage.completions.result",
+          "output_audio_tokens": 0,
+          "output_tokens": 180774,
+          "project_id": "proj_01Search",
+          "service_tier": null,
+          "user_id": null
+        },
+        {
+          "api_key_id": "key_02Support",
+          "batch": true,
+          "input_audio_tokens": 0,
+          "input_cache_write_tokens": 46085,
+          "input_cached_tokens": 46720,
+          "input_tokens": 850037,
+          "input_uncached_tokens": 757232,
+          "model": "gpt-5.6-sol",
+          "num_model_requests": 324,
+          "object": "organization.usage.completions.result",
+          "output_audio_tokens": 0,
+          "output_tokens": 149690,
+          "project_id": "proj_02Support",
+          "service_tier": null,
+          "user_id": null
+        },
+        {
+          "api_key_id": null,
+          "batch": false,
+          "input_cache_write_tokens": 0,
+          "input_cached_tokens": 0,
+          "input_tokens": 1000,
+          "input_uncached_tokens": 1000,
+          "model": "gpt-5.6-sol",
+          "num_model_requests": 1,
+          "object": "organization.usage.completions.result",
+          "output_tokens": 100,
+          "project_id": "proj_03Lab",
+          "service_tier": "default",
+          "user_id": "user_01Ann"
+        },
+        {
+          "api_key_id": null,
+          "batch": false,
+          "input_cache_write_tokens": 0,
+          "input_cached_tokens": 0,
+          "input_tokens": 1000,
+          "input_uncached_tokens": 1000,
+          "model": "gpt-5.6-sol",
+          "num_model_requests": 1,
+          "object": "organization.usage.completions.result",
+          "output_tokens": 100,
+          "project_id": "proj_03Lab",
+          "service_tier": "default",
+          "user_id": "user_02Ben"
+        },
+        {
+          "api_key_id": null,
+          "input_tokens": 999,
+          "model": "text-embedding-3-small",
+          "num_model_requests": 3,
+          "object": "organization.usage.embeddings.result",
+          "project_id": null,
+          "user_id": null
+        }
+      ],
+      "start_time": 1788220800
+    },
+    {
+      "end_time": 1788393600,
+      "object": "bucket",
+      "results": [
+        {
+          "api_key_id": "key_01Search",
+          "batch": false,
+          "input_audio_tokens": 0,
+          "input_cache_write_tokens": 31230,
+          "input_cached_tokens": 208973,
+          "input_tokens": 1044471,
+          "input_uncached_tokens": 804268,
+          "model": "gpt-5.6-sol",
+          "num_model_requests": 287,
+          "object": "organization.usage.completions.result",
+          "output_audio_tokens": 0,
+          "output_tokens": 45186,
+          "project_id": "proj_01Search",
+          "service_tier": null,
+          "user_id": null
+        },
+        {
+          "api_key_id": "key_02Support",
+          "batch": true,
+          "input_audio_tokens": 0,
+          "input_cache_write_tokens": 49505,
+          "input_cached_tokens": 396053,
+          "input_tokens": 975035,
+          "input_uncached_tokens": 529477,
+          "model": "gpt-5.6-sol",
+          "num_model_requests": 353,
+          "object": "organization.usage.completions.result",
+          "output_audio_tokens": 0,
+          "output_tokens": 66477,
+          "project_id": "proj_02Support",
+          "service_tier": null,
+          "user_id": null
+        },
+        {
+          "api_key_id": null,
+          "batch": false,
+          "input_cache_write_tokens": 0,
+          "input_cached_tokens": 0,
+          "input_tokens": 1000,
+          "input_uncached_tokens": 1000,
+          "model": "gpt-5.6-sol",
+          "num_model_requests": 1,
+          "object": "organization.usage.completions.result",
+          "output_tokens": 100,
+          "project_id": "proj_03Lab",
+          "service_tier": "default",
+          "user_id": "user_01Ann"
+        },
+        {
+          "api_key_id": null,
+          "batch": false,
+          "input_cache_write_tokens": 0,
+          "input_cached_tokens": 0,
+          "input_tokens": 1000,
+          "input_uncached_tokens": 1000,
+          "model": "gpt-5.6-sol",
+          "num_model_requests": 1,
+          "object": "organization.usage.completions.result",
+          "output_tokens": 100,
+          "project_id": "proj_03Lab",
+          "service_tier": "default",
+          "user_id": "user_02Ben"
+        },
+        {
+          "api_key_id": null,
+          "input_tokens": 999,
+          "model": "text-embedding-3-small",
+          "num_model_requests": 3,
+          "object": "organization.usage.embeddings.result",
+          "project_id": null,
+          "user_id": null
+        }
+      ],
+      "start_time": 1788307200
+    }
+  ],
+  "has_more": false,
+  "next_page": null,
+  "object": "page"
+}

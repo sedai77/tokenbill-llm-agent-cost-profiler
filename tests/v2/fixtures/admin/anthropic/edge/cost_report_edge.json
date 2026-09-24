@@ -1,0 +1,72 @@
+{
+  "data": [
+    {
+      "ending_at": "2026-08-13T00:00:00Z",
+      "results": [
+        {
+          "amount": "1234.5",
+          "context_window": null,
+          "cost_type": "code_execution",
+          "currency": "USD",
+          "description": "Code Execution Usage",
+          "inference_geo": null,
+          "model": null,
+          "service_tier": null,
+          "token_type": null,
+          "workspace_id": "wrkspc_03Research"
+        },
+        {
+          "amount": "123.456789012345678901234567",
+          "context_window": "0-200k",
+          "cost_type": "tokens",
+          "currency": "USD",
+          "description": "Claude Sonnet 5 Usage - Input Tokens",
+          "inference_geo": "us",
+          "model": "claude-sonnet-5",
+          "service_tier": "standard",
+          "token_type": "uncached_input_tokens",
+          "workspace_id": "wrkspc_03Research"
+        },
+        {
+          "amount": "0.0000000001",
+          "context_window": "0-200k",
+          "cost_type": "tokens",
+          "currency": "USD",
+          "description": "Claude Opus 5 Usage - Output Tokens",
+          "inference_geo": "global",
+          "model": "claude-opus-5",
+          "service_tier": "standard",
+          "token_type": "output_tokens",
+          "workspace_id": "wrkspc_03Research"
+        },
+        {
+          "amount": "12.5000000004",
+          "context_window": "200k-1M",
+          "cost_type": "tokens",
+          "currency": "USD",
+          "description": "Claude Opus 5 Usage - Output Tokens",
+          "inference_geo": "global",
+          "model": "claude-opus-5",
+          "service_tier": "standard",
+          "token_type": "output_tokens",
+          "workspace_id": "wrkspc_03Research"
+        },
+        {
+          "amount": "7",
+          "context_window": null,
+          "cost_type": "session_usage",
+          "currency": "USD",
+          "description": "Session Usage",
+          "inference_geo": null,
+          "model": null,
+          "service_tier": null,
+          "token_type": null,
+          "workspace_id": null
+        }
+      ],
+      "starting_at": "2026-08-12T00:00:00Z"
+    }
+  ],
+  "has_more": false,
+  "next_page": null
+}

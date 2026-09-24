@@ -1,0 +1,1020 @@
+{
+  "data": [
+    {
+      "actor": {
+        "email_address": "dev01@example.com",
+        "type": "user_actor"
+      },
+      "core_metrics": {
+        "commits_by_claude_code": 7,
+        "lines_of_code": {
+          "added": 101,
+          "removed": 615
+        },
+        "num_sessions": 1,
+        "pull_requests_by_claude_code": 3
+      },
+      "customer_type": "api",
+      "date": "2026-09-10T00:00:00Z",
+      "model_breakdown": [
+        {
+          "estimated_cost": {
+            "amount": 2843,
+            "currency": "USD"
+          },
+          "model": "claude-opus-5",
+          "tokens": {
+            "cache_creation": 165625,
+            "cache_read": 5843470,
+            "input": 121879,
+            "output": 81803
+          }
+        }
+      ],
+      "organization_id": "dc9f6c26-b22c-4831-8d01-0446bada88f1",
+      "terminal_type": "vscode TB-CANARY-7f3a91",
+      "tool_actions": {
+        "edit_tool": {
+          "accepted": 13,
+          "rejected": 0
+        },
+        "multi_edit_tool": {
+          "accepted": 34,
+          "rejected": 2
+        },
+        "notebook_edit_tool": {
+          "accepted": 27,
+          "rejected": 4
+        },
+        "write_tool": {
+          "accepted": 36,
+          "rejected": 0
+        }
+      }
+    },
+    {
+      "actor": {
+        "email_address": "dev02@example.com",
+        "type": "user_actor"
+      },
+      "core_metrics": {
+        "commits_by_claude_code": 9,
+        "lines_of_code": {
+          "added": 1813,
+          "removed": 883
+        },
+        "num_sessions": 2,
+        "pull_requests_by_claude_code": 3
+      },
+      "customer_type": "api",
+      "date": "2026-09-10T00:00:00Z",
+      "model_breakdown": [
+        {
+          "estimated_cost": {
+            "amount": 2295,
+            "currency": "USD"
+          },
+          "model": "claude-opus-5",
+          "tokens": {
+            "cache_creation": 104545,
+            "cache_read": 6484215,
+            "input": 28072,
+            "output": 62183
+          }
+        },
+        {
+          "estimated_cost": {
+            "amount": 2688,
+            "currency": "USD"
+          },
+          "model": "claude-sonnet-5",
+          "tokens": {
+            "cache_creation": 131782,
+            "cache_read": 5223108,
+            "input": 202754,
+            "output": 74754
+          }
+        }
+      ],
+      "organization_id": "dc9f6c26-b22c-4831-8d01-0446bada88f1",
+      "terminal_type": "vscode TB-CANARY-7f3a91",
+      "tool_actions": {
+        "edit_tool": {
+          "accepted": 11,
+          "rejected": 6
+        },
+        "multi_edit_tool": {
+          "accepted": 6,
+          "rejected": 6
+        },
+        "notebook_edit_tool": {
+          "accepted": 11,
+          "rejected": 2
+        },
+        "write_tool": {
+          "accepted": 45,
+          "rejected": 0
+        }
+      }
+    },
+    {
+      "actor": {
+        "email_address": "dev03@example.com",
+        "type": "user_actor"
+      },
+      "core_metrics": {
+        "commits_by_claude_code": 7,
+        "lines_of_code": {
+          "added": 868,
+          "removed": 495
+        },
+        "num_sessions": 4,
+        "pull_requests_by_claude_code": 1
+      },
+      "customer_type": "api",
+      "date": "2026-09-10T00:00:00Z",
+      "model_breakdown": [
+        {
+          "estimated_cost": {
+            "amount": 3672,
+            "currency": "USD"
+          },
+          "model": "claude-opus-5",
+          "tokens": {
+            "cache_creation": 187728,
+            "cache_read": 7106385,
+            "input": 40259,
+            "output": 9723
+          }
+        },
+        {
+          "estimated_cost": {
+            "amount": 1205,
+            "currency": "USD"
+          },
+          "model": "claude-sonnet-5",
+          "tokens": {
+            "cache_creation": 456228,
+            "cache_read": 1235856,
+            "input": 358772,
+            "output": 39200
+          }
+        }
+      ],
+      "organization_id": "dc9f6c26-b22c-4831-8d01-0446bada88f1",
+      "terminal_type": "vscode TB-CANARY-7f3a91",
+      "tool_actions": {
+        "edit_tool": {
+          "accepted": 40,
+          "rejected": 2
+        },
+        "multi_edit_tool": {
+          "accepted": 32,
+          "rejected": 4
+        },
+        "notebook_edit_tool": {
+          "accepted": 23,
+          "rejected": 6
+        },
+        "write_tool": {
+          "accepted": 12,
+          "rejected": 4
+        }
+      }
+    },
+    {
+      "actor": {
+        "email_address": "dev04@example.com",
+        "type": "user_actor"
+      },
+      "core_metrics": {
+        "commits_by_claude_code": 11,
+        "lines_of_code": {
+          "added": 1914,
+          "removed": 695
+        },
+        "num_sessions": 7,
+        "pull_requests_by_claude_code": 1
+      },
+      "customer_type": "api",
+      "date": "2026-09-10T00:00:00Z",
+      "model_breakdown": [
+        {
+          "estimated_cost": {
+            "amount": 878,
+            "currency": "USD"
+          },
+          "model": "claude-opus-5",
+          "tokens": {
+            "cache_creation": 351182,
+            "cache_read": 1807795,
+            "input": 120347,
+            "output": 71267
+          }
+        },
+        {
+          "estimated_cost": {
+            "amount": 5716,
+            "currency": "USD"
+          },
+          "model": "claude-sonnet-5",
+          "tokens": {
+            "cache_creation": 99089,
+            "cache_read": 7471560,
+            "input": 298787,
+            "output": 24545
+          }
+        }
+      ],
+      "organization_id": "dc9f6c26-b22c-4831-8d01-0446bada88f1",
+      "terminal_type": "vscode TB-CANARY-7f3a91",
+      "tool_actions": {
+        "edit_tool": {
+          "accepted": 8,
+          "rejected": 0
+        },
+        "multi_edit_tool": {
+          "accepted": 17,
+          "rejected": 0
+        },
+        "notebook_edit_tool": {
+          "accepted": 27,
+          "rejected": 4
+        },
+        "write_tool": {
+          "accepted": 36,
+          "rejected": 3
+        }
+      }
+    },
+    {
+      "actor": {
+        "email_address": "dev05@example.com",
+        "type": "user_actor"
+      },
+      "core_metrics": {
+        "commits_by_claude_code": 11,
+        "lines_of_code": {
+          "added": 14,
+          "removed": 213
+        },
+        "num_sessions": 3,
+        "pull_requests_by_claude_code": 0
+      },
+      "customer_type": "api",
+      "date": "2026-09-10T00:00:00Z",
+      "model_breakdown": [
+        {
+          "estimated_cost": {
+            "amount": 3756,
+            "currency": "USD"
+          },
+          "model": "claude-opus-5",
+          "tokens": {
+            "cache_creation": 245420,
+            "cache_read": 7533799,
+            "input": 186470,
+            "output": 61237
+          }
+        },
+        {
+          "estimated_cost": {
+            "amount": 1046,
+            "currency": "USD"
+          },
+          "model": "claude-sonnet-5",
+          "tokens": {
+            "cache_creation": 123968,
+            "cache_read": 8917067,
+            "input": 364792,
+            "output": 25903
+          }
+        }
+      ],
+      "organization_id": "dc9f6c26-b22c-4831-8d01-0446bada88f1",
+      "terminal_type": "vscode TB-CANARY-7f3a91",
+      "tool_actions": {
+        "edit_tool": {
+          "accepted": 14,
+          "rejected": 3
+        },
+        "multi_edit_tool": {
+          "accepted": 10,
+          "rejected": 2
+        },
+        "notebook_edit_tool": {
+          "accepted": 34,
+          "rejected": 4
+        },
+        "write_tool": {
+          "accepted": 21,
+          "rejected": 5
+        }
+      }
+    },
+    {
+      "actor": {
+        "email_address": "canary.TB-CANARY-7f3a91@example.com",
+        "type": "user_actor"
+      },
+      "core_metrics": {
+        "commits_by_claude_code": 4,
+        "lines_of_code": {
+          "added": 1879,
+          "removed": 683
+        },
+        "num_sessions": 7,
+        "pull_requests_by_claude_code": 1
+      },
+      "customer_type": "api",
+      "date": "2026-09-10T00:00:00Z",
+      "model_breakdown": [
+        {
+          "estimated_cost": {
+            "amount": 3501,
+            "currency": "USD"
+          },
+          "model": "claude-opus-5",
+          "tokens": {
+            "cache_creation": 433794,
+            "cache_read": 8217434,
+            "input": 64389,
+            "output": 12383
+          }
+        },
+        {
+          "estimated_cost": {
+            "amount": 4884,
+            "currency": "USD"
+          },
+          "model": "claude-sonnet-5",
+          "tokens": {
+            "cache_creation": 351209,
+            "cache_read": 8187680,
+            "input": 280371,
+            "output": 80839
+          }
+        }
+      ],
+      "organization_id": "dc9f6c26-b22c-4831-8d01-0446bada88f1",
+      "terminal_type": "vscode TB-CANARY-7f3a91",
+      "tool_actions": {
+        "edit_tool": {
+          "accepted": 3,
+          "rejected": 5
+        },
+        "multi_edit_tool": {
+          "accepted": 2,
+          "rejected": 4
+        },
+        "notebook_edit_tool": {
+          "accepted": 27,
+          "rejected": 6
+        },
+        "write_tool": {
+          "accepted": 9,
+          "rejected": 3
+        }
+      }
+    },
+    {
+      "actor": {
+        "email_address": "dev07@example.com",
+        "type": "user_actor"
+      },
+      "core_metrics": {
+        "commits_by_claude_code": 4,
+        "lines_of_code": {
+          "added": 1355,
+          "removed": 153
+        },
+        "num_sessions": 9,
+        "pull_requests_by_claude_code": 3
+      },
+      "customer_type": "api",
+      "date": "2026-09-10T00:00:00Z",
+      "model_breakdown": [
+        {
+          "estimated_cost": {
+            "amount": 1072,
+            "currency": "USD"
+          },
+          "model": "claude-opus-5",
+          "tokens": {
+            "cache_creation": 204699,
+            "cache_read": 8704973,
+            "input": 236308,
+            "output": 44865
+          }
+        }
+      ],
+      "organization_id": "dc9f6c26-b22c-4831-8d01-0446bada88f1",
+      "terminal_type": "vscode TB-CANARY-7f3a91",
+      "tool_actions": {
+        "edit_tool": {
+          "accepted": 17,
+          "rejected": 4
+        },
+        "multi_edit_tool": {
+          "accepted": 42,
+          "rejected": 2
+        },
+        "notebook_edit_tool": {
+          "accepted": 48,
+          "rejected": 4
+        },
+        "write_tool": {
+          "accepted": 1,
+          "rejected": 6
+        }
+      }
+    },
+    {
+      "actor": {
+        "email_address": "dev08@example.com",
+        "type": "user_actor"
+      },
+      "core_metrics": {
+        "commits_by_claude_code": 1,
+        "lines_of_code": {
+          "added": 1994,
+          "removed": 727
+        },
+        "num_sessions": 1,
+        "pull_requests_by_claude_code": 1
+      },
+      "customer_type": "api",
+      "date": "2026-09-10T00:00:00Z",
+      "model_breakdown": [
+        {
+          "estimated_cost": {
+            "amount": 7710,
+            "currency": "USD"
+          },
+          "model": "claude-opus-5",
+          "tokens": {
+            "cache_creation": 336833,
+            "cache_read": 3485022,
+            "input": 38888,
+            "output": 16106
+          }
+        }
+      ],
+      "organization_id": "dc9f6c26-b22c-4831-8d01-0446bada88f1",
+      "terminal_type": "vscode TB-CANARY-7f3a91",
+      "tool_actions": {
+        "edit_tool": {
+          "accepted": 3,
+          "rejected": 5
+        },
+        "multi_edit_tool": {
+          "accepted": 32,
+          "rejected": 3
+        },
+        "notebook_edit_tool": {
+          "accepted": 20,
+          "rejected": 0
+        },
+        "write_tool": {
+          "accepted": 19,
+          "rejected": 6
+        }
+      }
+    },
+    {
+      "actor": {
+        "email_address": "dev09@example.com",
+        "type": "user_actor"
+      },
+      "core_metrics": {
+        "commits_by_claude_code": 10,
+        "lines_of_code": {
+          "added": 426,
+          "removed": 62
+        },
+        "num_sessions": 1,
+        "pull_requests_by_claude_code": 3
+      },
+      "customer_type": "api",
+      "date": "2026-09-10T00:00:00Z",
+      "model_breakdown": [
+        {
+          "estimated_cost": {
+            "amount": 7573,
+            "currency": "USD"
+          },
+          "model": "claude-opus-5",
+          "tokens": {
+            "cache_creation": 109744,
+            "cache_read": 5884671,
+            "input": 285120,
+            "output": 88025
+          }
+        }
+      ],
+      "organization_id": "dc9f6c26-b22c-4831-8d01-0446bada88f1",
+      "terminal_type": "vscode TB-CANARY-7f3a91",
+      "tool_actions": {
+        "edit_tool": {
+          "accepted": 18,
+          "rejected": 5
+        },
+        "multi_edit_tool": {
+          "accepted": 45,
+          "rejected": 6
+        },
+        "notebook_edit_tool": {
+          "accepted": 34,
+          "rejected": 6
+        },
+        "write_tool": {
+          "accepted": 20,
+          "rejected": 2
+        }
+      }
+    },
+    {
+      "actor": {
+        "email_address": "dev10@example.com",
+        "type": "user_actor"
+      },
+      "core_metrics": {
+        "commits_by_claude_code": 1,
+        "lines_of_code": {
+          "added": 1405,
+          "removed": 495
+        },
+        "num_sessions": 6,
+        "pull_requests_by_claude_code": 0
+      },
+      "customer_type": "api",
+      "date": "2026-09-10T00:00:00Z",
+      "model_breakdown": [
+        {
+          "estimated_cost": {
+            "amount": 3154,
+            "currency": "USD"
+          },
+          "model": "claude-opus-5",
+          "tokens": {
+            "cache_creation": 470233,
+            "cache_read": 3075310,
+            "input": 55518,
+            "output": 8525
+          }
+        }
+      ],
+      "organization_id": "dc9f6c26-b22c-4831-8d01-0446bada88f1",
+      "terminal_type": "vscode TB-CANARY-7f3a91",
+      "tool_actions": {
+        "edit_tool": {
+          "accepted": 45,
+          "rejected": 2
+        },
+        "multi_edit_tool": {
+          "accepted": 1,
+          "rejected": 3
+        },
+        "notebook_edit_tool": {
+          "accepted": 26,
+          "rejected": 6
+        },
+        "write_tool": {
+          "accepted": 45,
+          "rejected": 4
+        }
+      }
+    },
+    {
+      "actor": {
+        "email_address": "dev11@example.com",
+        "type": "user_actor"
+      },
+      "core_metrics": {
+        "commits_by_claude_code": 6,
+        "lines_of_code": {
+          "added": 1390,
+          "removed": 421
+        },
+        "num_sessions": 5,
+        "pull_requests_by_claude_code": 2
+      },
+      "customer_type": "api",
+      "date": "2026-09-10T00:00:00Z",
+      "model_breakdown": [
+        {
+          "estimated_cost": {
+            "amount": 4269,
+            "currency": "USD"
+          },
+          "model": "claude-opus-5",
+          "tokens": {
+            "cache_creation": 218608,
+            "cache_read": 8229396,
+            "input": 330492,
+            "output": 82465
+          }
+        },
+        {
+          "estimated_cost": {
+            "amount": 2344,
+            "currency": "USD"
+          },
+          "model": "claude-sonnet-5",
+          "tokens": {
+            "cache_creation": 279677,
+            "cache_read": 1177302,
+            "input": 229315,
+            "output": 39191
+          }
+        }
+      ],
+      "organization_id": "dc9f6c26-b22c-4831-8d01-0446bada88f1",
+      "terminal_type": "vscode TB-CANARY-7f3a91",
+      "tool_actions": {
+        "edit_tool": {
+          "accepted": 17,
+          "rejected": 0
+        },
+        "multi_edit_tool": {
+          "accepted": 18,
+          "rejected": 1
+        },
+        "notebook_edit_tool": {
+          "accepted": 0,
+          "rejected": 1
+        },
+        "write_tool": {
+          "accepted": 22,
+          "rejected": 6
+        }
+      }
+    },
+    {
+      "actor": {
+        "email_address": "dev12@example.com",
+        "type": "user_actor"
+      },
+      "core_metrics": {
+        "commits_by_claude_code": 5,
+        "lines_of_code": {
+          "added": 1651,
+          "removed": 881
+        },
+        "num_sessions": 5,
+        "pull_requests_by_claude_code": 0
+      },
+      "customer_type": "api",
+      "date": "2026-09-10T00:00:00Z",
+      "model_breakdown": [
+        {
+          "estimated_cost": {
+            "amount": 5312,
+            "currency": "USD"
+          },
+          "model": "claude-opus-5",
+          "tokens": {
+            "cache_creation": 340715,
+            "cache_read": 2936201,
+            "input": 141418,
+            "output": 63460
+          }
+        },
+        {
+          "estimated_cost": {
+            "amount": 1967,
+            "currency": "USD"
+          },
+          "model": "claude-sonnet-5",
+          "tokens": {
+            "cache_creation": 596307,
+            "cache_read": 7566449,
+            "input": 251392,
+            "output": 4040
+          }
+        }
+      ],
+      "organization_id": "dc9f6c26-b22c-4831-8d01-0446bada88f1",
+      "terminal_type": "vscode TB-CANARY-7f3a91",
+      "tool_actions": {
+        "edit_tool": {
+          "accepted": 23,
+          "rejected": 0
+        },
+        "multi_edit_tool": {
+          "accepted": 16,
+          "rejected": 0
+        },
+        "notebook_edit_tool": {
+          "accepted": 9,
+          "rejected": 1
+        },
+        "write_tool": {
+          "accepted": 10,
+          "rejected": 0
+        }
+      }
+    },
+    {
+      "actor": {
+        "email_address": "dev13@example.com",
+        "type": "user_actor"
+      },
+      "core_metrics": {
+        "commits_by_claude_code": 9,
+        "lines_of_code": {
+          "added": 327,
+          "removed": 699
+        },
+        "num_sessions": 6,
+        "pull_requests_by_claude_code": 3
+      },
+      "customer_type": "api",
+      "date": "2026-09-10T00:00:00Z",
+      "model_breakdown": [
+        {
+          "estimated_cost": {
+            "amount": 7185,
+            "currency": "USD"
+          },
+          "model": "claude-opus-5",
+          "tokens": {
+            "cache_creation": 341695,
+            "cache_read": 1037127,
+            "input": 333563,
+            "output": 61452
+          }
+        }
+      ],
+      "organization_id": "dc9f6c26-b22c-4831-8d01-0446bada88f1",
+      "terminal_type": "vscode TB-CANARY-7f3a91",
+      "tool_actions": {
+        "edit_tool": {
+          "accepted": 30,
+          "rejected": 6
+        },
+        "multi_edit_tool": {
+          "accepted": 38,
+          "rejected": 3
+        },
+        "notebook_edit_tool": {
+          "accepted": 26,
+          "rejected": 1
+        },
+        "write_tool": {
+          "accepted": 25,
+          "rejected": 3
+        }
+      }
+    },
+    {
+      "actor": {
+        "email_address": "dev14@example.com",
+        "type": "user_actor"
+      },
+      "core_metrics": {
+        "commits_by_claude_code": 8,
+        "lines_of_code": {
+          "added": 1696,
+          "removed": 575
+        },
+        "num_sessions": 2,
+        "pull_requests_by_claude_code": 1
+      },
+      "customer_type": "api",
+      "date": "2026-09-10T00:00:00Z",
+      "model_breakdown": [
+        {
+          "estimated_cost": {
+            "amount": 5595,
+            "currency": "USD"
+          },
+          "model": "claude-opus-5",
+          "tokens": {
+            "cache_creation": 177643,
+            "cache_read": 3844004,
+            "input": 119606,
+            "output": 86116
+          }
+        }
+      ],
+      "organization_id": "dc9f6c26-b22c-4831-8d01-0446bada88f1",
+      "terminal_type": "vscode TB-CANARY-7f3a91",
+      "tool_actions": {
+        "edit_tool": {
+          "accepted": 21,
+          "rejected": 2
+        },
+        "multi_edit_tool": {
+          "accepted": 11,
+          "rejected": 2
+        },
+        "notebook_edit_tool": {
+          "accepted": 49,
+          "rejected": 5
+        },
+        "write_tool": {
+          "accepted": 7,
+          "rejected": 1
+        }
+      }
+    },
+    {
+      "actor": {
+        "email_address": "dev15@example.com",
+        "type": "user_actor"
+      },
+      "core_metrics": {
+        "commits_by_claude_code": 6,
+        "lines_of_code": {
+          "added": 1335,
+          "removed": 601
+        },
+        "num_sessions": 3,
+        "pull_requests_by_claude_code": 3
+      },
+      "customer_type": "api",
+      "date": "2026-09-10T00:00:00Z",
+      "model_breakdown": [
+        {
+          "estimated_cost": {
+            "amount": 540,
+            "currency": "USD"
+          },
+          "model": "claude-opus-5",
+          "tokens": {
+            "cache_creation": 127627,
+            "cache_read": 7276226,
+            "input": 161734,
+            "output": 23480
+          }
+        },
+        {
+          "estimated_cost": {
+            "amount": 8587,
+            "currency": "USD"
+          },
+          "model": "claude-sonnet-5",
+          "tokens": {
+            "cache_creation": 534006,
+            "cache_read": 5305713,
+            "input": 58451,
+            "output": 86071
+          }
+        }
+      ],
+      "organization_id": "dc9f6c26-b22c-4831-8d01-0446bada88f1",
+      "terminal_type": "vscode TB-CANARY-7f3a91",
+      "tool_actions": {
+        "edit_tool": {
+          "accepted": 5,
+          "rejected": 5
+        },
+        "multi_edit_tool": {
+          "accepted": 10,
+          "rejected": 1
+        },
+        "notebook_edit_tool": {
+          "accepted": 15,
+          "rejected": 0
+        },
+        "write_tool": {
+          "accepted": 1,
+          "rejected": 2
+        }
+      }
+    },
+    {
+      "actor": {
+        "email_address": "dev16@example.com",
+        "type": "user_actor"
+      },
+      "core_metrics": {
+        "commits_by_claude_code": 1,
+        "lines_of_code": {
+          "added": 1123,
+          "removed": 657
+        },
+        "num_sessions": 5,
+        "pull_requests_by_claude_code": 0
+      },
+      "customer_type": "api",
+      "date": "2026-09-10T00:00:00Z",
+      "model_breakdown": [
+        {
+          "estimated_cost": {
+            "amount": 8627,
+            "currency": "USD"
+          },
+          "model": "claude-opus-5",
+          "tokens": {
+            "cache_creation": 232111,
+            "cache_read": 8851940,
+            "input": 5524,
+            "output": 31390
+          }
+        },
+        {
+          "estimated_cost": {
+            "amount": 3406,
+            "currency": "USD"
+          },
+          "model": "claude-sonnet-5",
+          "tokens": {
+            "cache_creation": 1332,
+            "cache_read": 6642338,
+            "input": 94354,
+            "output": 21490
+          }
+        }
+      ],
+      "organization_id": "dc9f6c26-b22c-4831-8d01-0446bada88f1",
+      "terminal_type": "vscode TB-CANARY-7f3a91",
+      "tool_actions": {
+        "edit_tool": {
+          "accepted": 11,
+          "rejected": 2
+        },
+        "multi_edit_tool": {
+          "accepted": 7,
+          "rejected": 2
+        },
+        "notebook_edit_tool": {
+          "accepted": 14,
+          "rejected": 4
+        },
+        "write_tool": {
+          "accepted": 27,
+          "rejected": 2
+        }
+      }
+    },
+    {
+      "actor": {
+        "api_key_name": "ci-bot-key",
+        "type": "api_actor"
+      },
+      "core_metrics": {
+        "commits_by_claude_code": 11,
+        "lines_of_code": {
+          "added": 1272,
+          "removed": 649
+        },
+        "num_sessions": 5,
+        "pull_requests_by_claude_code": 3
+      },
+      "customer_type": "api",
+      "date": "2026-09-10T00:00:00Z",
+      "model_breakdown": [
+        {
+          "estimated_cost": {
+            "amount": 6343,
+            "currency": "USD"
+          },
+          "model": "claude-opus-5",
+          "tokens": {
+            "cache_creation": 511074,
+            "cache_read": 6430986,
+            "input": 247516,
+            "output": 54123
+          }
+        },
+        {
+          "estimated_cost": {
+            "amount": 2617,
+            "currency": "USD"
+          },
+          "model": "claude-sonnet-5",
+          "tokens": {
+            "cache_creation": 230509,
+            "cache_read": 715658,
+            "input": 388254,
+            "output": 41682
+          }
+        }
+      ],
+      "organization_id": "dc9f6c26-b22c-4831-8d01-0446bada88f1",
+      "terminal_type": "vscode TB-CANARY-7f3a91",
+      "tool_actions": {
+        "edit_tool": {
+          "accepted": 33,
+          "rejected": 2
+        },
+        "multi_edit_tool": {
+          "accepted": 4,
+          "rejected": 1
+        },
+        "notebook_edit_tool": {
+          "accepted": 23,
+          "rejected": 2
+        },
+        "write_tool": {
+          "accepted": 43,
+          "rejected": 3
+        }
+      }
+    }
+  ],
+  "has_more": false,
+  "next_page": null
+}
