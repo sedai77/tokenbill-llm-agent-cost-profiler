@@ -94,7 +94,9 @@ def test_ttl_policy_skips_non_anthropic_lanes() -> None:
     assert all(not o.changed for o in res.outcomes or ())
 
 
-def test_ttl_rerates_passthrough_and_unknown_writes() -> None:
+def test_ttl_rerates_serving_and_unknown_writes_but_not_passthrough() -> None:
+    # §9.3.7 (5): passthrough inferences keep their observed pricing unless a rate transform
+    # applies; TTL re-rating moves the serving (and inserted) writes only
     comp_iter = req("Lp2", 0, 0, {"cache_write_5m": 10_000, "output": 100})
     iteration = make_inference({"cache_read": 5_000, "cache_write_5m": 3_000, "output": 200},
                                kind=InferenceKind.COMPACTION, inference_id="inf_iter")
@@ -111,7 +113,9 @@ def test_ttl_rerates_passthrough_and_unknown_writes() -> None:
     one, two, three = costs(res)
     assert one == (10_000 * W1 + 100 * OUT,) * 3
     assert two == (10_000 * READ + 1_000 * W1 + 100 * OUT
-                   + 5_000 * READ + 3_000 * W1 + 200 * OUT,) * 3
+                   + 5_000 * READ + 3_000 * W5 + 200 * OUT,) * 3
+    iteration_out = res.outcomes[1]  # type: ignore[index]
+    assert iteration_out.usage.cache_write_1h == 1_000 and iteration_out.changed
     assert three == (11_000 * READ + 4_000 * W1 + 100 * OUT,) * 3
     down = replay([ln], "ttl=5m")
     assert costs(down)[2] == (11_000 * READ + 4_000 * W5 + 100 * OUT,) * 3

@@ -341,7 +341,7 @@ class ReferenceReplay:
         floor = dict(static_prefix_floor or {})
         run = _Run(policy=policy, pricer=pricer, basis=basis, floor=floor, transitions={},
                    observed={}, fanout={}, shared_ci={},
-                   summary_tokens=self._summary_tokens(policy, ordered),
+                   summary_tokens=self._summary_tokens(policy),
                    calibrated=calibrated)
         for lane in ordered:
             run.transitions[lane.lane_key] = {
@@ -464,19 +464,14 @@ class ReferenceReplay:
     # ------------------------------------------------------------------ policy-level setup
 
     @staticmethod
-    def _summary_tokens(policy: Policy, lanes: Sequence[Lane]) -> int:
-        """S_c: the policy's ``post``, else the median ``post_tokens`` of the COMPACTION events of
-        the replayed lanes (even count: floor of the mean of the middle two), else
-        COMPACTION_SUMMARY_TOKENS_DEFAULT (§9.3.3)."""
+    def _summary_tokens(policy: Policy) -> int:
+        """S_c: the policy's ``post`` (where the caller passes the org median ``post_tokens`` of
+        COMPACTION events), else COMPACTION_SUMMARY_TOKENS_DEFAULT (§9.3.3). The replay never
+        derives it from the lanes it is given: results must not depend on how lanes are sharded
+        (§9.1 #6)."""
         if policy.compaction_window is not None and policy.compaction_window[1] is not None:
             return policy.compaction_window[1]
-        posts = sorted(
-            v for lane in lanes for ev in lane.events if ev.kind is LaneEventKind.COMPACTION
-            for k, v in ev.attrs if k == "post_tokens" and type(v) is int and v > 0)
-        if not posts:
-            return _SUMMARY_DEFAULT
-        mid = len(posts) // 2
-        return posts[mid] if len(posts) % 2 else (posts[mid - 1] + posts[mid]) // 2
+        return _SUMMARY_DEFAULT
 
     @staticmethod
     def _note_policy(policy: Policy, run: _Run) -> None:
@@ -493,12 +488,9 @@ class ReferenceReplay:
         if policy.compaction_window is not None or policy.cold_resume is not None:
             if policy.compaction_window is not None and policy.compaction_window[1] is not None:
                 notes.add(f"compaction summary tokens S_c = {run.summary_tokens} (policy)")
-            elif run.summary_tokens == _SUMMARY_DEFAULT:
+            else:
                 notes.add(f"compaction summary tokens S_c = {_SUMMARY_DEFAULT} "
                           "(COMPACTION_SUMMARY_TOKENS_DEFAULT)")
-            else:
-                notes.add(f"compaction summary tokens S_c = {run.summary_tokens} "
-                          "(median post_tokens of observed compactions)")
             notes.add("context transform: trajectory lever, upper bound (ignores re-work and "
                       "quality), needs eval")
         if policy.batch is not None:
@@ -715,7 +707,7 @@ class ReferenceReplay:
             state = {"sensitive": False}
             alive: Callable[[], bool] = _never if prev is None or gap is None else partial(
                 self._alive, req, prev, model_p, lane, t, gap, plan, run, scen, state)
-            tau_here = self._tau_here(plan, t, source)
+            created = self._created_class(plan, source, t)
             # ---- (2) context transforms ---------------------------------------------------
             if plan.compaction is not None or plan.cold_resume is not None:
                 if prev is not None and (self._context_reset(lane, prev.ts_ms, ts)
@@ -731,7 +723,7 @@ class ReferenceReplay:
                     cache_read = min(prev.prefix, effective) if is_alive else 0  # type: ignore[union-attr]
                     comp_usage = _with_writes(
                         UsageBuckets(cache_read=cache_read, output=summary),
-                        effective - cache_read, _class_for_ttl(plan.ttl_s or tau_here))
+                        effective - cache_read, created)
                     extras.append((self._extra(req, InferenceKind.COMPACTION, 0, comp_usage,
                                                serving.ctx), ts))
                     t_p = summary + new
@@ -782,7 +774,6 @@ class ReferenceReplay:
                                                     // (interval * 1000)))
             sensitive = sensitive or state["sensitive"]
             # ---- (4) tail and (5) pricing -------------------------------------------------
-            created = self._created_class(plan, source, t)
             final, r_p, w_p, u_p, batch_used = self._finish(
                 req, lane, source, serving, s_usage, r_p, w_p, u_p, created, plan, run, scen)
             sensitive = sensitive or batch_used
@@ -792,12 +783,12 @@ class ReferenceReplay:
                       serving.usage_source, serving.output_upper, serving.ts_ms)]
             if source.billable is False:
                 priced_items = []
-            for _inf, item in others:
-                priced_items.append(self._tail_item(item, plan, batch_used))
+            for _inf, item in others:     # passthrough: observed pricing unless a rate transform
+                priced_items.append(self._tail_item(item, plan, batch_used, rerate=False))
             for extra, sent in extras:
                 priced_items.append(self._tail_item(
                     _Item(extra.usage, extra.pricing, True, UsageSource.FINAL, None, sent),
-                    plan, batch_used))
+                    plan, batch_used, rerate=True))
             extras_final = tuple(
                 replace(e, usage=_rerate(e.usage, _class_for_ttl(plan.ttl_s))
                         if plan.ttl_s else e.usage) for e, _sent in extras)
@@ -1017,9 +1008,10 @@ class ReferenceReplay:
 
     @staticmethod
     def _created_class(plan: _LanePlan, source: Inference, t: Transition | None) -> _WClass:
-        """Where the policy places a request's writes when their total changes: the policy TTL,
-        the keepalive 5m TTL, else the request's own observed write class, else the class of the
-        observed τ (5m when unknown)."""
+        """Where the policy places a request's writes when their total changes (and the writes
+        of an inserted compaction call): the policy TTL, the keepalive 5m TTL, else the request's
+        own observed write class (unknown-TTL writes stay unknown: a range, R5), else the class
+        of the observed τ (5m when unknown)."""
         if plan.ttl_s is not None:
             return _class_for_ttl(plan.ttl_s)
         if plan.keepalive is not None:
@@ -1079,17 +1071,20 @@ class ReferenceReplay:
                 and "managed" not in entry.lower())
 
     @staticmethod
-    def _tail_item(item: _Item, plan: _LanePlan, batch_used: bool) -> _Item:
-        """TTL re-rating (and the batch tier) for a passthrough or inserted inference."""
-        usage = _rerate(item.usage, _class_for_ttl(plan.ttl_s)) if plan.ttl_s else item.usage
+    def _tail_item(item: _Item, plan: _LanePlan, batch_used: bool, *, rerate: bool) -> _Item:
+        """The batch tier (a rate transform: every inference of the request) and, for inserted
+        inferences only, TTL re-rating. Passthrough inferences keep their observed pricing unless a
+        rate transform applies (§9.2, §9.3.7 (5))."""
+        usage = _rerate(item.usage, _class_for_ttl(plan.ttl_s)) \
+            if rerate and plan.ttl_s else item.usage
         ctx = replace(item.ctx, service_tier="batch") if batch_used else item.ctx
         return replace(item, usage=usage, ctx=ctx)
 
     def _passthrough_only(self, req: Request, items: list[tuple[Inference, _Item]],
                           plan: _LanePlan, run: _Run) -> _ReqOut:
-        """A request without a serving inference: every inference is passthrough (rate
-        transforms and TTL re-rating still apply)."""
-        final = [self._tail_item(item, plan, False) for _inf, item in items]
+        """A request without a serving inference: every inference is passthrough (only rate
+        transforms apply)."""
+        final = [self._tail_item(item, plan, False, rerate=False) for _inf, item in items]
         unchanged = all(item.usage == inf.usage and item.ctx == inf.pricing
                         for (inf, _), item in zip(items, final, strict=True))
         figure = run.observed[req.request_id] if unchanged else self._price(final, run)

@@ -66,7 +66,7 @@ def test_compaction_skips_models_without_1m_context_and_non_main_lanes() -> None
     assert res.cost.nano == res.baseline.nano and res.added_calls == 0
 
 
-def test_summary_tokens_default_and_org_median() -> None:
+def test_summary_tokens_come_from_the_policy_or_the_default() -> None:
     ln = _sonnet([(0, 0, 300_000, 0, 0, 0), (30, 300_000, 150_000, 0, 0, 0)], key="La")
     res = replay([ln], "compact-window=400000")
     assert res.outcomes[1].extra[0].usage.output == 20_283  # type: ignore[index]
@@ -77,12 +77,13 @@ def test_summary_tokens_default_and_org_median() -> None:
                        events=[LaneEvent(key, EPOCH_MS + 10_000, LaneEventKind.COMPACTION,
                                          (("post_tokens", post),))])
 
+    # observed compactions do not change S_c: the replay never derives it from its own lane set
+    # (shard invariance, §9.1 #6); callers pass the org median as post=
     two = replay([with_post("Lb", 10_000), with_post("Lc", 30_000)], "compact-window=400000")
-    assert {o.extra[0].usage.output for o in two.outcomes or () if o.extra} == {20_000}
-    assert any("median post_tokens" in a for a in two.assumptions)
-    three = replay([with_post("Lb", 10_000), with_post("Lc", 30_000), with_post("Ld", 12_000)],
-                   "compact-window=400000")
-    assert {o.extra[0].usage.output for o in three.outcomes or () if o.extra} == {12_000}
+    assert {o.extra[0].usage.output for o in two.outcomes or () if o.extra} == {20_283}
+    given = replay([with_post("Lb", 10_000)], "compact-window=400000,post=12000")
+    assert {o.extra[0].usage.output for o in given.outcomes or () if o.extra} == {12_000}
+    assert any("S_c = 12000 (policy)" in a for a in given.assumptions)
 
 
 def test_compaction_on_the_first_request_uses_new_equal_to_t0() -> None:
