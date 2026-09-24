@@ -468,7 +468,11 @@ def load_revisions(directory: Path) -> tuple[Revision, ...]:
         raise PricingError("pricing revisions: commits.txt and the .yml files disagree")
     revisions = []
     for (ts, sha), name in sorted(zip(commits, names, strict=True)):
-        text = (directory / name).read_text(encoding="utf-8")
+        try:
+            text = (directory / name).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise SourceError(f"pricing revisions: {name} unreadable ({type(exc).__name__})") \
+                from None
         revisions.append(Revision(committed=ts, sha=sha,
                                   quotes=quotes_from_maps(parse_yaml_list(text))))
     return tuple(revisions)
@@ -903,8 +907,6 @@ def fetch_live(*, opener: Any = None, url: str = YAML_URL) -> tuple[str, str]:
             close = getattr(response, "close", None)
             if callable(close):
                 close()
-    except SourceError:
-        raise
     except (OSError, ValueError, TypeError) as exc:
         raise SourceError(f"pricing verify --live: fetch failed ({type(exc).__name__})") from None
     if not isinstance(body, bytes) or len(body) > MAX_YAML_CHARS * 4:

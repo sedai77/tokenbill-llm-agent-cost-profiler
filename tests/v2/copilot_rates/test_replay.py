@@ -251,6 +251,9 @@ def test_load_revisions_errors(tmp_path: Path) -> None:
     with pytest.raises(PricingError, match="disagree"):
         rv.load_revisions(d)
     (d / "2026-01-01_0000000000.yml").unlink()
+    (d / "2026-09-22_d1153b57c9.yml").write_bytes(b"- model: \xff\n")
+    with pytest.raises(SourceError, match="unreadable"):
+        rv.load_revisions(d)
     (d / "commits.txt").write_text("2026-09-22 d1153b57c9\n", encoding="utf-8")
     with pytest.raises(PricingError, match="line 1"):
         rv.load_revisions(d)
