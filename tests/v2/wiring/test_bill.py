@@ -153,6 +153,20 @@ def test_breakdowns_are_k_anonymous(tmp_path: Path) -> None:
         "copilot", "payments", "seats", "tiny"]
 
 
+def test_self_audience_never_suppresses(tmp_path: Path) -> None:
+    store = MemoryStore(org_key=ORG_KEY)
+    ingest_paths(store, [write_fake(tmp_path / "me.jsonl", [
+        req("M1", 0, team="payments", principal="r_me", **BIG),
+        req("M2", 0, team="search", principal="r_me", **BIG)])], make_env(), IngestOptions())
+    org = bill_summary(store, make_env(), group_by=["team"], **WINDOW).breakdowns[0][1]
+    assert org.rows == () and org.suppressed_rows == 2          # one user: withheld for the org
+    own = bill_summary(store, make_env(), group_by=["team"], audience="self",
+                       **WINDOW).breakdowns[0][1]
+    assert [dict(r.dims)["team"] for r in own.rows] == ["payments", "search"]
+    with pytest.raises(UsageError, match="audience"):
+        bill_summary(store, make_env(), group_by=[], audience="everyone", **WINDOW)
+
+
 def test_group_by_as_one_string_and_duplicates(tmp_path: Path) -> None:
     summary = bill_summary(_fleet(tmp_path), make_env(), group_by="model,team", **WINDOW)
     assert [k for k, _ in summary.breakdowns] == ["model,team"]

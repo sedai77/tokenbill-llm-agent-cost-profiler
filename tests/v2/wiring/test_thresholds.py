@@ -96,13 +96,14 @@ def test_median_is_order_independent(values: list[int], seed: int) -> None:
 
 def test_analysis_thresholds(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    env = make_env(thresholds={"defaults.effort": "high"})
+    env = make_env(thresholds={"defaults.effort": "high"}, min_usd="0.25")
     assert analysis_thresholds(env, store, **WINDOW) == {
-        COMPACTION_POST_TOKENS_KEY: "21000", "defaults.effort": "high"}
-    # a configured value wins; no COMPACTION event → no key
-    pinned = make_env(thresholds={COMPACTION_POST_TOKENS_KEY: "12345"})
-    assert analysis_thresholds(pinned, store, **WINDOW) == {COMPACTION_POST_TOKENS_KEY: "12345"}
-    assert analysis_thresholds(make_env(), MemoryStore(), **WINDOW) == {}
+        COMPACTION_POST_TOKENS_KEY: "21000", "defaults.effort": "high", "min_usd": "0.25"}
+    # a configured value wins; no COMPACTION event → no key; min_usd comes from its own field
+    pinned = make_env(thresholds={COMPACTION_POST_TOKENS_KEY: "12345", "min_usd": "9"})
+    assert analysis_thresholds(pinned, store, **WINDOW) == {COMPACTION_POST_TOKENS_KEY: "12345",
+                                                             "min_usd": "1.00"}
+    assert analysis_thresholds(make_env(), MemoryStore(), **WINDOW) == {"min_usd": "1.00"}
 
 
 def test_with_compaction_post() -> None:

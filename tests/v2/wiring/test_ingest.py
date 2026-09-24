@@ -26,6 +26,7 @@ from tokenbill.pipeline.common import (
 from .support import (
     ALT_FORMAT,
     EXPORT_KEY,
+    FILES_FORMAT,
     H_REPO,
     NAME_KEY,
     ORG_KEY,
@@ -122,6 +123,16 @@ def test_directory_with_two_formats_is_read_per_file(tmp_path: Path) -> None:
     unavailable = [n for n in notes if n.code == registry.DQ_ADAPTER_UNAVAILABLE]
     assert len({n.detail for n in unavailable}) == len(unavailable)
     assert all(n.count == 1 for n in unavailable)
+
+
+def test_directory_of_an_adapter_that_reads_files_only(tmp_path: Path) -> None:
+    d = tmp_path / "otel"
+    write_fake(d / "a.jsonl", [req("L1", 0)], fmt=FILES_FORMAT)
+    write_fake(d / "b.jsonl", [req("L2", 0)], fmt=FILES_FORMAT)
+    store = _store()
+    sources, _ = ingest_paths(store, [d], make_env(), IngestOptions())
+    assert [s.adapter for s in sources] == ["wiring-fake-files", "wiring-fake-files"]
+    assert {r.lane_key for r in store.iter_requests()} == {"L1", "L2"}
 
 
 def test_directory_without_a_known_file(tmp_path: Path) -> None:

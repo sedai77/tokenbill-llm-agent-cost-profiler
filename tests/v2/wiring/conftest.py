@@ -13,6 +13,7 @@ from .support import (
     DeferredAdapter,
     ExportAdapter,
     FakeUsageAdapter,
+    FileOnlyAdapter,
     NotAnAdapterResult,
     PathRecordStore,
     PathStore,
@@ -23,7 +24,8 @@ from .support import (
 def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> Iterator[type[FakeUsageAdapter]]:
     """``wiring-fake`` first in sniff order, ``wiring-fake-alt`` last, plus ``wiring-fake-b``,
     ``wiring-broken``, ``wiring-missing`` (unimportable) and a stand-in ``copilot-export``."""
-    table = {"wiring-fake": FakeUsageAdapter, **registry.BUILTIN_ADAPTERS,
+    table = {"wiring-fake": FakeUsageAdapter, "wiring-fake-files": FileOnlyAdapter,
+             **registry.BUILTIN_ADAPTERS,
              "copilot-export": ExportAdapter, "wiring-fake-b": DeferredAdapter,
              "wiring-broken": NotAnAdapterResult,
              "wiring-missing": "v2.wiring.no_such_module:Missing",

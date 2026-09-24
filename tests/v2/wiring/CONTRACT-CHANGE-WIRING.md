@@ -12,6 +12,7 @@ about sibling packages that the gate tests pin at merge gate 1. No core file was
 | `build_env(…)` | `pricer_factory: Callable[..., Pricer] \| None = None`, called as `factory(rates=…, contract=…, model_prices=…)` | the brief's "injectable factory for tests" (FakePricer); default = the lazy RATES `RateCard` |
 | `open_store(path, env, *, create=True)` | `adopt_key_ids: bool = False` | A-9 / R-E21 (passed to `SqliteStore` only when True; a store without it → `UsageError`) |
 | `ingest_paths(…, adapter="auto")` | `record_stores: Sequence[ExtRecordStore] \| None = None` | A-9: the records must be persisted somewhere; default = `core.extensions.open_record_stores` on the database file of a store opened with `open_store` (only when a result carries records) |
+| `bill_summary(…, group_by)` | `audience: str = "org"` (`"org"` \| `"self"`, passed to `core.kanon.publish`) | R-E10: a self view (`scan`, `bill --self` on a store holding only that principal's data) is never k-suppressed; with the SPEC signature alone a one-developer bill would publish no breakdown row |
 
 New public helpers (no SPEC counterpart): `ingest_options`, `load_team_map`, `load_rate_card`,
 `shard_store`, `analysis_thresholds`, `org_compaction_median`, `compaction_post_tokens`,
@@ -59,6 +60,8 @@ candidate.
 - "unknown keys → UsageError" is applied to the config file and the CLI overrides; unknown
   `TOKENBILL_*` environment variables are ignored.
 - R-E40: `analysis_thresholds(env, store, since_ms=…, until_ms=…)` returns the Config's thresholds
-  plus `context.compaction-window.post_tokens` (the median of every COMPACTION `post_tokens` in the
+  plus `min_usd` (from `Config.min_usd`, the key `core.findings.min_usd_nano` reads; the dedicated
+  field wins over a `min_usd` entry of the thresholds mapping) and
+  `context.compaction-window.post_tokens` (the median of every COMPACTION `post_tokens` in the
   window, even counts rounded half-even; a configured value wins). CLI-SAVINGS / PLAN put it into
   `AnalysisContext.thresholds` and pass `with_compaction_post(policy, median)` to replays (R-E24).

@@ -32,7 +32,8 @@ Decisions where the SPEC is silent (also listed in ``tests/v2/wiring/README.md``
   org key as principal key for identity modes ``install`` / ``central-ingest`` when unset, missing
   key ids, ``k_anonymity = max(opts, env.k)``, the Config's name allowlist (union) and ``now_ms``
   when 0. A directory given with ``adapter="auto"`` is read whole by the one adapter that claims its
-  files, or file by file when several do. The Claude Code naive usage (``IngestResult.naive_usage``)
+  files, or file by file when several do (or when that adapter opens files only). The Claude Code
+  naive usage (``IngestResult.naive_usage``)
   is kept as integer source stats ``naive:<model>:<bucket>`` so :func:`bill_summary` can price it
   later.
 * ``bill_summary`` totals come from the store's priced columns (``aggregate(pricer=None)``); ESR and
@@ -62,7 +63,7 @@ from tokenbill.core.cache_rules import RulesTable
 from tokenbill.core.errors import ContractViolation, PricingError, SourceError, UsageError
 from tokenbill.core.ids import key_id
 from tokenbill.core.jsonl import load_json_exact
-from tokenbill.core.kanon import publish, require_self_or_aggregate
+from tokenbill.core.kanon import AUDIENCES, publish, require_self_or_aggregate
 from tokenbill.core.labels import Basis, Evidence, Figure, add, exact
 from tokenbill.core.money import ratio
 from tokenbill.core.protocols import (
@@ -102,6 +103,7 @@ __all__ = [
     "FOOTNOTE_TRACE_V1",
     "FOOTNOTE_UNPRICED",
     "INGEST_IDENTITY_MODES",
+    "MIN_USD_KEY",
     "NAIVE_STAT_PREFIX",
     "NO_CACHE_EQUIVALENT",
     "RATE_CONTRACT_MODULE",
@@ -150,6 +152,8 @@ NAIVE_STAT_PREFIX = "naive:"
 DQ_RECORDS_NOT_PERSISTED = "dq.records_not_persisted"
 #: Threshold key of the org median compaction summary size (ruling R-E40).
 COMPACTION_POST_TOKENS_KEY = "context.compaction-window.post_tokens"
+#: Threshold key of the findings dollar floor (``core.findings.min_usd_nano``).
+MIN_USD_KEY = "min_usd"
 #: ``LedgerStore.aggregate`` group-by whitelist (SPEC §7.2); breakdown dimensions come from here.
 AGGREGATE_DIMS = ("date", "team", "cost_center", "workspace_id", "workload_class", "lane_kind",
                   "model", "agent_type", "agent_product", "repo", "arm", "wave", "skill",
@@ -508,15 +512,18 @@ class _Ingest:
         self.notes.extend(found, once=True)
         return adapter
 
-    def plan(self, path: Path, adapter: str) -> list[tuple[Path, Adapter]]:
+    def plan(self, path: Path, adapter: str
+             ) -> list[tuple[Path, Adapter, tuple[tuple[Path, Adapter], ...]]]:
+        """Read units ``(path, adapter, fallback)``: *fallback* (per-file units) is used when the
+        adapter cannot read a whole directory."""
         if adapter != "auto":
-            return [(path, self.explicit(adapter))]
+            return [(path, self.explicit(adapter), ())]
         if not path.is_dir():
             chosen = self.sniff(path)
             if chosen is None:
                 raise UsageError(f"{path.name}: no adapter recognizes this file "
                                  "(pass --adapter NAME)")
-            return [(path, chosen)]
+            return [(path, chosen, ())]
         claimed: list[tuple[Path, Adapter]] = []
         for member in sorted(p for p in path.rglob("*") if p.is_file()
                              and not any(part.startswith(".")
@@ -529,12 +536,33 @@ class _Ingest:
             raise UsageError(f"{path.name}: no adapter recognizes a file in this directory "
                              "(pass --adapter NAME)")
         if len(names) == 1:
-            return [(path, claimed[0][1])]
-        return claimed
+            return [(path, claimed[0][1], tuple(claimed))]
+        return [(member, chosen, ()) for member, chosen in claimed]
 
-    def read(self, path: Path, adapter: Adapter) -> None:
+    def run(self, path: Path, adapter: Adapter,
+            fallback: tuple[tuple[Path, Adapter], ...]) -> None:
+        """Read one unit; a directory its adapter cannot open (``OSError`` / ``SourceError``
+        before anything is ingested) is read file by file instead."""
+        if (str(path), adapter.name) in self.done:
+            return
+        if not fallback:
+            self.read(path, adapter)
+            return
+        try:
+            result = adapter.read(path, self.opts)
+        except (OSError, SourceError):
+            logger.debug("adapter %s cannot read a directory; reading its files", adapter.name)
+            for member, chosen in fallback:
+                self.run(member, chosen, ())
+            return
+        self.read(path, adapter, result)
+
+    def read(self, path: Path, adapter: Adapter, result: object = None) -> None:
+        """Ingest one adapter read of *path* (*result* when already read), persist its records,
+        note its data quality, then follow its deferrals."""
         self.done.add((str(path), adapter.name))
-        result = adapter.read(path, self.opts)
+        if result is None:
+            result = adapter.read(path, self.opts)
         if not isinstance(result, IngestResult):
             raise ContractViolation(f"adapter {adapter.name} did not return an IngestResult")
         _naive_stats(result)
@@ -586,9 +614,8 @@ def ingest_paths(store: LedgerStore, paths: Sequence[Path], env: Env, opts: Inge
                   _RecordStores(store, record_stores, notes))
     for raw in paths:
         path = Path(raw).expanduser()
-        for member, chosen in run.plan(path, adapter):
-            if (str(member), chosen.name) not in run.done:
-                run.read(member, chosen)
+        for member, chosen, fallback in run.plan(path, adapter):
+            run.run(member, chosen, fallback)
     return run.sources, notes.result()
 
 
@@ -875,8 +902,12 @@ def _naive_ratio(store: LedgerStore, env: Env) -> str | None:
 
 
 def bill_summary(store: LedgerStore, env: Env, *, since_ms: int, until_ms: int,
-                 group_by: Sequence[str]) -> BillSummary:
+                 group_by: Sequence[str], audience: str = "org") -> BillSummary:
     """The ``BillSummary`` of ``[since_ms, until_ms)`` (SPEC §15, §14.1).
+
+    *audience* goes to ``core.kanon.publish``: ``"org"`` (default, k-anonymous) or ``"self"``
+    (R-E10: a single principal's own data — ``scan``, ``bill --self`` on a store holding only that
+    principal's data — is never suppressed; the caller guarantees the store's scope).
 
     * ``total`` — the store's priced total; ``allowance`` holds only subscription list-equivalent
       lines and ``pool`` the Copilot paths' (never mixed into ``exact``);
@@ -893,12 +924,14 @@ def bill_summary(store: LedgerStore, env: Env, *, since_ms: int, until_ms: int,
     """
     if type(since_ms) is not int or type(until_ms) is not int or since_ms > until_ms:
         raise UsageError("bill window must be int ms with since <= until")
+    if audience not in AUDIENCES:
+        raise UsageError(f"audience must be one of {', '.join(AUDIENCES)}")
     specs = _breakdown_specs(group_by)
     total = _window_total(store, env, since_ms, until_ms)
     breakdowns: list[tuple[str, PublishedAggregate]] = []
     for dims in specs:
         raw = store.aggregate(since_ms=since_ms, until_ms=until_ms, group_by=dims)
-        breakdowns.append((",".join(dims), publish(raw, k=env.k)))
+        breakdowns.append((",".join(dims), publish(raw, k=env.k, audience=audience)))
     scan = _WindowScan(env)
     scan.scan(store, since_ms, until_ms)
     footnotes = []
@@ -954,10 +987,13 @@ def org_compaction_median(store: LedgerStore, *, since_ms: int, until_ms: int) -
 
 def analysis_thresholds(env: Env, store: LedgerStore, *, since_ms: int,
                         until_ms: int) -> dict[str, str]:
-    """``AnalysisContext.thresholds`` for a run: the Config's detector overrides plus
-    :data:`COMPACTION_POST_TOKENS_KEY` = the org median (R-E40) when the store has COMPACTION events
-    and the Config does not set the key itself. Sorted by key."""
+    """``AnalysisContext.thresholds`` for a run: the Config's detector overrides, ``min_usd`` from
+    ``Config.min_usd`` (the dedicated field, e.g. ``findings --min-usd``, wins over a ``min_usd``
+    entry of the thresholds mapping) and :data:`COMPACTION_POST_TOKENS_KEY` = the org median
+    (R-E40) when the store has COMPACTION events and the Config does not set the key itself.
+    Sorted by key."""
     thresholds = dict(env.config.thresholds)
+    thresholds[MIN_USD_KEY] = env.config.min_usd
     if COMPACTION_POST_TOKENS_KEY not in thresholds:
         median = org_compaction_median(store, since_ms=since_ms, until_ms=until_ms)
         if median is not None:

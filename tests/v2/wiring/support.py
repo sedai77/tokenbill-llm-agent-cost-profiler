@@ -54,6 +54,7 @@ DAY_MS = 86_400_000
 T0 = 1_790_121_600_000          # 2026-09-23T00:00:00Z (Opus 5.5 is priced from 2026-09-22)
 FAKE_FORMAT = "tb-wiring-fake"
 ALT_FORMAT = "tb-wiring-alt"
+FILES_FORMAT = "tb-wiring-files"
 H_REPO = "h_0123456789abcdef0123"
 
 
@@ -109,7 +110,7 @@ def read_fake(path: Path, opts: IngestOptions, adapter: str, *,
     for member in _files(path):
         lines = [json.loads(line) for line in member.read_text("utf-8").splitlines()
                  if line.strip()]
-        if not lines or lines[0].get("format") not in (FAKE_FORMAT, ALT_FORMAT):
+        if not lines or lines[0].get("format") not in (FAKE_FORMAT, ALT_FORMAT, FILES_FORMAT):
             continue
         header = {**header, **lines[0]}
         records.extend(lines[1:])
@@ -196,6 +197,18 @@ class AltAdapter(FakeUsageAdapter):
 
     name = "wiring-fake-alt"
     magic = b'{"format": "' + ALT_FORMAT.encode() + b'"'
+
+
+class FileOnlyAdapter(FakeUsageAdapter):
+    """``wiring-fake-files``: its own format; opens files only (a directory raises ``OSError``,
+    like the OTel / OpenAI adapters)."""
+
+    name = "wiring-fake-files"
+    magic = b'{"format": "' + FILES_FORMAT.encode() + b'"'
+
+    def read(self, path: Path, opts: IngestOptions) -> IngestResult:
+        path.read_bytes()   # IsADirectoryError (or PermissionError on Windows) for a directory
+        return super().read(path, opts)
 
 
 class DeferredAdapter(FakeUsageAdapter):
