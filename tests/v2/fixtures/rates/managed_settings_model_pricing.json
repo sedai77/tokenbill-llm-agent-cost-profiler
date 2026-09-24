@@ -1,0 +1,21 @@
+{
+ "modelPricing": {
+  "multiplier": 0.85,
+  "overrides": {
+   "claude-opus-5-5": {
+    "input": 3.4,
+    "output": 17,
+    "cacheRead": 0.17,
+    "cacheWrite": 4.25
+   },
+   "claude-sonnet-5": {
+    "input": 1.6,
+    "output": 8,
+    "cacheRead": 0.16,
+    "cacheWrite": 2,
+    "cacheWrite1h": 3.2
+   }
+  }
+ },
+ "comment": "synthetic managed-settings file (shape: core.facts settings key modelPricing)"
+}

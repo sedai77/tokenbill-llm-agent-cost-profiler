@@ -591,7 +591,7 @@ class RateCard:
         lines, notes = self._lines(usage, ctx, rates, billable=billable, source=source,
                                    output_upper=output_upper)
         band_b = self._band_b(row, ctx, usage.total_input)
-        if band_b is not None:
+        if band_b is not None and lines:
             alt = self._resolve(ctx, ts_ms, usage.total_input, band=band_b)[0]
             assert alt is not None
             alt_lines, _ = self._lines(usage, ctx, alt, billable=billable, source=source,
@@ -629,7 +629,8 @@ class RateCard:
             point = amount(qty, rate)
             lo = hi = None
             if low is not None and high is not None:
-                lo, hi = amount(*low), amount(*high)
+                lo, hi = sorted((amount(*low), amount(*high)))
+                point = min(max(point, lo), hi)
             if billable is False or partial_exact is False:
                 point, lo, hi = 0, None, None
             elif billable is None or (source is UsageSource.PARTIAL_STREAM
@@ -665,9 +666,11 @@ class RateCard:
             q = usage.cache_write_unknown
             low_rate = _effective_rate(rates, "cache_write_5m")
             top = high_rates if high_rates is not None else rates
-            high_rate = _effective_rate(top, "cache_write_1h")
-            hint = _effective_rate(rates, "cache_write_1h") if ctx.write_ttl_hint == "1h" \
-                else low_rate
+            # a row without a 1h write price has no 1h writes: the range collapses to the 5m rate
+            one_hour = rates.cache_write_1h is not None
+            high_rate = _effective_rate(top, "cache_write_1h" if one_hour else "cache_write_5m")
+            hint = _effective_rate(rates, "cache_write_1h") \
+                if ctx.write_ttl_hint == "1h" and one_hour else low_rate
             emit("cache_write_unknown", q, hint, low=(q, low_rate), high=(q, high_rate))
         out_high = high_rates.output if high_rates is not None else rates.output
         if source is UsageSource.MESSAGE_START_ONLY and (usage.output or output_upper):

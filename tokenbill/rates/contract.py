@@ -14,9 +14,11 @@ Formats:
   ``{"multiplier": number, "overrides": {model: {"input", "output", "cacheRead", "cacheWrite"}}}``
   in USD per MTok as JSON numbers (shape verified in ``core.facts`` settings keys). ``cacheWrite``
   covers both TTLs, so on import the 5m rate is ``cacheWrite`` and the 1h rate is derived as
-  ``cacheWrite × 2 / 1.25`` and listed in ``assumed_fields`` — unless the block states
-  ``cacheWrite1h``. Numbers may be ints, decimal strings, ``Decimal`` or JSON floats (read through
-  their shortest ``repr``, so ``0.85`` is exactly ``Decimal("0.85")``); :func:`to_model_pricing`
+  ``cacheWrite × 2 / 1.25`` and listed in ``assumed_fields`` (``"cache_write_1h"`` when every
+  model's 1h rate is derived, else ``"cache_write_1h@<model>"`` per derived model) — unless the
+  block states ``cacheWrite1h``. Numbers may be ints, decimal strings, ``Decimal`` or JSON floats
+  (read through their shortest ``repr``, so ``0.85`` is exactly ``Decimal("0.85")``);
+  :func:`to_model_pricing`
   returns ``Decimal`` / ``int`` numbers so ``to_model_pricing(from_model_pricing(x)) == x`` for a
   block parsed with ``parse_float=Decimal``, and :func:`dumps_model_pricing` writes them as exact
   JSON numbers.
@@ -113,7 +115,7 @@ def make_overlay(*, name: str, multiplier: Decimal | None,
             if bucket not in BUCKETS:
                 raise PricingError(f"contract: unknown override bucket {bucket!r}")
         rows.append((model, tuple(sorted(buckets.items()))))
-    if any(f not in BUCKETS for f in assumed_fields):
+    if any(f.partition("@")[0] not in BUCKETS for f in assumed_fields):
         raise PricingError("contract: assumed_fields must name buckets")
     if any(not isinstance(c, str) or not c for c in channels):
         raise PricingError("contract: channels must be non-empty strings")
@@ -210,11 +212,13 @@ def from_model_pricing(obj: Mapping[str, object], *, name: str,
     if unknown:
         raise PricingError("modelPricing: unknown keys")
     multiplier = obj.get("multiplier")
-    overrides_in = obj.get("overrides") or {}
+    overrides_in = obj.get("overrides")
+    if overrides_in is None:
+        overrides_in = {}
     if not isinstance(overrides_in, Mapping):
         raise PricingError("modelPricing.overrides must be an object")
     overrides: dict[str, dict[str, Decimal]] = {}
-    assumed: set[str] = set()
+    derived: list[str] = []
     for model, rates in overrides_in.items():
         if not isinstance(rates, Mapping) or set(rates) - set(_MP_KEYS):
             raise PricingError("modelPricing.overrides entries use input, output, cacheRead, "
@@ -223,12 +227,15 @@ def from_model_pricing(obj: Mapping[str, object], *, name: str,
         if "cache_write_5m" in buckets and "cache_write_1h" not in buckets:
             buckets["cache_write_1h"] = EXACT_CTX.multiply(buckets["cache_write_5m"],
                                                            _ONE_HOUR_FROM_WRITE)
-            assumed.add("cache_write_1h")
+            derived.append(str(model))
         overrides[str(model)] = buckets
+    stated = [m for m, b in overrides.items() if "cache_write_1h" in b and m not in derived]
+    assumed = ["cache_write_1h"] if derived and not stated else [
+        f"cache_write_1h@{m}" for m in derived]
     return make_overlay(name=name, multiplier=None if multiplier is None else _num(multiplier,
                                                                                     "multiplier"),
                         overrides=overrides, effective_from=effective_from,
-                        assumed_fields=sorted(assumed), channels=channels)
+                        assumed_fields=assumed, channels=channels)
 
 
 def _number(d: Decimal) -> Decimal | int:
@@ -249,9 +256,11 @@ def to_model_pricing(overlay: ContractOverlay) -> dict[str, object]:
     overrides: dict[str, dict[str, Decimal | int]] = {}
     for model, buckets in overlay.overrides:
         entry: dict[str, Decimal | int] = {}
+        assumed_1h = ("cache_write_1h" in overlay.assumed_fields
+                      or f"cache_write_1h@{model}" in overlay.assumed_fields)
         for bucket, value in buckets:
             key = reverse.get(bucket)
-            if key is None or (key == "cacheWrite1h" and bucket in overlay.assumed_fields):
+            if key is None or (key == "cacheWrite1h" and assumed_1h):
                 continue
             entry[key] = _number(value)
         overrides[model] = entry
