@@ -46,7 +46,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from tokenbill.core.errors import SourceError, UsageError
+from tokenbill.core.errors import ContractViolation, SourceError, UsageError
 from tokenbill.core.ids import pseudonym, stable_id
 from tokenbill.core.jsonl import iter_lines, open_text
 from tokenbill.core.kanon import merge_small_groups
@@ -152,8 +152,10 @@ _NO_GEO = frozenset({"not_available"})
 # ---------------------------------------------------------------------------------------------
 
 
-class BadRecord(Exception):
-    """A malformed record. ``reason`` is a content-free quarantine code (SPEC §5.1)."""
+class BadRecord(SourceError):
+    """A malformed record. ``reason`` is a content-free quarantine code (SPEC §5.1). Adapters
+    quarantine it; it subclasses :class:`SourceError` so that, should one ever escape, callers
+    still see a content-free ``TokenbillError``."""
 
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
@@ -983,14 +985,14 @@ class TeamRollup:
         outcome counts and aggregate cells (``cell key → (UsageBuckets, cost, n_cost, listed,
         n_list)`` with scaled money)."""
         team_cells = self._days.setdefault(date_utc, {}).setdefault(team, [set(), None, {}])
-        team_cells[0].add(actor)
+        merged = {key: value if (prev := team_cells[2].get(key)) is None
+                  else _add_cell(prev, value) for key, value in (cells or {}).items()}
+        team_cells[0].add(actor)            # only after every cell added cleanly
+        team_cells[2].update(merged)
         if outcome is not None:
-            prev = team_cells[1]
-            team_cells[1] = outcome if prev is None else tuple(
-                a + b for a, b in zip(prev, outcome, strict=True))
-        for key, value in (cells or {}).items():
-            prev_cell = team_cells[2].get(key)
-            team_cells[2][key] = value if prev_cell is None else _add_cell(prev_cell, value)
+            prev_out = team_cells[1]
+            team_cells[1] = outcome if prev_out is None else tuple(
+                a + b for a, b in zip(prev_out, outcome, strict=True))
 
     def flush(self, *, emit: Callable[[str, str, int, tuple[int, ...] | None,
                                         Mapping[str, tuple[Any, ...]]], None]) -> None:
@@ -1005,12 +1007,12 @@ class TeamRollup:
                 rows.append((team, len(users), (outcome is not None, outcome or (), cells)))
             merged, dropped = merge_small_groups(_payload_rows(rows), k=k, other_label=OTHER_TEAM)
             if dropped:
+                # The note carries the group count only: a token magnitude of the dropped groups
+                # would disclose exactly what the suppression hides (as few as one person).
                 small = [r for r in rows if r[1] < k or r[0] == OTHER_TEAM]
-                dropped_tokens = sum(
-                    _cells_tokens(r[2][2]) for r in small)
                 self.ctx.note("dq.outcomes_suppressed", "info",
                               f"team groups below k={k} dropped at ingest (merged group still "
-                              f"below k)", dropped, dropped_tokens)
+                              f"below k)", dropped)
                 self.ctx.stat("groups_dropped", dropped)
                 self.ctx.stat("users_dropped", sum(r[1] for r in small))
             for team, n_users, payload in merged:
@@ -1022,7 +1024,11 @@ class TeamRollup:
 
 
 def _add_cell(a: tuple[Any, ...], b: tuple[Any, ...]) -> tuple[Any, ...]:
-    return (a[0] + b[0], *(x + y for x, y in zip(a[1:], b[1:], strict=True)))
+    try:
+        usage = a[0] + b[0]
+    except ContractViolation:  # token sums beyond 2**53
+        raise BadRecord("bad_usage") from None
+    return (usage, *(x + y for x, y in zip(a[1:], b[1:], strict=True)))
 
 
 def _payload_rows(rows: list[tuple[str, int, tuple[bool, tuple[int, ...], dict[str, Any]]]]
@@ -1040,14 +1046,6 @@ def _payload_rows(rows: list[tuple[str, int, tuple[bool, tuple[int, ...], dict[s
 def _unpayload(payload: tuple[Any, ...]) -> tuple[bool, tuple[int, ...], dict[str, Any]]:
     has, outcome, cells = payload
     return bool(has), tuple(outcome), dict(cells)
-
-
-def _cells_tokens(cells: Mapping[str, tuple[Any, ...]]) -> int:
-    total = 0
-    for value in cells.values():
-        u = value[0]
-        total += u.total_input + u.output
-    return total
 
 
 def cell_key(dims: Mapping[str, str | None]) -> str:

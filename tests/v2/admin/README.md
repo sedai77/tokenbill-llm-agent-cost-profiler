@@ -31,7 +31,8 @@ tests/v2/admin/test_fuzz.py` (60 examples per property by default; 2,500 ran cle
   actors (e-mail, API key name, user id) are used only for the `opts.team_map` lookup (exact, then
   case-folded) and the distinct-user count, then discarded. Teams per `(date, team)` go through
   `core.kanon.merge_small_groups` with `opts.k_anonymity`: small groups merge into `(other)`, or are
-  dropped with `dq.outcomes_suppressed` (count = groups, tokens = dropped tokens). Unmapped actors
+  dropped with `dq.outcomes_suppressed` (count = groups; no token magnitude, which would
+  disclose what the suppression hides; `stats["users_dropped"]` counts the people). Unmapped actors
   count as team `(unmapped)`.
 - **Money.** JSON numbers are parsed as exact `Decimal` (never float); every amount is accumulated as
   an exact integer of 10⁻²¹⁰ USD, rows sharing a cost line's identifying fields are summed, and each

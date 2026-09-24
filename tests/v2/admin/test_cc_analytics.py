@@ -106,7 +106,7 @@ def test_fixture_day2_small_teams_dropped() -> None:
     assert {o.team for o in result.outcomes} == {"platform"}  # mobile 3 + tiny 1 < 5: dropped
     (note,) = [n for n in result.notes if n.code == "dq.outcomes_suppressed"]
     assert note.count == expect["dropped_groups"] == 2
-    assert note.tokens and note.tokens > 0
+    assert note.tokens is None          # a magnitude would disclose the suppressed groups
     assert result.stats["users_dropped"] == 4
     assert tokens(result) == expect["usage_tokens"]
     assert {dims(a)["team"] for a in result.aggregates} == {"platform"}
@@ -238,3 +238,17 @@ def test_published_groups_never_below_k(tmp_path: Path, k: int) -> None:
     assert all(o.n_users >= k for o in result.outcomes)
     total = sum(o.n_users for o in result.outcomes) + result.stats.get("users_dropped", 0)
     assert total == 17
+
+
+def test_token_overflow_is_quarantined_without_counting_the_user(tmp_path: Path) -> None:
+    big = 2**53 - 10
+    recs = [_record(f"u{i}@x.io") for i in range(5)]
+    recs += [_record("u0@x.io", tokens_in=big), _record("u0@x.io", tokens_in=big),
+             _record("u9@x.io", tokens_in=big)]
+    result = read("anthropic-cc-analytics", write_json(tmp_path / "cc.json", _page(recs)),
+                  team_map=(), k_anonymity=5)
+    # each big record would push the team's (channel, model) cell past 2**53
+    assert [q.reason for q in result.quarantined] == ["bad_usage"] * 3
+    (out,) = result.outcomes
+    assert out.n_users == 5                               # u9's only record was rejected
+    assert out.commits == 5
