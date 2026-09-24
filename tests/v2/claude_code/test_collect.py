@@ -73,6 +73,7 @@ def _reappear_transcript() -> tuple[bytes, int]:
            blocks=[{"type": "tool_use", "id": "toolu_r3", "name": "Bash", "input": {}}])
     t.tool_result("toolu_r3", "ok")
     t.call("msg_r4", OPUS, inp=3, read=4_300, outputs=(3, 90), stop="end_turn")
+    t.human("thanks")
     return t.text().encode(), cut
 
 
@@ -86,10 +87,20 @@ def test_half_then_rest_equals_one_shot_including_a_reappearing_id(tmp_path: Pat
     _write(path, data, NOW + 1_000)
     second = _collect(tmp_path, state, NOW + 1_000)
     assert by_message(second[0])["msg_r1"].attempts[0].inferences[0].usage.output == 470
-    assert "msg_r4" not in by_message(second[0])      # trailing: withheld until closed/quiescent
-    third = _collect(tmp_path, state, NOW + 1_000 + QUIESCENT_MS)
-    assert set(by_message(third[0])) == {"msg_r4"}
-    assert store_dump(_store(first + second + third)) == store_dump(_one_shot(path))
+    assert store_dump(_store(first + second)) == store_dump(_one_shot(path))
+
+
+def test_trailing_group_waits_for_the_next_entry_or_quiescence(tmp_path: Path) -> None:
+    data, _cut = _reappear_transcript()
+    data = data[: data.rstrip(b"\n").rfind(b"\n") + 1]           # drop the final prompt line
+    path = _file(tmp_path)
+    state = CollectorState()
+    _write(path, data, NOW)
+    [first] = _collect(tmp_path, state, NOW)
+    assert "msg_r4" not in by_message(first)                     # closed by stop, but trailing
+    [second] = _collect(tmp_path, state, NOW + QUIESCENT_MS)
+    assert set(by_message(second)) == {"msg_r4"} and second.quarantined == []
+    assert store_dump(_store([first, second])) == store_dump(_one_shot(path))
 
 
 @settings(max_examples=40, deadline=None,
