@@ -406,10 +406,16 @@ class MiscountingStore(kit.MemoryStore):
         return super().count_users(since_ms=since_ms, until_ms=until_ms, where=where) + 1
 
 
+class WindowlessRepricer(kit.MemoryStore):
+    def reprice(self, pricer, *, since_ms=None, until_ms=None):
+        return super().reprice(pricer)  # ignores its window
+
+
 @pytest.mark.parametrize("cls, message", [
     (PrincipalStore, "PrivacyError"),
     (ForgetfulStore, "OTel-only attribution"),
     (MiscountingStore, "count_users"),
+    (WindowlessRepricer, "exactly the requests of its window"),
 ])
 def test_store_conformance_catches(cls, message) -> None:
     with pytest.raises(AssertionError, match=message):

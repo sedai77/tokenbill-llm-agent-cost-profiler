@@ -589,18 +589,23 @@ def fake_price_total(pricer: Pricer, items: Iterable[tuple[Inference, int]]) -> 
     unpriced inferences counted with their tokens; coverage = priced billable tokens / all billable
     tokens. Inferences with ``billable False`` are not billable and are skipped."""
     billed_basis = pricer.basis if pricer.basis in (Basis.LIST, Basis.CONTRACT) else Basis.LIST
+    return _price_total(((inf, pricer.price_inference(inf, ts_ms=ts_ms))
+                         for inf, ts_ms in items if inf.billable is not False), billed_basis)
+
+
+def _price_total(priced_items: Iterable[tuple[Inference, PricedInference]],
+                 billed_basis: Basis) -> PricedTotal:
+    """:func:`fake_price_total` over already priced ``(inference, priced)`` pairs of billable
+    inferences; the exact and estimated totals carry *billed_basis*."""
     exact_nano = est_point = est_low = est_high = 0
     has_est = False
     allow_point = allow_low = allow_high = 0
     allow_n = 0
     allow_exact = True
     priced = unpriced_n = unpriced_tokens = all_tokens = 0
-    for inf, ts_ms in items:
-        if inf.billable is False:
-            continue
+    for inf, p in priced_items:
         tokens = inf.usage.total_input + inf.usage.output
         all_tokens += tokens
-        p = pricer.price_inference(inf, ts_ms=ts_ms)
         if p.figure.nano is None:
             unpriced_n += 1
             unpriced_tokens += tokens
@@ -691,6 +696,7 @@ class _Contribution:
     fidelity: Fidelity
     priority: int
     canon: str
+    key: tuple[str, str]          # (adapter, sha256(canon)): identity of the contribution
 
 
 @dataclasses.dataclass(frozen=True)
@@ -701,6 +707,8 @@ class _Merged:
     adapter: str
     sources_mask: int
     lane_kind: LaneKind
+    pricer: int | None                    # index into MemoryStore._pricers (None: unpriced)
+    members: tuple[tuple[str, str], ...]  # keys of every contribution merged into the request
 
 
 @dataclasses.dataclass
@@ -835,8 +843,10 @@ class MemoryStore:
       null; parameters fill if null. The surviving request id is the smallest id among contributions
       carrying a message id (else the smallest id). The merged ledger is recomputed from the *set*
       of contributions, so ingest is idempotent and order-independent.
-    * **Pricing**: every billable inference is priced with the most recent pricer given
-      (constructor, ``ingest(pricer=…)`` or ``reprice``); without one every inference is unpriced.
+    * **Pricing** (§7.2): each ingest prices its requests with the pricer it is given (else the
+      constructor's); a merged request is priced with the pricer of the ingest that brought its
+      winning usage set; ``reprice(pricer, since_ms=…, until_ms=…)`` re-prices exactly the requests
+      in its window. Without any pricer an inference is unpriced (``"no pricer"``).
     * ``where`` filters accept the empty string to match a missing (NULL) value. ``cluster_days``
       windows are half-open ``[since, until)`` dates. ``cost_rows`` fills dimensions that are not
       grouped with ``""`` (string fields) or None.
@@ -845,8 +855,12 @@ class MemoryStore:
     def __init__(self, *, org_key: bytes | None = None, name_key_id: str | None = None,
                  pricer: Pricer | None = None, now_ms: int = 0) -> None:
         self._org_key = org_key
-        self._pricer = pricer
         self._now_ms = now_ms
+        # pricers in use; strong references keep id() stable for the index
+        self._pricers: list[Pricer] = []
+        self._pricer_ids: dict[int, int] = {}
+        self._default: int | None = self._pidx(pricer) if pricer is not None else None
+        self._contrib_pricer: dict[tuple[str, str], int | None] = {}
         self._meta: dict[str, str] = {
             "schema_version": "memory@1",
             "org_key_id": key_id(org_key) if org_key else "",
@@ -868,8 +882,16 @@ class MemoryStore:
         self._audit: list[tuple[int, str, str, str]] = []
         self._name_mismatch = 0
         self._state: _State | None = None
-        # keyed by the (hashable, frozen) inference itself: two inferences may share an id
-        self._price_cache: dict[tuple[Inference, int], PricedInference] = {}
+        # keyed by (pricer index, the hashable frozen inference itself, ts): two inferences may
+        # share an id
+        self._price_cache: dict[tuple[int, Inference, int], PricedInference] = {}
+
+    def _pidx(self, pricer: Pricer) -> int:
+        idx = self._pricer_ids.get(id(pricer))
+        if idx is None:
+            idx = self._pricer_ids[id(pricer)] = len(self._pricers)
+            self._pricers.append(pricer)
+        return idx
 
     # ---------- ingest ----------
 
@@ -901,6 +923,10 @@ class MemoryStore:
                 if _is_hash(getattr(attr, name)):
                     changes[name] = None
                     counts["names_nulled"] += 1
+            hashed_extra = [k for k, v in attr.extra if _is_hash(v)]
+            if hashed_extra:
+                changes["extra"] = tuple((k, v) for k, v in attr.extra if not _is_hash(v))
+                counts["names_nulled"] += len(hashed_extra)
         appended = req.appended
         if not names_ok and any(_is_hash(a.name) for a in appended):
             counts["names_nulled"] += sum(1 for a in appended if _is_hash(a.name))
@@ -919,8 +945,6 @@ class MemoryStore:
         codes are in :meth:`dq_counts`."""
         if not isinstance(result, IngestResult):
             raise UsageError("ingest expects an IngestResult")
-        if pricer is not None:
-            self._set_pricer(pricer)
         src = result.source
         counts = {k: 0 for k in ("requests", "events", "sessions", "aggregates", "cost_lines",
                                  "outcomes", "skipped", "principals_pseudonymized",
@@ -946,9 +970,9 @@ class MemoryStore:
         cost_lines = []
         for line in result.cost_lines:
             changes: dict[str, Any] = {}
-            if line.principal is not None and not principals_ok:
-                changes["principal"] = None
-                counts["principals_nulled"] += 1
+            principal = self._pseudonymize(line.principal, principals_ok, counts)
+            if principal != line.principal:
+                changes["principal"] = principal
             if _is_hash(line.workspace_id) and not names_ok:
                 changes["workspace_id"] = None
                 counts["names_nulled"] += 1
@@ -963,18 +987,21 @@ class MemoryStore:
         # --- commit (nothing above has mutated the store) ---
         if not self._meta["name_key_id"] and src.name_key_id:
             self._meta["name_key_id"] = src.name_key_id
+        ingest_pricer = self._pidx(pricer) if pricer is not None else self._default
         self._ingested.add(mark)
         self._sources[src.source_id] = src
         for req in cleaned:
             ref = req.source
-            contribution = _Contribution(
-                request=req, source_id=src.source_id,
-                adapter=ref.adapter if ref is not None else src.adapter,
+            adapter = ref.adapter if ref is not None else src.adapter
+            canon = _canonical(to_json(req))
+            key = (adapter, hashlib.sha256(canon.encode()).hexdigest())
+            if key in self._contribs:
+                continue  # an identical contribution is already stored (and priced)
+            self._contribs[key] = _Contribution(
+                request=req, source_id=src.source_id, adapter=adapter,
                 fidelity=ref.fidelity if ref is not None else Fidelity.FULL,
-                priority=ref.priority if ref is not None else 10,
-                canon=_canonical(to_json(req)))
-            key = (contribution.adapter, hashlib.sha256(contribution.canon.encode()).hexdigest())
-            self._contribs.setdefault(key, contribution)
+                priority=ref.priority if ref is not None else 10, canon=canon, key=key)
+            self._contrib_pricer[key] = ingest_pricer
         for shell in shells:
             self._shells.setdefault(shell.lane_key, {})[_canonical(to_json(shell))] = shell
         for ev in events:
@@ -1057,29 +1084,31 @@ class MemoryStore:
             requests[rid] = _Merged(request=merged, fidelity=winner.fidelity,
                                     priority=winner.priority, adapter=winner.adapter,
                                     sources_mask=mask,
-                                    lane_kind=shell.kind if shell is not None else LaneKind.UNKNOWN)
+                                    lane_kind=shell.kind if shell is not None else LaneKind.UNKNOWN,
+                                    pricer=self._contrib_pricer.get(winner.key, self._default),
+                                    members=tuple(sorted(c.key for c in group)))
         self._state = _State(requests=requests, shells=shells,
                              collisions=len(collisions), mismatches=mismatches)
         return self._state
 
-    def _set_pricer(self, pricer: Pricer) -> None:
-        if pricer is not self._pricer:
-            self._pricer = pricer
-            self._price_cache.clear()
-
-    def _price(self, inf: Inference, ts_ms: int, pricer: Pricer | None = None) -> PricedInference:
-        p = pricer if pricer is not None else self._pricer
-        if p is None:
+    def _price(self, inf: Inference, ts_ms: int, pricer: int | None) -> PricedInference:
+        """*inf* priced with the store's pricer number *pricer* (None: unpriced)."""
+        if pricer is None:
             return PricedInference(inference_id=inf.inference_id, lines=(),
                                    figure=unpriced("no pricer"), exact_nano=0, estimated=None,
                                    unpriced_reason="no pricer")
-        key = (inf, ts_ms)
-        cached = self._price_cache.get(key) if pricer is None else None
+        key = (pricer, inf, ts_ms)
+        cached = self._price_cache.get(key)
         if cached is None:
-            cached = p.price_inference(inf, ts_ms=ts_ms)
-            if pricer is None:
-                self._price_cache[key] = cached
+            cached = self._price_cache[key] = self._pricers[pricer].price_inference(
+                inf, ts_ms=ts_ms)
         return cached
+
+    def _billed_basis(self, used: Iterable[int | None]) -> Basis:
+        """The basis of billed totals over requests priced by the pricers *used*: CONTRACT when
+        every one of them is a contract card, else LIST."""
+        bases = {self._pricers[i].basis for i in used if i is not None}
+        return Basis.CONTRACT if bases == {Basis.CONTRACT} else Basis.LIST
 
     # ---------- dimensions and filters ----------
 
@@ -1155,9 +1184,16 @@ class MemoryStore:
 
     def reprice(self, pricer: Pricer, *, since_ms: int | None = None,
                 until_ms: int | None = None) -> int:
-        """Use *pricer* from now on; returns the number of billable inferences in the window."""
-        self._set_pricer(pricer)
-        return sum(1 for m in self._in_window(since_ms, until_ms) for _ in self._billable(m))
+        """Re-price the requests starting in ``[since_ms, until_ms)`` (default: all) with *pricer*
+        (later ingests keep using their own pricer); returns the number of billable inferences
+        re-priced."""
+        idx = self._pidx(pricer)
+        rows = self._in_window(since_ms, until_ms)
+        for m in rows:
+            for key in m.members:
+                self._contrib_pricer[key] = idx
+        self._state = None
+        return sum(1 for m in rows for _ in self._billable(m))
 
     _LANE_KEYS = frozenset({"team", "lane_kind", "billing_class"})
 
@@ -1237,14 +1273,16 @@ class MemoryStore:
     def lane_index(self, *, since_ms: int, until_ms: int) -> Iterator[LaneIndexRow]:
         """One row per lane with requests in the window: team, kind, billing class, request count
         and the point priced nano of its billable inferences (unpriced counts 0)."""
+        state = self._merged()
         for lane in self.iter_lanes(since_ms=since_ms, until_ms=until_ms):
             point = 0
             for req in lane.requests:
+                pricer = state.requests[req.request_id].pricer
                 for att in req.attempts:
                     for inf in att.inferences:
                         if inf.billable is False:
                             continue
-                        nano = self._price(inf, att.ts_start_ms).figure.nano
+                        nano = self._price(inf, att.ts_start_ms, pricer).figure.nano
                         point += nano or 0
             yield LaneIndexRow(lane_key=lane.lane_key, team=lane.team, lane_kind=lane.kind.value,
                                billing_class=lane.billing_class, requests=len(lane.requests),
@@ -1281,7 +1319,11 @@ class MemoryStore:
 
     @staticmethod
     def _choose(cands: Mapping[str, Any]) -> Any:
-        return cands[max(cands)]
+        """One stored version per provider id: a ``final`` version over a provisional one, then the
+        most recently fetched, then the canonically largest (deterministic, order-independent)."""
+        best = max(cands, key=lambda canon: (getattr(cands[canon], "finality", "") == "final",
+                                             getattr(cands[canon], "fetched_ms", 0), canon))
+        return cands[best]
 
     def aggregates(self, source_kind: str | None = None, **window: int) -> list[UsageAggregate]:
         """Stored aggregates (one per ``agg_id``) whose bucket starts in the window."""
@@ -1323,7 +1365,6 @@ class MemoryStore:
         if unknown:
             raise UsageError(f"unknown group-by dimension(s): {', '.join(unknown)}")
         clause = self._check_where(where)
-        use = pricer if pricer is not None else self._pricer
         groups: dict[tuple, dict[str, Any]] = {}
         for m in self._in_window(since_ms, until_ms):
             req_dims = self._request_dims(m)
@@ -1333,23 +1374,25 @@ class MemoryStore:
                     continue
                 key = tuple((d, dims.get(d)) for d in dims_by)
                 g = groups.setdefault(key, {"users": set(), "requests": set(), "items": [],
-                                            "usage": UsageBuckets()})
+                                            "usage": UsageBuckets(), "pricers": set()})
                 if m.request.attribution.principal is not None:
                     g["users"].add(m.request.attribution.principal)
                 g["requests"].add(m.request.request_id)
-                g["items"].append((inf, att.ts_start_ms))
+                if pricer is not None:
+                    p = pricer.price_inference(inf, ts_ms=att.ts_start_ms)
+                else:
+                    p = self._price(inf, att.ts_start_ms, m.pricer)
+                    g["pricers"].add(m.pricer)
+                g["items"].append((inf, p))
                 g["usage"] = _add_usage(g["usage"], inf.usage)
         rows = []
         for key in sorted(groups, key=lambda k: tuple((v is None, v or "") for _, v in k)):
             g = groups[key]
-            if use is None:
-                priced = PricedTotal(exact=zero(Basis.LIST), estimated=None, allowance=None,
-                                     priced_inferences=0, unpriced_inferences=len(g["items"]),
-                                     unpriced_tokens=sum(i.usage.total_input + i.usage.output
-                                                         for i, _ in g["items"]),
-                                     coverage="0")
+            if pricer is not None:
+                basis = pricer.basis if pricer.basis in (Basis.LIST, Basis.CONTRACT) else Basis.LIST
             else:
-                priced = fake_price_total(use, g["items"])
+                basis = self._billed_basis(g["pricers"])
+            priced = _price_total(g["items"], basis)
             rows.append(AggRow(dims=key, n_users=len(g["users"]), n_requests=len(g["requests"]),
                                usage=g["usage"], priced=priced))
         return RawAggregate(group_by=dims_by, rows=tuple(rows), window=(since_ms, until_ms))
@@ -1378,7 +1421,7 @@ class MemoryStore:
                 cell["users"].add(a.principal)
             cell["requests"] += 1
             for att, inf in billable:
-                p = self._price(inf, att.ts_start_ms)
+                p = self._price(inf, att.ts_start_ms, m.pricer)
                 if p.figure.nano is None:
                     continue
                 if p.figure.basis is Basis.LIST_EQUIVALENT:
@@ -1407,7 +1450,7 @@ class MemoryStore:
         for m in self._in_window(since_ms, until_ms):
             req_dims = self._request_dims(m)
             for att, inf in self._billable(m):
-                p = self._price(inf, att.ts_start_ms)
+                p = self._price(inf, att.ts_start_ms, m.pricer)
                 if p.figure.nano is None:
                     continue
                 dims = self._inference_dims(req_dims, inf, att.ts_start_ms)
@@ -1490,23 +1533,20 @@ class MemoryStore:
             raise UsageError("purge needs principal or before_ms")
         state = self._merged()
         doomed: set[str] = set()
+        members: set[tuple[str, str]] = set()
         for rid, m in state.requests.items():
             r = m.request
             if (principal is not None and r.attribution.principal == principal) or (
                     before_ms is not None and r.ts_start_ms < before_ms):
                 doomed.add(rid)
-        ids: set[str] = set()
-        msgs: set[str] = set()
-        for rid in doomed:
-            r = state.requests[rid].request
-            ids.add(r.request_id)
-            msgs |= _message_ids(r)
+                members.update(m.members)  # every source merged into it, however it joined
         for key, c in list(self._contribs.items()):
             r = c.request
-            if (r.request_id in ids or _message_ids(r) & msgs
+            if (key in members
                     or (principal is not None and r.attribution.principal == principal)
                     or (before_ms is not None and r.ts_start_ms < before_ms)):
                 del self._contribs[key]
+                self._contrib_pricer.pop(key, None)
         if before_ms is not None:
             self._events = {k: e for k, e in self._events.items() if e.ts_ms >= before_ms}
             self._aggregates = {k: v for k, v in self._aggregates.items()
@@ -2385,10 +2425,10 @@ def assert_store_conforms(factory: Callable[..., LedgerStore], *, permutations: 
             raise AssertionError(f"aggregate(group_by={bad}) must raise PrivacyError")
     try:
         store.cost_rows(group_by=["principal"], **w)
-    except PrivacyError:
+    except (PrivacyError, UsageError):  # §3.6 "principal never allowed" (error type open)
         pass
     else:
-        raise AssertionError("cost_rows(group_by=['principal']) must raise PrivacyError")
+        raise AssertionError("cost_rows(group_by=['principal']) must be refused")
     # --- lanes, index, first reads, users ---
     lanes = list(store.iter_lanes(**w))
     index = {row.lane_key: row for row in store.lane_index(**w)}
@@ -2478,6 +2518,29 @@ def assert_store_conforms(factory: Callable[..., LedgerStore], *, permutations: 
     _check(isinstance(meta, dict) and all(isinstance(v, str) for v in meta.values())
            and meta.get("org_key_id") == key_id(STORE_ORG_KEY), "meta() names the org key id")
     _check(isinstance(store.reprice(pricer), int), "reprice returns a count")
+    # reprice(pricer, since_ms, until_ms) re-prices exactly the requests of its window (§7.2)
+    half = FakePricer().with_contract(ContractOverlay(
+        name="conformance-half", multiplier=Decimal("0.5"), overrides=(),
+        effective_from="2026-01-01", effective_to=None, derived=False, assumed_fields=()))
+    cut = _T0 + 450_000
+    _check(isinstance(store.reprice(half, since_ms=cut, until_ms=_FOREVER_MS), int),
+           "reprice(since_ms, until_ms) returns a count")
+    expected_billed = 0
+    for rec in store.iter_usage_records(**w):
+        inf = Inference(inference_id=rec.inference_id, kind=rec.kind, usage=rec.usage,
+                        pricing=rec.pricing, usage_source=rec.usage_source,
+                        billable=rec.billable, billing_rule_id=rec.billing_rule_id)
+        p = (half if rec.ts_ms >= cut else pricer).price_inference(inf, ts_ms=rec.ts_ms)
+        if p.figure.basis is not Basis.LIST_EQUIVALENT:
+            expected_billed += p.exact_nano
+    repriced = store.cost_rows(group_by=_ALL_COST_DIMS, **w)
+    _check(sum(r.priced_nano for r in repriced if r.basis is not Basis.LIST_EQUIVALENT)
+           == expected_billed and any(r.basis is Basis.CONTRACT for r in repriced),
+           "reprice(since_ms, until_ms) must re-price exactly the requests of its window")
+    store.reprice(pricer)
+    _check(sum(r.priced_nano for r in store.cost_rows(group_by=_ALL_COST_DIMS, **w)
+               if r.basis is not Basis.LIST_EQUIVALENT) == exact_billed,
+           "reprice with the original pricer restores the ledger")
     before = store.count_users(where={}, **w)
     removed = store.purge(principal=alice, actor="conformance")
     _check(removed > 0 and store.count_users(where={}, **w) == before - 1,

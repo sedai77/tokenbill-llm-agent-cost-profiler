@@ -422,3 +422,97 @@ def test_events_are_deduplicated_and_shell_requests_count() -> None:
     (only,) = list(s.iter_lanes(**W))
     assert only.kind is LaneKind.SUBAGENT and len(only.events) == 1
     assert only.requests[0].serving_inference.usage == UsageBuckets(output=3)
+
+
+# ---------- pricing per ingest and windowed reprice (SPEC §7.2) ----------
+
+
+def _half() -> kit.FakePricer:
+    return kit.FakePricer().with_contract(
+        ContractOverlay(name="half", multiplier=Decimal("0.5"), overrides=(),
+                        effective_from="2026-01-01", effective_to=None, derived=False,
+                        assumed_fields=()))
+
+
+def _exact_by_lane(s: kit.MemoryStore) -> dict[str, int]:
+    return {row.lane_key: row.point_nano for row in s.lane_index(**W)}
+
+
+def test_each_ingest_prices_with_its_own_pricer() -> None:
+    s = store()  # constructor pricer: FakePricer (list)
+    s.ingest(result(src("s1"), [req("L1", 0, T0, {"output": 1000}, msg="m1")]))
+    s.ingest(result(src("s2"), [req("L2", 0, T0, {"output": 1000}, msg="m2")]), pricer=_half())
+    s.ingest(result(src("s3"), [req("L3", 0, T0, {"output": 1000}, msg="m3")]))
+    assert _exact_by_lane(s) == {"L1": 20_000_000, "L2": 10_000_000, "L3": 20_000_000}
+    rows = s.cost_rows(group_by=["model"], **W)
+    assert {r.basis: r.priced_nano for r in rows} == {Basis.LIST: 40_000_000,
+                                                      Basis.CONTRACT: 10_000_000}
+    total = s.aggregate(group_by=[], **W).rows[0].priced
+    assert total.exact.nano == 50_000_000 and total.exact.basis is Basis.LIST
+    contract_only = s.aggregate(group_by=["team"], where={"model": "claude-opus-5-5"},
+                                pricer=_half(), **W).rows[0].priced
+    assert contract_only.exact.nano == 30_000_000 and contract_only.exact.basis is Basis.CONTRACT
+    # the same contribution ingested again under another source keeps its first pricing
+    s.ingest(result(src("s4"), [req("L1", 0, T0, {"output": 1000}, msg="m1")]), pricer=_half())
+    assert _exact_by_lane(s)["L1"] == 20_000_000
+
+
+def test_reprice_changes_only_its_window() -> None:
+    s = store()
+    s.ingest(result(src("s1"), [req("L1", 0, T0, {"output": 1000}, msg="m1"),
+                                req("L1", 1, T0 + 60_000, {"output": 1000}, msg="m2"),
+                                req("L2", 0, T0 + 120_000, {"output": 1000}, msg="m3")]))
+    assert s.reprice(_half(), since_ms=T0 + 60_000, until_ms=T0 + 120_000) == 1
+    assert _exact_by_lane(s) == {"L1": 30_000_000, "L2": 20_000_000}
+    assert s.reprice(kit.FakePricer()) == 3
+    assert _exact_by_lane(s) == {"L1": 40_000_000, "L2": 20_000_000}
+    s.reprice(_half())
+    s.ingest(result(src("s-otel", "otlp"), [req("L-o", 0, T0 + 5, {"output": 1000}, rq="q9",
+                                                adapter="otlp", fidelity=Fidelity.NO_TTL_SPLIT,
+                                                priority=20)]))
+    assert _exact_by_lane(s)["L-o"] == 20_000_000  # a new ingest uses its own (default) pricer
+
+
+def test_purge_removes_sources_joined_only_through_the_request_id() -> None:
+    transcript = req("L1", 0, T0, {"output": 600}, msg="msg_1", rq="req_1",
+                     attribution={"principal": "r_alice", "team": "payments"})
+    otel = req("L-otel", 0, T0 + 5, {"output": 600}, rq="req_1", adapter="otlp",
+               fidelity=Fidelity.NO_TTL_SPLIT, priority=20,
+               attribution={"cost_center": "cc-9"})  # no principal on the OTel side
+    s = store()
+    s.ingest(result(src("s_cc"), [transcript]))
+    s.ingest(result(src("s_otel", "otlp"), [otel]))
+    assert len(list(s.iter_requests(**W))) == 1
+    assert s.purge(principal=pseudonym(ORG, "p", "alice"), actor="dpo") == 1
+    assert list(s.iter_requests(**W)) == [] and list(s.iter_usage_records(**W)) == []
+
+
+def test_one_version_per_provider_id_prefers_final_then_latest() -> None:
+    base = kit._aggregate()
+    provisional = dataclasses.replace(base, usage=UsageBuckets(output=9), fetched_ms=5)
+    final = dataclasses.replace(base, usage=UsageBuckets(output=7), finality="final",
+                                fetched_ms=1)
+    newer = dataclasses.replace(base, usage=UsageBuckets(output=8), fetched_ms=9)
+    line = kit._cost_line()
+    line_final = dataclasses.replace(line, amount_nano=5, finality="final")
+    for order in itertools.permutations([provisional, final, newer]):
+        s = store()
+        for i, agg in enumerate(order):
+            s.ingest(result(src(f"s{i}"), [], aggregates=[agg],
+                            cost_lines=[line_final if agg is final else line]))
+        assert s.aggregates(**W) == [final] and s.cost_lines(**W) == [line_final]
+    s = store()
+    for i, agg in enumerate((provisional, newer)):
+        s.ingest(result(src(f"t{i}"), [], aggregates=[agg]))
+    assert s.aggregates(**W) == [newer]
+
+
+def test_extra_names_under_another_name_key_are_nulled() -> None:
+    s = store()
+    hashed = req("L1", 0, T0, {"output": 1}, msg="m1", attribution={
+        "principal": "r_alice", "extra": (("gateway", pseudonym(b"q" * 32, "h", "gw")),
+                                          ("mdm_group", "g1"))})
+    counts = s.ingest(result(src("s2", name_key_id="k_other"), [hashed]))
+    assert counts["names_nulled"] == 1
+    (r,) = [x for x in s.iter_requests(**W) if x.lane_key == "L1"]
+    assert r.attribution.extra == (("mdm_group", "g1"),)
