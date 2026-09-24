@@ -978,15 +978,40 @@ _BASE_USD = str(CC_FLEET_USD_PER_ACTIVE_DAY.value)
 _DOW_PPM = (40_000, 60_000, 50_000, 30_000, -20_000, -150_000, -180_000)   # Mon … Sun
 
 
+_MAX_PARAM = Decimal(1_000_000)
+_MIN_EXPONENT = -30
+
+
 def _fraction(value: Decimal | str | int | float, what: str) -> Fraction:
-    if isinstance(value, bool):
+    """A generator parameter as an exact Fraction: a finite decimal of magnitude ≤ 10⁶ with at
+    most 30 decimal places (floats are read through their shortest repr); anything else raises
+    :class:`UsageError`."""
+    if isinstance(value, bool) or not isinstance(value, (Decimal, str, int, float)):
         raise UsageError(f"{what} must be a number")
     if isinstance(value, float):
         value = repr(value)
     try:
-        return Fraction(Decimal(value))
-    except Exception:
+        number = Decimal(value.strip() if isinstance(value, str) else value)
+    except (ArithmeticError, ValueError):
         raise UsageError(f"{what} must be a decimal number") from None
+    exponent = number.as_tuple().exponent
+    # adjusted() is the exponent of the leading digit: no context arithmetic (nothing can trap)
+    if not number.is_finite() or not isinstance(exponent, int) or exponent < _MIN_EXPONENT \
+            or (number and number.adjusted() > 6):
+        raise UsageError(f"{what} must be a finite decimal of moderate size")
+    fraction = Fraction(number)
+    if abs(fraction) > _MAX_PARAM:
+        raise UsageError(f"{what} must be a finite decimal of moderate size")
+    return fraction
+
+
+def _positive_base(base_usd: Decimal | str, noise_ppm: int) -> Fraction:
+    base = _fraction(base_usd, "base_usd_per_dev_day")
+    if base <= 0:
+        raise UsageError("base_usd_per_dev_day must be positive")
+    if type(noise_ppm) is not int or not 0 <= noise_ppm <= 400_000:
+        raise UsageError("noise_ppm must be an int in [0, 400000]")
+    return base
 
 
 def _date(start: str, day: int) -> str:
@@ -1108,7 +1133,7 @@ def rollout_panel(*, clusters: int | Sequence[str], weeks: int,
     Rows are ordered by (cluster, date); dates start on Monday 2026-06-01.
     """
     effect = _fraction(true_effect, "true_effect")
-    base = _fraction(base_usd_per_dev_day, "base_usd_per_dev_day")
+    base = _positive_base(base_usd_per_dev_day, noise_ppm)
     price = _fraction(price_change, "price_change")
     cells, start = _panel_cells(clusters=clusters, weeks=weeks, true_effect=effect, waves=waves,
                                 holdback=holdback, seed=seed, org_wide=org_wide,
@@ -1134,7 +1159,7 @@ def rollout_truth(*, clusters: int | Sequence[str], weeks: int,
     arguments, in nano per active developer-day: ``Σ(cost − cost₀) / Σ dev-days`` over treated
     cluster-days (negative for a cost reduction), rounded half-even."""
     effect = _fraction(true_effect, "true_effect")
-    base = _fraction(base_usd_per_dev_day, "base_usd_per_dev_day")
+    base = _positive_base(base_usd_per_dev_day, noise_ppm)
     cells, _start = _panel_cells(clusters=clusters, weeks=weeks, true_effect=effect,
                                  waves=waves, holdback=holdback, seed=seed, org_wide=org_wide,
                                  base_nano=_round(base * _M), noise=noise_ppm)

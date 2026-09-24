@@ -115,3 +115,41 @@ def test_rollout_panel_shape(clusters: int, waves: int, extra_weeks: int, holdba
     held = {r.cluster_id for r in rows if r.arm == "holdback"}
     assert all(not r.treated for r in rows if r.cluster_id in held)
     assert {r.wave for r in rows if r.arm == "treatment"} <= {str(k) for k in range(1, waves + 1)}
+
+
+_TEXT = st.one_of(st.text(max_size=24), st.sampled_from(
+    ["1e999999999", "-1e-999999999", "NaN", "Infinity", "0x10", "  0.25 ", "1_000", "", "∞"]))
+
+
+@settings(max_examples=60, deadline=None)
+@given(effect=st.one_of(_TEXT, st.floats(allow_nan=True, allow_infinity=True),
+                        st.integers(-10**9, 10**9), st.decimals(allow_nan=True)),
+       holdback=st.one_of(_TEXT, st.integers(-5, 30)), base=_TEXT,
+       noise=st.integers(-10, 10**6))
+def test_generator_inputs_raise_only_usage_errors(effect, holdback, base, noise) -> None:
+    from tokenbill.core.errors import TokenbillError
+
+    for call in (
+        lambda: rollout_panel(clusters=4, weeks=3, true_effect=effect, waves=2,
+                              holdback=holdback, seed=0),
+        lambda: rollout_panel(clusters=3, weeks=2, true_effect="0.1", waves=1, holdback=0,
+                              seed=0, base_usd_per_dev_day=base, noise_ppm=noise),
+    ):
+        try:
+            call()
+        except TokenbillError:
+            pass
+
+
+@settings(max_examples=40, deadline=None)
+@given(name=st.text(max_size=12), n=st.integers(-3, 3))
+def test_names_raise_only_usage_errors(name: str, n: int) -> None:
+    from tokenbill.core.errors import UsageError
+    from tokenbill.synth.lanes_gen import CLOSED_FORMS, closed_form
+
+    for call in (lambda: closed_form(name), lambda: family_policies(name),
+                 lambda: random_lanes(0, n, family=name if name else "ttl")):
+        try:
+            call()
+        except UsageError:
+            assert name not in CLOSED_FORMS or n < 0
