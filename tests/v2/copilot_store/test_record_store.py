@@ -574,3 +574,25 @@ def test_bad_batches_raise_and_store_nothing(tmp_path: Path) -> None:
     with pytest.raises(UsageError):
         store.put(result([lic(ORG_KEY, "u3"), surrogate]), principal_key_id=kid)
     assert store.licenses(**W) == [] and store.activity(**W) == []    # rolled back
+
+
+def test_error_paths_are_usage_errors_and_atomic(tmp_path: Path) -> None:
+    with pytest.raises(UsageError):
+        CopilotRecordStore(tmp_path)                       # a directory is not a database
+    store = seeded(tmp_path)
+    with pytest.raises(UsageError):
+        count(store, team="bad\ud800")                     # not encodable as UTF-8
+    with pytest.raises(UsageError):                        # the audit row cannot be written …
+        store.purge(principal=p(ORG_KEY, "u1"), before_ms=None, actor="bad\ud800actor")
+    assert len(store.licenses(**W)) == 3                   # … so nothing was deleted
+    blocker = sqlite3.connect(str(tmp_path / "ledger.db"), isolation_level=None)
+    blocker.execute("BEGIN EXCLUSIVE")
+    store._conn.execute("PRAGMA busy_timeout = 1")
+    try:
+        with pytest.raises(UsageError):
+            store.put(result([lic(ORG_KEY, "u9")]), principal_key_id=key_id(ORG_KEY))
+    finally:
+        blocker.execute("ROLLBACK")
+        blocker.close()
+    store.put(result([lic(ORG_KEY, "u9")]), principal_key_id=key_id(ORG_KEY))
+    assert len(store.licenses(**W)) == 4

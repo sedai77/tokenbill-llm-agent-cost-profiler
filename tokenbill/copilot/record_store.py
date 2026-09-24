@@ -684,7 +684,7 @@ class CopilotRecordStore:
                 removed += conn.execute(f"DELETE FROM {_ACTIVITY} WHERE date_utc < ?",
                                         (cut,)).rowcount
                 removed += conn.execute(f"DELETE FROM {_CONFIG} WHERE snapshot_ms < ?",
-                                        (max(before_ms, -_INT64 - 1),)).rowcount
+                                        (min(max(before_ms, -_INT64 - 1), _INT64),)).rowcount
             detail: dict[str, object] = {
                 "by": "principal" if principal is not None else "before_ms",
                 "rows": removed, "store": STORE_NAME}

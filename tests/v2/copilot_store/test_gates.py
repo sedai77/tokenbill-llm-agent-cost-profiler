@@ -13,15 +13,16 @@ from typing import Any
 import pytest
 
 from tokenbill.common import TokenbillError
+from tokenbill.copilot.enrich import CAPABILITY, enrich_context
 from tokenbill.copilot.record_store import COPILOT_TABLES, CopilotRecordStore
 from tokenbill.core import extensions
 from tokenbill.core import testing as kit
 from tokenbill.core.builders import make_activity, make_license
 from tokenbill.core.ids import key_id
 from tokenbill.core.records import record_key
-from tokenbill.core.types import IngestOptions, IngestResult
+from tokenbill.core.types import AnalysisContext, IngestOptions, IngestResult
 
-from .support import KEY_A, ORG_KEY, W, p, result, rows
+from .support import KEY_A, ORG_KEY, W, month_window, p, result, rows
 
 pytestmark = pytest.mark.gate
 
@@ -130,9 +131,10 @@ def test_keyless_adopting_ledger_and_record_store(tmp_path: Path) -> None:
 
 
 def fixture_files(area: str) -> list[Path]:
+    """The fixture files of *area* (none while that package is not merged)."""
     root = FIXTURES / area
     if not root.is_dir():
-        pytest.skip(f"fixtures of {area} are not merged yet")
+        return []
     return sorted(f for f in root.rglob("*") if f.is_file()
                   and f.suffix.lower() in (".csv", ".json", ".ndjson", ".jsonl"))
 
@@ -212,6 +214,28 @@ def test_overlapping_exports_keep_one_row_per_natural_id(tmp_path: Path) -> None
                 newest[x.line_id] = x
     assert {x.line_id: x.amount_nano for x in lines} == {
         k: v.amount_nano for k, v in newest.items()}
+
+
+def test_enricher_over_the_real_adapters_records(tmp_path: Path) -> None:
+    pytest.importorskip("tokenbill.store.db")
+    pytest.importorskip("tokenbill.adapters.github_billing")
+    results = read_fixtures(fixture_files("copilot_bill") + fixture_files("copilot_orgdata"))
+    months = sorted({x.date_utc[:7] for r in results for x in r.cost_lines
+                     if x.channel == "github_copilot" and x.cost_type == "ai_credit.user"})
+    if not months:
+        pytest.skip("no pooled Copilot report rows in the fixtures")
+    ledger, records = load(tmp_path / "ledger.db", results)
+    ctx = AnalysisContext(pricer=kit.FakePricer(), rules=None, replayer=None,  # type: ignore
+                          calibration=None, capabilities=frozenset(),
+                          window=(month_window(months[0])[0], month_window(months[-1])[1]))
+    out = enrich_context(ledger, [records], ctx, today="2026-12-15",
+                         reconciled_channels=frozenset())
+    assert CAPABILITY in out.capabilities and out.pools and out.plans
+    for pe in out.plans:
+        pair = [pm for pm in out.pools if (pm.entity_id, pm.month) == (pe.entity_id, pe.month)]
+        scenarios = sorted(pm.plan_scenario or "" for pm in pair)
+        assert scenarios == (["business", "enterprise"] if dict(pe.seats).get("unknown")
+                             else [""])      # R-E22: both scenarios, never a guess
 
 
 # ---------------------------------------------------------------------------------------------
