@@ -1080,7 +1080,8 @@ def _shapley(pids: Sequence[str], fn: Callable[[frozenset[str]], int]
 def _empty_plan(ctx: _Context, n_cells: int, note: str) -> ActionPlan:
     zero_list = _fig(_Triple(0, 0, 0), Basis.LIST, note)
     zero_pool = _fig(_Triple(0, 0, 0), Basis.LIST_EQUIVALENT,
-                     "no pool credits freed; list-equivalent pool headroom, not invoice dollars")
+                     _scenario_prefix(ctx.scenario) + "no pool credits freed; list-equivalent "
+                     "pool headroom, not invoice dollars")
     return ActionPlan(joint_saving=zero_list, headline_monthly=zero_list,
                       allowance_headroom_monthly=None, levers=(), groups=(),
                       method="shapley-exact", shapley_se=(), sample=_sample(ctx, n_cells),

@@ -116,6 +116,14 @@ def test_no_figure_appears_outside_a_scenario() -> None:
     assert plans["business"].headline_monthly != plans["enterprise"].headline_monthly
 
 
+def test_empty_scenario_plans_still_name_their_scenario() -> None:
+    plans = _scenarios(_p13_world(), [])
+    for scenario, plan in plans.items():
+        assert plan.levers == ()
+        for fig in _figures(plan):
+            assert fig.note.startswith(f"If {scenario.capitalize()}: plan unknown"), fig.note
+
+
 def test_scenario_findings_are_used_only_in_their_scenario() -> None:
     fs = [idle(unknown=4, plan="unknown", plan_scenario="business"),
           idle(unknown=10, plan="unknown", plan_scenario="enterprise", team="t2")]
