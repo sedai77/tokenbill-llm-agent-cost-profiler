@@ -1,0 +1,279 @@
+{
+  "files": [
+    {
+      "adapter": "anthropic-usage-report",
+      "expect": {
+        "aggregates": 8,
+        "finality": "final",
+        "usage_tokens": 324794115
+      },
+      "path": "anthropic/usage_report_2026-08.json",
+      "provenance": "synthetic; shape from https://platform.claude.com/docs/en/api/admin-api/usage-cost/get-messages-usage-report (retrieved 2026-09-23)",
+      "role": "recon_pair"
+    },
+    {
+      "adapter": "anthropic-cost-report",
+      "expect": {
+        "amount_nano": 406241139150,
+        "cost_lines": 44,
+        "finality": "final",
+        "rounding_remainder_e18": 0
+      },
+      "path": "anthropic/cost_report_2026-08.json",
+      "provenance": "synthetic; shape from https://platform.claude.com/docs/en/api/admin-api/usage-cost/get-cost-report (retrieved 2026-09-23)",
+      "role": "recon_pair"
+    },
+    {
+      "adapter": "anthropic-usage-report",
+      "expect": {
+        "aggregates": 4,
+        "finality": "provisional",
+        "usage_tokens": 225808559
+      },
+      "path": "anthropic/usage_report_2026-09_pages.jsonl",
+      "provenance": "synthetic; shape from https://platform.claude.com/docs/en/api/admin-api/usage-cost/get-messages-usage-report (retrieved 2026-09-23)",
+      "role": "pagination"
+    },
+    {
+      "adapter": "anthropic-usage-report",
+      "expect": {
+        "aggregates": 3,
+        "usage_tokens": 1815000
+      },
+      "path": "anthropic/edge/usage_report_edge.json",
+      "provenance": "synthetic; shape from https://platform.claude.com/docs/en/api/admin-api/usage-cost/get-messages-usage-report (retrieved 2026-09-23)",
+      "role": "edge"
+    },
+    {
+      "adapter": "anthropic-cost-report",
+      "expect": {
+        "amount_nano": 16955000000,
+        "cost_lines": 7,
+        "rounding_remainder_e18": 4500
+      },
+      "path": "anthropic/edge/cost_report_edge.json",
+      "provenance": "synthetic; shape from https://platform.claude.com/docs/en/api/admin-api/usage-cost/get-cost-report (retrieved 2026-09-23)",
+      "role": "edge"
+    },
+    {
+      "adapter": "anthropic-cc-analytics",
+      "expect": {
+        "aggregates": 6,
+        "dropped_groups": 0,
+        "outcomes": [
+          {
+            "commits": 22,
+            "date": "2026-09-10",
+            "n_users": 5,
+            "team": "payments"
+          },
+          {
+            "commits": 49,
+            "date": "2026-09-10",
+            "n_users": 6,
+            "team": "platform"
+          },
+          {
+            "commits": 40,
+            "date": "2026-09-10",
+            "n_users": 6,
+            "team": "(other)"
+          }
+        ],
+        "reported_cost_nano": 1087850000000,
+        "usage_tokens": 162895731
+      },
+      "path": "anthropic/cc_analytics_2026-09-10.json",
+      "provenance": "synthetic; shape from https://platform.claude.com/docs/en/manage-claude/claude-code-analytics-api (retrieved 2026-09-23)",
+      "role": "k_anonymity"
+    },
+    {
+      "adapter": "anthropic-cc-analytics",
+      "expect": {
+        "aggregates": 2,
+        "dropped_groups": 2,
+        "outcomes": [
+          {
+            "commits": 28,
+            "date": "2026-09-11",
+            "n_users": 5,
+            "team": "platform"
+          }
+        ],
+        "reported_cost_nano": 399680000000,
+        "usage_tokens": 42868131
+      },
+      "path": "anthropic/cc_analytics_2026-09-11_pages.jsonl",
+      "provenance": "synthetic; shape from https://platform.claude.com/docs/en/manage-claude/claude-code-analytics-api (retrieved 2026-09-23)",
+      "role": "k_anonymity"
+    },
+    {
+      "adapter": "anthropic-enterprise-analytics",
+      "expect": {
+        "aggregates": 8,
+        "usage_tokens": 5791451
+      },
+      "path": "anthropic/enterprise/usage_report.json",
+      "provenance": "synthetic; shape from https://platform.claude.com/docs/en/api/admin/analytics (retrieved 2026-09-23)",
+      "role": "enterprise"
+    },
+    {
+      "adapter": "anthropic-enterprise-analytics",
+      "expect": {
+        "amount_nano": 837584215800,
+        "cost_lines": 18,
+        "list_amount_nano": 1046980269750
+      },
+      "path": "anthropic/enterprise/cost_report.json",
+      "provenance": "synthetic; shape from https://platform.claude.com/docs/en/api/admin/analytics (retrieved 2026-09-23)",
+      "role": "enterprise"
+    },
+    {
+      "adapter": "anthropic-enterprise-analytics",
+      "expect": {
+        "aggregates": 1,
+        "dropped_groups": 2,
+        "usage_tokens": 419180
+      },
+      "path": "anthropic/enterprise/user_usage_report.json",
+      "provenance": "synthetic; shape from https://platform.claude.com/docs/en/api/admin/analytics (retrieved 2026-09-23)",
+      "role": "enterprise"
+    },
+    {
+      "adapter": "anthropic-enterprise-analytics",
+      "expect": {
+        "aggregates": 2,
+        "reported_cost_nano": 328166880000
+      },
+      "path": "anthropic/enterprise/user_cost_report.json",
+      "provenance": "synthetic; shape from https://platform.claude.com/docs/en/api/admin/analytics (retrieved 2026-09-23)",
+      "role": "enterprise"
+    },
+    {
+      "adapter": "openai-usage-buckets",
+      "expect": {
+        "aggregates": 6,
+        "usage_tokens": 1048602
+      },
+      "path": "openai/usage_completions_2026-09.json",
+      "provenance": "synthetic; shape from https://github.com/openai/openai-openapi (UsageCompletionsResult, CostsResult) (retrieved 2026-09-23)",
+      "role": "openai"
+    },
+    {
+      "adapter": "openai-costs",
+      "expect": {
+        "amount_nano": 10361719200,
+        "cost_lines": 20
+      },
+      "path": "openai/costs_2026-09.json",
+      "provenance": "synthetic; shape from https://github.com/openai/openai-openapi (UsageCompletionsResult, CostsResult) (retrieved 2026-09-23)",
+      "role": "openai"
+    },
+    {
+      "adapter": "aws-cur",
+      "expect": {
+        "aggregates": 10,
+        "amount_nano": 49190661600,
+        "cost_lines": 14,
+        "list_amount_nano": 54864624000,
+        "rows_skipped_not_bedrock": 2,
+        "rows_skipped_tax": 2,
+        "rows_unit_unknown": 4,
+        "usage_tokens": 28358328
+      },
+      "path": "cloud/cur2_bedrock_2026-09.csv",
+      "provenance": "synthetic; shape from https://docs.aws.amazon.com/cur/latest/userguide/table-dictionary-cur2.html (retrieved 2026-09-23)",
+      "role": "cloud"
+    },
+    {
+      "adapter": "aws-cur",
+      "expect": {
+        "aggregates": 10,
+        "amount_nano": 49190661600,
+        "cost_lines": 14,
+        "list_amount_nano": 54864624000,
+        "rows_skipped_not_bedrock": 2,
+        "rows_skipped_tax": 2,
+        "rows_unit_unknown": 4,
+        "usage_tokens": 28358328
+      },
+      "path": "cloud/cur2_bedrock_2026-09.csv.gz",
+      "provenance": "synthetic; shape from https://docs.aws.amazon.com/cur/latest/userguide/table-dictionary-cur2.html (retrieved 2026-09-23)",
+      "role": "cloud"
+    },
+    {
+      "adapter": "gcp-billing",
+      "expect": {
+        "aggregates": 6,
+        "amount_nano": 31599500000,
+        "cost_lines": 8,
+        "list_amount_nano": 33210000000,
+        "rows_skipped_not_claude": 2,
+        "rows_skipped_tax": 2,
+        "rows_unit_unknown": 2,
+        "usage_tokens": 22300000
+      },
+      "path": "cloud/gcp_billing_2026-09.jsonl",
+      "provenance": "synthetic; shape from https://docs.cloud.google.com/billing/docs/how-to/export-data-bigquery-tables/standard-usage (retrieved 2026-09-23)",
+      "role": "cloud"
+    },
+    {
+      "adapter": "gcp-billing",
+      "expect": {
+        "aggregates": 6,
+        "amount_nano": 31599500000,
+        "cost_lines": 8,
+        "list_amount_nano": 33210000000,
+        "rows_skipped_not_claude": 2,
+        "rows_skipped_tax": 2,
+        "rows_unit_unknown": 2,
+        "usage_tokens": 22300000
+      },
+      "path": "cloud/gcp_billing_2026-09.csv",
+      "provenance": "synthetic; shape from https://docs.cloud.google.com/billing/docs/how-to/export-data-bigquery-tables/standard-usage (retrieved 2026-09-23)",
+      "role": "cloud"
+    }
+  ],
+  "generated_by": "tests/v2/fixtures/admin/build_fixtures.py",
+  "options": {
+    "identity_mode": "central-ingest",
+    "k_anonymity": 5,
+    "now": "2026-09-23",
+    "now_ms": 1790121600000,
+    "team_map": {
+      "arn:aws:iam::111122223333:role/PaymentsAppRole": "payments",
+      "arn:aws:iam::444455556666:role/SearchRankerRole": "search",
+      "canary.TB-CANARY-7f3a91@example.com": "platform",
+      "dev01@example.com": "platform",
+      "dev02@example.com": "platform",
+      "dev03@example.com": "platform",
+      "dev04@example.com": "platform",
+      "dev05@example.com": "platform",
+      "dev07@example.com": "payments",
+      "dev08@example.com": "payments",
+      "dev09@example.com": "payments",
+      "dev10@example.com": "payments",
+      "dev11@example.com": "payments",
+      "dev12@example.com": "mobile",
+      "dev13@example.com": "mobile",
+      "dev14@example.com": "mobile",
+      "dev15@example.com": "tiny",
+      "dev16@example.com": "tiny"
+    }
+  },
+  "recon_pairs": [
+    {
+      "basis": "list",
+      "channel": "anthropic_api",
+      "cost": "anthropic/cost_report_2026-08.json",
+      "dates": [
+        "2026-08-10",
+        "2026-08-11"
+      ],
+      "note": "cost = usage priced at list with tokenbill/core/facts.json rates (standard tier, global/not_available geo, standard speed); every amount is nano-exact; closed dates relative to options.now",
+      "usage": "anthropic/usage_report_2026-08.json"
+    }
+  ],
+  "schema": "tokenbill/admin-fixtures@1",
+  "synthetic": true
+}
