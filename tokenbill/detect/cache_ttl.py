@@ -45,6 +45,7 @@ from tokenbill.detect.cache_miss import (
     applicable_levers,
     cc_gates,
     cohorts,
+    combine,
     decimal_str,
     emit,
     evidence_item,
@@ -117,13 +118,13 @@ class ColdResume:
                     ts = req.ts_start_ms
                     tally.hit(lane, ts)
                     billed = prices.written(inf.pricing, ts, inf.usage, tokens)
-                    read = prices.nano(inf.pricing, ts, "cache_read", tokens)
-                    if billed is None or read is None:
+                    premium = combine((1, billed),
+                                      (-1, prices.line(inf.pricing, ts, "cache_read", tokens)))
+                    if billed is None or premium is None:
                         tally.unpriced += 1
                         continue
                     tally.cost.add_money(billed)
-                    tally.rec.add_money(billed)
-                    tally.rec.add(-read)
+                    tally.rec.add_money(premium)
                     tally.items.append(evidence_item(
                         "transition", t.request_id, gap_ms=t.gap_ms, context=prefix,
                         tokens=tokens, nano=billed.point))

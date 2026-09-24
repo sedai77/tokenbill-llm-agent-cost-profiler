@@ -37,6 +37,7 @@ from tokenbill.detect.cache_miss import (
     applicable_levers,
     cc_gates,
     cohorts,
+    combine,
     emit,
     evidence_item,
     gateway_of,
@@ -128,24 +129,20 @@ class GatewayDisabled:
         for lane in cohort.lanes:
             if not self._no_cache_lane(ctx, lane):
                 continue
-            lane_cost = 0
-            unpriced = False
+            lane_cost: Money | None = Money()
             for req in serving_steps(lane):
                 inf = req.serving_inference
                 assert inf is not None
-                nano = prices.nano(inf.pricing, req.ts_start_ms, "uncached_input",
-                                   inf.usage.uncached_input)
-                if nano is None:
-                    unpriced = True
-                    break
-                lane_cost += nano
+                lane_cost = combine((1, lane_cost), (1, prices.line(
+                    inf.pricing, req.ts_start_ms, "uncached_input", inf.usage.uncached_input)))
             tally.hit(lane, lane.requests[0].ts_start_ms)
-            if unpriced:
+            if lane_cost is None:
                 tally.unpriced += 1
                 continue
-            tally.cost.add(lane_cost)
+            tally.cost.add_money(lane_cost)
             tally.items.append(evidence_item("lane", lane.lane_key,
-                                             requests=len(serving_steps(lane)), nano=lane_cost))
+                                             requests=len(serving_steps(lane)),
+                                             nano=lane_cost.point))
         if tally.events == tally.unpriced:
             return None
         basis = cohort.basis(ctx.pricer)
@@ -332,12 +329,8 @@ class UnreadWrite:
         """``tokens`` of *req*'s writes at the billed write rates minus their uncached price."""
         inf = req.serving_inference
         assert inf is not None
-        written = prices.written(inf.pricing, req.ts_start_ms, inf.usage, tokens)
-        uncached = prices.nano(inf.pricing, req.ts_start_ms, "uncached_input", tokens)
-        if written is None or uncached is None:
-            return None
-        written.add(-uncached)
-        return written
+        return combine((1, prices.written(inf.pricing, req.ts_start_ms, inf.usage, tokens)),
+                       (-1, prices.line(inf.pricing, req.ts_start_ms, "uncached_input", tokens)))
 
     def _unread(self, ctx: AnalysisContext, prices: Prices, tally: Tally, lane: Lane,
                 steps: Sequence[Request]) -> bool:
@@ -377,7 +370,7 @@ class UnreadWrite:
         for prev, cur in zip(steps, steps[1:], strict=False):
             if 300_000 < cur.ts_start_ms - prev.ts_start_ms <= _ONE_HOUR_MS:
                 return
-        lane_cost = 0
+        lane_cost: Money | None = Money()
         tokens = 0
         for req in steps:
             inf = req.serving_inference
@@ -385,17 +378,18 @@ class UnreadWrite:
             w1 = inf.usage.cache_write_1h
             if not w1:
                 continue
-            hour = prices.nano(inf.pricing, req.ts_start_ms, "cache_write_1h", w1)
-            five = prices.nano(inf.pricing, req.ts_start_ms, "cache_write_5m", w1)
-            if hour is None or five is None:
-                tally.hit(lane, req.ts_start_ms)
-                tally.unpriced += 1
-                return
-            lane_cost += hour - five
+            ts = req.ts_start_ms
+            lane_cost = combine((1, lane_cost),
+                                (1, prices.line(inf.pricing, ts, "cache_write_1h", w1)),
+                                (-1, prices.line(inf.pricing, ts, "cache_write_5m", w1)))
             tokens += w1
         tally.hit(lane, steps[0].ts_start_ms)
-        tally.cost.add(lane_cost)
-        tally.items.append(evidence_item("lane", lane.lane_key, tokens=tokens, nano=lane_cost))
+        if lane_cost is None:
+            tally.unpriced += 1
+            return
+        tally.cost.add_money(lane_cost)
+        tally.items.append(evidence_item("lane", lane.lane_key, tokens=tokens,
+                                         nano=lane_cost.point))
 
     def _tail(self, prices: Prices, tally: Tally, lane: Lane, req: Request) -> None:
         u = usage_of(req)
@@ -563,22 +557,17 @@ class ColdFanout:
         assert inf is not None
         ts = first.ts_start_ms
         bucket = prices.write_rate_bucket(inf.usage)
-        if bucket == "cache_write_unknown":
-            bucket = "cache_write_5m"
-        costs = []
-        for p in (low_p, high_p):
-            w = prices.nano(inf.pricing, ts, bucket, (n - 1) * p)
-            r = prices.nano(inf.pricing, ts, "cache_read", (n - 1) * p)
-            if w is None or r is None:
-                tally.hit(members[0][2], ts)
-                tally.unpriced += 1
-                return
-            costs.append(w - r)
+        costs = [combine((1, prices.line(inf.pricing, ts, bucket, (n - 1) * p)),
+                         (-1, prices.line(inf.pricing, ts, "cache_read", (n - 1) * p)))
+                 for p in (low_p, high_p)]
         tally.hit(members[0][2], ts)
         for m in members[1:]:
             tally.touch(m[2])
         low, high = costs
-        tally.cost.add_range(low, low, max(low, high))
+        if low is None or high is None:
+            tally.unpriced += 1
+            return
+        tally.cost.add_range(low.point, min(low.low, low.point), max(high.high, low.point))
         tally.items.append(evidence_item(
             "aggregate", stable_id("fan", *(m[1] for m in members)), lanes=n, p_min=low_p,
-            p_median=high_p, nano=low))
+            p_median=high_p, nano=low.point))

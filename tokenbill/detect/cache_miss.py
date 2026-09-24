@@ -44,7 +44,6 @@ from tokenbill.core.findings import (
     make_scope,
     min_usd_nano,
     miss_waste,
-    rate_nano,
     top_evidence,
 )
 from tokenbill.core.ids import stable_id
@@ -83,7 +82,7 @@ DAY_MS = 86_400_000
 DEFAULT_TTL_S = 300
 ALLOWANCE_TITLE = "Allowance headroom: "
 ALLOWANCE_SUMMARY = " Figures are list-equivalent, not invoice dollars."
-UNKNOWN_TTL_NOTE = "unknown-TTL writes priced [5m, 1h]"
+RANGE_NOTE = "billed tokens; some lines are priced as a range (unknown TTL or endpoint scope)"
 API_CACHE_DOC = "https://platform.claude.com/docs/en/build-with-claude/prompt-caching"
 CC_CACHE_DOC = "https://code.claude.com/docs/en/prompt-caching"
 RESET_EVENTS = frozenset({LaneEventKind.COMPACTION, LaneEventKind.CLEAR,
@@ -91,6 +90,11 @@ RESET_EVENTS = frozenset({LaneEventKind.COMPACTION, LaneEventKind.CLEAR,
 #: Write buckets in the order a rewrite is allocated to them: longer TTLs sit before shorter ones
 #: in the prompt (SPEC §19.3), so the missed prefix is the 1h part first.
 WRITE_ORDER = ("cache_write_1h", "cache_write_5m", "cache_write_other", "cache_write_unknown")
+_PROBE_TOKENS = 1_000
+_FIELD = {"uncached_input": "uncached_input", "cache_read": "cache_read",
+          "cache_write_5m": "cache_write_5m", "cache_write_1h": "cache_write_1h",
+          "cache_write_other": "cache_write_other", "cache_write_unknown": "cache_write_unknown",
+          "output": "output"}
 _UNIT_ATTR = {"uncached_input": "uncached", "cache_read": "cache_read",
               "cache_write_5m": "cache_write_5m", "cache_write_1h": "cache_write_1h",
               "cache_write_other": "cache_write_other", "output": "output"}
@@ -102,17 +106,21 @@ _UNIT_ATTR = {"uncached_input": "uncached", "cache_read": "cache_read",
 
 
 class Prices:
-    """Bucket prices in int nano-USD through a :class:`~tokenbill.core.protocols.Pricer` — the
-    ``r``, ``w5``, ``w1``, ``u`` rates of the SPEC §10.1 formulas for a request's pricing context.
+    """Bucket prices through a :class:`~tokenbill.core.protocols.Pricer` — the ``r``, ``w5``,
+    ``w1``, ``u`` rates of the SPEC §10.1 formulas for a request's pricing context — as
+    :class:`Money`.
 
-    Exact integer unit rates are cached per (pricing context, UTC day); buckets without a unit
-    rate (unknown-TTL writes, contexts priced as ranges) go through
-    ``core.findings.rate_nano``. ``None`` means unpriceable: unknown is never zero.
+    A line is exact exactly when the pricer prices it exactly (R9): those use the pricer's exact
+    integer unit rates, cached per (pricing context, UTC day), which agree with
+    ``Pricer.price_usage`` to the nano (§6.4); range lines (unknown-TTL writes, unknown endpoint
+    scope, …) carry the pricer's own ``[low, high]``. ``None`` means unpriceable: unknown is
+    never zero.
     """
 
     def __init__(self, pricer: Pricer) -> None:
         self.pricer = pricer
         self._units: dict[tuple[PricingContext, int], UnitRates | None] = {}
+        self._exact: dict[tuple[PricingContext, int, str], bool | None] = {}
 
     def unit(self, pricing: PricingContext, ts_ms: int) -> UnitRates | None:
         """The pricer's exact unit rates for *pricing* on the day of *ts_ms* (cached)."""
@@ -124,26 +132,60 @@ class Prices:
                 self._units[key] = None
         return self._units[key]
 
-    def nano(self, pricing: PricingContext, ts_ms: int, bucket: str, tokens: int) -> int | None:
-        """*tokens* of *bucket* in nano-USD (None when the context is not priceable)."""
-        if tokens == 0:
-            return 0
-        attr = _UNIT_ATTR.get(bucket)
-        if attr is not None:
-            unit = self.unit(pricing, ts_ms)
-            if unit is not None:
-                return scaled_to_nano(tokens * getattr(unit, attr), unit.scale_exp)
+    def _priced(self, pricing: PricingContext, ts_ms: int, bucket: str,
+                tokens: int) -> tuple[int, int, int, bool] | None:
+        """``(point, low, high, exact)`` of *tokens* of *bucket* through ``price_usage``."""
+        kwargs: dict[str, int] = {_FIELD[bucket]: tokens}
+        if bucket == "cache_write_other":
+            kwargs["cache_write_other_ttl_s"] = 1800   # informational: the rate is per bucket
         try:
-            return rate_nano(self.pricer, pricing, ts_ms, bucket, tokens)
+            priced = self.pricer.price_usage(UsageBuckets(**kwargs), pricing, ts_ms=ts_ms)
         except TokenbillError:
             return None
+        if priced.unpriced_reason is not None or priced.figure.nano is None:
+            return None
+        for ln in priced.lines:
+            if ln.bucket == bucket:
+                low = ln.low_nano if ln.low_nano is not None else ln.amount_nano
+                high = ln.high_nano if ln.high_nano is not None else ln.amount_nano
+                return (ln.amount_nano, min(low, ln.amount_nano), max(high, ln.amount_nano),
+                        ln.exact)
+        return None
+
+    def line(self, pricing: PricingContext, ts_ms: int, bucket: str,
+             tokens: int) -> Money | None:
+        """*tokens* of *bucket* at *pricing*'s rates on the day of *ts_ms*."""
+        money = Money()
+        if tokens <= 0:
+            return money
+        key = (pricing, ts_ms // DAY_MS, bucket)
+        if key not in self._exact:
+            probe = self._priced(pricing, ts_ms, bucket, _PROBE_TOKENS)
+            self._exact[key] = None if probe is None else probe[3]
+        exact = self._exact[key]
+        if exact is None:
+            return None
+        attr = _UNIT_ATTR.get(bucket)
+        unit = self.unit(pricing, ts_ms) if exact and attr is not None else None
+        if unit is not None and attr is not None:
+            money.add(scaled_to_nano(tokens * getattr(unit, attr), unit.scale_exp))
+            return money
+        priced = self._priced(pricing, ts_ms, bucket, tokens)
+        if priced is None:
+            return None
+        point, low, high, is_exact = priced
+        if is_exact:
+            money.add(point)
+        else:
+            money.add_range(point, low, high)
+        return money
 
     def written(self, pricing: PricingContext, ts_ms: int, usage: UsageBuckets,
                 tokens: int) -> Money | None:
         """*tokens* of a request's billed writes at the billed write rates (``w_billed``): the
         tokens are allocated to the 1h, 5m, other-TTL and unknown-TTL buckets in that order (see
-        :data:`WRITE_ORDER`). Unknown-TTL tokens are a range [5m, 1h] around the pricer's point
-        (R5). None when unpriceable."""
+        :data:`WRITE_ORDER`); unknown-TTL tokens are the pricer's [5m, 1h] range (R5). None when
+        unpriceable."""
         remaining = max(0, min(tokens, usage.cache_write))
         money = Money()
         for bucket in WRITE_ORDER:
@@ -151,17 +193,10 @@ class Prices:
             if take <= 0:
                 continue
             remaining -= take
-            point = self.nano(pricing, ts_ms, bucket, take)
-            if point is None:
+            part = self.line(pricing, ts_ms, bucket, take)
+            if part is None:
                 return None
-            if bucket == "cache_write_unknown":
-                low = self.nano(pricing, ts_ms, "cache_write_5m", take)
-                high = self.nano(pricing, ts_ms, "cache_write_1h", take)
-                if low is None or high is None:
-                    return None
-                money.add_range(point, min(low, point), max(high, point))
-            else:
-                money.add(point)
+            money.add_money(part)
         return money
 
     def write_rate_bucket(self, usage: UsageBuckets) -> str:
@@ -171,6 +206,16 @@ class Prices:
             if getattr(usage, bucket):
                 return bucket
         return "cache_write_5m"
+
+
+def combine(*parts: tuple[int, Money | None]) -> Money | None:
+    """``Σ sign·money`` (ranges crosswise for negative signs); None if any part is None."""
+    total = Money()
+    for sign, money in parts:
+        if money is None:
+            return None
+        total.add_money(money, sign)
+    return total
 
 
 @dataclasses.dataclass
@@ -207,13 +252,17 @@ class Money:
             self.high -= other.low
         self.ranged = self.ranged or other.ranged
 
+    def floor_at_zero(self) -> None:
+        """Clamp the point and both bounds at 0 (a loss is never negative)."""
+        self.point, self.low, self.high = max(0, self.point), max(0, self.low), max(0, self.high)
+
     def billed(self, basis: Basis) -> Figure:
         """Billed arithmetic: EXACT, or ESTIMATED with its range when a line is a range."""
         if not self.ranged:
             return exact(self.point, basis)
         return Figure(nano=self.point, evidence=Evidence.ESTIMATED, basis=basis,
-                      low_nano=self.low, high_nano=self.high, calibration=Calibration.NA,
-                      note=UNKNOWN_TTL_NOTE)
+                      low_nano=min(self.low, self.point), high_nano=max(self.high, self.point),
+                      calibration=Calibration.NA, note=RANGE_NOTE)
 
     def estimate(self, basis: Basis, note: str, *, upper_bound: bool = False) -> Figure:
         """An ESTIMATED (uncalibrated) figure naming its assumption in *note*."""
@@ -581,15 +630,11 @@ def miss_money(prices: Prices, t: Transition, req: Request) -> tuple[Money, Mone
         return None
     mw, mu = miss_waste(t, req)
     ts = req.ts_start_ms
-    rewrite = prices.written(inf.pricing, ts, inf.usage, mw)
-    uncached = prices.nano(inf.pricing, ts, "uncached_input", mu)
-    read = prices.nano(inf.pricing, ts, "cache_read", mw + mu)
-    if rewrite is None or uncached is None or read is None:
+    rewrite = combine((1, prices.written(inf.pricing, ts, inf.usage, mw)),
+                      (1, prices.line(inf.pricing, ts, "uncached_input", mu)))
+    premium = combine((1, rewrite), (-1, prices.line(inf.pricing, ts, "cache_read", mw + mu)))
+    if rewrite is None or premium is None:
         return None
-    rewrite.add(uncached)
-    premium = Money()
-    premium.add_money(rewrite)
-    premium.add(-read)
     return rewrite, premium
 
 
@@ -731,6 +776,9 @@ class MissByCause:
                  subs: Counter[str], ambiguous: int) -> Finding | None:
         basis = cohort.basis(ctx.pricer)
         phrase, lever_class, fix_text, target = _MISS_TEXT[kind]
+        if target == "claude-code-managed-settings" and not any(
+                is_claude_code(lane) for lane in tally.lanes.values()):
+            target = "sdk"
         cost = tally.cost.billed(basis)
         recoverable = None
         if kind != "compaction":
@@ -1009,17 +1057,19 @@ class RebuildEvents:
                 assert inf is not None
                 pre = event_attr(ev, "pre_tokens")
                 tokens = pre if type(pre) is int and pre > 0 else inf.usage.total_input
-                write = prices.nano(inf.pricing, ev.ts_ms, ttl_bucket(tau), tokens)
-                read = prices.nano(inf.pricing, ev.ts_ms, "cache_read", tokens)
+                write = prices.line(inf.pricing, ev.ts_ms, ttl_bucket(tau), tokens)
+                premium = combine((1, write),
+                                  (-1, prices.line(inf.pricing, ev.ts_ms, "cache_read", tokens)))
                 tally.hit(lane, ev.ts_ms)
-                if write is None or read is None:
+                if write is None or premium is None:
                     tally.unpriced += 1
                     continue
-                tally.cost.add(write)
-                tally.rec.add(write - read)
+                tally.cost.add_money(write)
+                tally.rec.add_money(premium)
                 tally.items.append(evidence_item(
                     "event", stable_id("ev", lane.lane_key, ev.ts_ms, "compaction"),
-                    idle_ms=ev.ts_ms - prev.ts_start_ms, ttl_s=tau, tokens=tokens, nano=write))
+                    idle_ms=ev.ts_ms - prev.ts_start_ms, ttl_s=tau, tokens=tokens,
+                    nano=write.point))
         if tally.events == tally.unpriced:
             return None
         basis = cohort.basis(ctx.pricer)
@@ -1069,25 +1119,27 @@ class RebuildEvents:
                     continue
                 k_rem = _remaining(lane, steps, i)
                 billed = prices.written(inf.pricing, ts, inf.usage, rewritten)
-                read_s = prices.nano(inf.pricing, ts, "cache_read", rewritten)
-                benefit = prices.nano(inf.pricing, ts, "cache_read", cleared * k_rem)
-                read_x = prices.nano(inf.pricing, ts, "cache_read", cleared)
+                read_s = prices.line(inf.pricing, ts, "cache_read", rewritten)
+                loss = combine((1, billed), (-1, read_s),
+                               (-1, prices.line(inf.pricing, ts, "cache_read", cleared * k_rem)))
+                read_x = prices.line(inf.pricing, ts, "cache_read", cleared)
                 tally.hit(lane, ts)
-                if billed is None or read_s is None or benefit is None or not read_x:
+                if billed is None or read_s is None or loss is None or read_x is None or \
+                        read_x.point <= 0:
                     tally.unpriced += 1
                     continue
-                loss = max(0, billed.point - read_s - benefit)
+                loss.floor_at_zero()
                 tally.cost.add_money(billed)
-                tally.rec.add(loss)
+                tally.rec.add_money(loss)
                 kstar = _kstar(prices, inf.pricing, ts, inf.usage, rewritten, cleared)
                 if kstar is None:
-                    kstar = Fraction(billed.point - read_s, read_x)
+                    kstar = Fraction(billed.point - read_s.point, read_x.point)
                 kstars.append(kstar)
                 krems.append(k_rem)
                 losing += 1 if k_rem < kstar else 0
                 tally.items.append(evidence_item(
                     "event", req.request_id, cleared=cleared, rewritten=rewritten, k_rem=k_rem,
-                    kstar=decimal_str(kstar), nano=loss))
+                    kstar=decimal_str(kstar), nano=loss.point))
         if tally.events == tally.unpriced:
             return None
         basis = cohort.basis(ctx.pricer)
