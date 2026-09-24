@@ -15,6 +15,7 @@ Package: `tokenbill/synth/{fleet,truth,writers}.py` — the deterministic synthe
 | `test_scale.py` | scale mode: exact count, re-iterable, deterministic, lanes assemble; PR budget 10⁵ requests ≤ 15 s, RSS ≤ 300 MB; `perf`: 10⁶ requests ≤ 60 s with bounded RSS (measured ≈ 33 s, ≈ 50 MB) |
 | `test_gate_files_through_adapters.py` | **gate** (`importorskip` CC, TELEM, TRACE, ADMIN adapters): every written family read by the real adapter reproduces the canonical token totals per team; cost-report and CUR invoice totals equal the canonical cost lines; where the SPEC fixes the mapping the records themselves agree: Claude Code request ids, session/lane keys, start times, input usage and appended items (§5.3), headless step times/keys and OUTPUT_RESIDUAL requests (§5.12), OTLP times/usage/principal/team (§5.9), trace@2 fingerprints/attribution/params, and every usage-report / analytics aggregate, outcome, cost-report and CUR line with workspace, dims and finality (§5.11, §5.13) |
 | `test_gate_truth_vs_oracle.py` | **gate**: each replay-based plant truth equals `synth.oracle.ReferenceReplay` (`importorskip` SYNTH-ORACLE) **and** `sim.usage_replay.UsageReplayer` (`importorskip` REPLAY, the engine DETECT/PLAN use) on the plant's lanes within 1 nano — 13 plants incl. `ops.regional-premium` |
+| `test_gate_expectations.py` | **gate**: the agents lanes plant no block-level breaker (`importorskip` BLOCK's `detect.block`; before the review fix BLOCK found `breakpoint-placement` $22.52 there); the control team yields no finding with recoverable ≥ $1 under every installed usage-level detector (`importorskip` REPLAY; skips until a DETECT package is installed) |
 | `test_review_regressions.py` | review fixes: workspace ids in clear and allowlisted for the adapters; `FleetWorld.ingest_options()` (clock = today, team map); Claude Code session keys per §5.3 #11 (CI runs too); subagent appended items serialised exactly; CANARY in every transcript content field; every headless message timed; one unknown-model call; same-tier plants from `core.catalog.successor`; `out_dir` and scale-world writer errors are `UsageError`; scale mode grows its population |
 
 Contract notes: `CONTRACT-CHANGE-SYNTH-FLEET-1.md` (advisory, TRACE §4.2: `lookback_pos` in trace@2
@@ -76,6 +77,11 @@ Keys `FLEET_ORG_KEY`, `FLEET_NAME_KEY`, `FLEET_FP_KEY` are public demo constants
   convention (both totals are in `details`).
 - Context edits replace cleared tool results by an 8-token placeholder in place (block positions do not
   move, so a block's `lookback_pos` is a function of its hash in the trace@2 delta encoding).
+- Agent SDK requests carry two cache breakpoints: the system prompt (end of the static prefix every
+  run re-sends: 14k tokens of tools + 3k of system) and the last block — the placement the block-level
+  replay recommends, so the agents plant no `breakpoint-placement` breaker (SPEC §18 "block breakers
+  none"). Billed usage stays per run (no cross-run static-prefix reads are billed); the block replay's
+  `agreement` on the agents cohort is ≈ 1.03 (informational only, §9.7 #5).
 - Scale mode (`scale_requests=N`) yields canonical requests/events/sessions only: no truth, no files, no
   provider-side records; every epoch (one pass over the team table) adds a new set of developers.
   The writers refuse a scale world (`UsageError`); an unwritable `out_dir` is a `UsageError`.

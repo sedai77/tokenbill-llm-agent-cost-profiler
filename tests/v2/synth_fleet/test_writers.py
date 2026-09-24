@@ -269,7 +269,9 @@ def test_trace_v2_fingerprint_file_round_trips(world: F.FleetWorld) -> None:
             lists[rec["request_id"]] = seq
             fingerprint = ContentFingerprint(key_id=header["fp_key_id"], blocks=seq,
                                              tier_end=tuple(fp["tier_end"]))
-            assert [list(m) for m in fp["markers"]] == [[len(seq) - 1, "5m"]]
+            # cache_control on the system prompt (end of the static prefix) and the last block
+            assert [list(m) for m in fp["markers"]] == [[fp["tier_end"][1] - 1, "5m"],
+                                                        [len(seq) - 1, "5m"]]
             attempts = []
             for att in rec["attempts"]:
                 att = dict(att)

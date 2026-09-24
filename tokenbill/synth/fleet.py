@@ -1363,7 +1363,10 @@ def _agent_run(b: _Builder, r: random.Random, dev: DevInfo, start: int, key: tup
                 reads = 0
             writes = blocks.tokens - reads
         prev_prefix = reads + writes
-        marker = (Breakpoint(block_index=len(blocks.items) - 1, ttl="5m"),)
+        # cache_control on the system prompt (the static prefix every run re-sends) and on the
+        # last block: the placement the block-level replay recommends, so no breaker is planted
+        marker = (Breakpoint(block_index=_TOOL_DEFS, ttl="5m"),
+                  Breakpoint(block_index=len(blocks.items) - 1, ttl="5m"))
         rows.append(_Row(ts_ms=t + r.randint(0, 999),
                          usage=UsageBuckets(cache_read=reads, cache_write_5m=writes,
                                             output=r.randint(200, 900)),
