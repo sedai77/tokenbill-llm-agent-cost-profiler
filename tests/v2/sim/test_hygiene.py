@@ -65,3 +65,33 @@ def test_no_canary_in_outputs() -> None:
         assert_no_canary(json.dumps(to_json(res)))
     report = calibrate_lanes([lane], pricer=PRICER, rules=RULES)
     assert_no_canary(json.dumps(to_json(report)))
+
+
+_SCRIPT = """
+import json, random, sys
+sys.path.insert(0, {root!r})
+from tests.v2.sim.helpers import random_lane, replay, PRICER, RULES
+from tokenbill.core.records import to_json
+from tokenbill.sim.calibrate import calibrate_lanes
+lanes = [random_lane(random.Random(i), f"h{{i}}", team=("a", "b")[i % 2]) for i in range(30)]
+out = [to_json(replay(lanes, spec)) for spec in
+       ("ttl=1h;repair=stagger_fanout;repair=shared_ci_prefix", "keepalive=240s,max=3600s",
+        "model=claude-sonnet-4-6;effort=low;batch=eligible;fast=off")]
+out.append(to_json(calibrate_lanes(lanes, pricer=PRICER, rules=RULES)))
+print(json.dumps(out, sort_keys=True))
+"""
+
+
+def test_outputs_are_identical_across_processes_and_hash_seeds() -> None:
+    import os
+    import subprocess
+    import sys
+
+    script = _SCRIPT.format(root=str(REPO))
+    outputs = []
+    for seed in ("1", "2"):
+        env = {**os.environ, "PYTHONHASHSEED": seed}
+        done = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                              env=env, cwd=str(REPO), check=True, timeout=300)
+        outputs.append(done.stdout)
+    assert outputs[0] == outputs[1] and len(outputs[0]) > 1000

@@ -6,6 +6,7 @@ on process CPU time (best of three runs) so parallel builds on a shared machine 
 from __future__ import annotations
 
 import random
+import sys
 import time
 from collections.abc import Callable
 
@@ -37,6 +38,15 @@ def perf_lanes(n_requests: int, *, per_lane: int = 100, seed: int = 0) -> list:
     return lanes
 
 
+def _traced() -> bool:
+    """True under a tracer or coverage measurement, where CPU budgets are not meaningful."""
+    if sys.gettrace() is not None:
+        return True
+    cov = sys.modules.get("coverage")
+    current = getattr(getattr(cov, "Coverage", None), "current", None)
+    return bool(current and current() is not None)
+
+
 def _cpu(fn: Callable[[], object], repeat: int = 3) -> float:
     best = float("inf")
     for _ in range(repeat):
@@ -47,12 +57,16 @@ def _cpu(fn: Callable[[], object], repeat: int = 3) -> float:
 
 
 def _replay_budget(lanes: list, budget_s: float, *, repeat: int) -> None:
+    if _traced():
+        pytest.skip("CPU budgets are not measured under coverage or a tracer")
     n = sum(len(lane.requests) for lane in lanes)
     elapsed = _cpu(lambda: replay(lanes, "ttl=1h", keep=False), repeat=repeat)
     assert elapsed <= budget_s, f"replay of {n} requests took {elapsed:.1f} s"
 
 
 def _calibrate_budget(lanes: list, budget_s: float) -> None:
+    if _traced():
+        pytest.skip("CPU budgets are not measured under coverage or a tracer")
     n = sum(len(lane.requests) for lane in lanes)
     elapsed = _cpu(lambda: calibrate_lanes(lanes, pricer=PRICER, rules=RULES), repeat=1)
     assert elapsed <= budget_s, f"calibrate over {n} requests took {elapsed:.1f} s"

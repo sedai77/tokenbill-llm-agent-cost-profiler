@@ -195,3 +195,41 @@ def test_finish_accepts_unqualified_reasons() -> None:
     assert report.diag_confusion == (("model-switch", "model_changed", 2),)
     assert report.diag_precision_recall == (("model_changed", "1", "1"),)
     assert report.nmbe_pct_calibrated is None
+
+
+def test_a_ci_member_already_reading_more_than_s_ci_is_unchanged_in_calibrated_mode() -> None:
+    report = CalibrationReport(
+        granularity="day", n_periods=20, status="pass", mode_used="calibrated", nmbe_pct="0",
+        cvrmse_pct="0", nmbe_pct_calibrated="0", cvrmse_pct_calibrated="0",
+        thresholds=("10", "30"), rho=(("60s-300s", 50, 100, "0.4", "0.6"),),
+        diag_confusion=(), diag_precision_recall=(), unlabeled=0, no_comparison_labels=0,
+        ttl_corroboration=(0, 0), notes=())
+    attr = {**SDK, "workload_class": "ci"}
+    c1 = table([(0, 0, 1_000, 0, 0, 0)], lane_key="c1", kind=LaneKind.API_RUN, attribution=attr)
+    c2 = table([(100, 5_000, 20_000, 0, 0, 0)], lane_key="c2", kind=LaneKind.API_RUN,
+               attribution=attr)
+    res = replay([c1, c2], "repair=shared_ci_prefix", mode="calibrated", calibration=report)
+    assert not outcomes(res)[c2.requests[0].request_id].changed      # S_ci = 800 < R = 5,000
+
+
+def test_openai_other_ttl_writes_replay_and_calibrate() -> None:
+    from tokenbill.core.records import RequestParams
+
+    def req(seq: int, ts_s: int, usage: UsageBuckets, effort: str) -> object:
+        return make_request("oa", seq, at(ts_s), usage, "gpt-5.6-sol", attribution=SDK,
+                            params=RequestParams(model_requested="gpt-5.6-sol", effort=effort))
+
+    r0 = req(0, 0, UsageBuckets(cache_write_other=50_000, cache_write_other_ttl_s=1800,
+                                output=10), "high")
+    r1 = req(1, 2_000, UsageBuckets(cache_read=50_000, uncached_input=10, output=10), "high")
+    lane = make_lane([r0, r1])
+    res = replay(lane, "effort=low,scale=0.5")
+    assert res.saving.nano is not None and res.saving.nano >= 0
+    from tokenbill.sim.calibrate import calibrate_pass1
+
+    part = calibrate_pass1([lane], pricer=PRICER, rules=RULES)
+    # predicted miss (2,000 s > 1,800 s): the prefix is rewritten in τ's bucket (30m writes)
+    expected = FakePricer().price_usage(
+        UsageBuckets(cache_write_other=50_000, cache_write_other_ttl_s=1800, uncached_input=10,
+                     output=10), make_ctx("gpt-5.6-sol"), ts_ms=at(2_000)).figure.nano
+    assert dict(part.period_documented) == {"2026-09-23": expected}
