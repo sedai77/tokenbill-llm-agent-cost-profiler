@@ -78,8 +78,9 @@ KEEPALIVE_MAX_DEFAULT_S: int = KEEPALIVE_MAX_IDLE_S.value  # type: ignore[assign
 
 _OBSERVED_NAME = "observed"
 _BLOCK_REPAIR_RE = re.compile(r"block:[a-z0-9][a-z0-9_-]{0,63}\Z")
-_DURATION_RE = re.compile(r"(\d{1,9})([smh]?)\Z")
-_INT_RE = re.compile(r"\d{1,12}\Z")
+_DURATION_RE = re.compile(r"(\d{1,16})([smh]?)\Z")
+_INT_RE = re.compile(r"\d{1,16}\Z")
+_MAX_INT = records.MAX_TOKENS   # every count and duration is an int in (0, 2**53]
 _SCALE_RE = re.compile(r"(?:\d+(?:\.\d*)?|\.\d+)\Z")
 _FORBIDDEN = frozenset(";,@=")
 _MAX_SPEC_LEN = 16_384
@@ -211,8 +212,8 @@ def _duration_s(text: str, what: str) -> int:
         raise _bad(f"invalid {what} {_clip(text)}")
     n = int(m.group(1))
     seconds = n * {"": 1, "s": 1, "m": 60, "h": 3600}[m.group(2)]
-    if seconds <= 0:
-        raise _bad(f"{what} must be positive")
+    if not 0 < seconds <= _MAX_INT:
+        raise _bad(f"{what} out of range")
     return seconds
 
 
@@ -220,8 +221,8 @@ def _positive_int(text: str, what: str) -> int:
     if not _INT_RE.match(text):
         raise _bad(f"invalid {what} {_clip(text)}")
     n = int(text)
-    if n <= 0:
-        raise _bad(f"{what} must be positive")
+    if not 0 < n <= _MAX_INT:
+        raise _bad(f"{what} out of range")
     return n
 
 
@@ -433,8 +434,8 @@ def _sorted_entries(entries: object, width: int, what: str) -> list[tuple]:
 
 
 def _require_int(value: object, what: str) -> int:
-    if type(value) is not int or value <= 0:
-        raise _invalid(f"{what} must be a positive int")
+    if type(value) is not int or not 0 < value <= _MAX_INT:
+        raise _invalid(f"{what} must be an int in (0, 2**53]")
     return value
 
 
