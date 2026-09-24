@@ -779,8 +779,9 @@ class ReconciliationReport:
 
     def __post_init__(self) -> None:
         for key, value in _pairs(self, "decisions", sort=True):
-            domain = _RECON_DECISION_DOMAINS.get(_decision_prefix(key))
-            if domain is None or len(key) == len(_decision_prefix(key)):
+            prefix = _decision_prefix(key)
+            domain = _RECON_DECISION_DOMAINS.get(prefix)
+            if domain is None or not _decision_key_ok(prefix, key[len(prefix):]):
                 raise ContractViolation("ReconciliationReport.decisions: unknown decision key")
             if value not in domain:
                 raise ContractViolation("ReconciliationReport.decisions: value not allowed")
@@ -800,6 +801,17 @@ def _decision_prefix(key: str) -> str:
         if key.startswith(prefix):
             return prefix
     return ""
+
+
+def _decision_key_ok(prefix: str, rest: str) -> bool:
+    """``convention:<source_id>`` (non-empty, no control characters); ``gross_is_list:`` /
+    ``plan_fit:`` + ``<entity>:<YYYY-MM>`` with a pool entity id (``enterprise`` | ``org:<x>`` |
+    ``cc:<x>``, as ``PoolMonth.entity_id``)."""
+    if prefix == "convention:":
+        return _SOURCE_ID_RE.match(rest) is not None
+    entity, sep, month = rest.rpartition(":")
+    return bool(sep) and _POOL_ENTITY_RE.match(entity) is not None and (
+        _MONTH_RE.match(month) is not None)
 
 
 # ---------- verification ----------
@@ -945,6 +957,7 @@ class PublishedAggregate:     # the only aggregate type renderers/exporters acce
 _MONTH_RE = re.compile(r"\d{4}-(?:0[1-9]|1[0-2])\Z")
 _DATE_STR_RE = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
 _POOL_ENTITY_RE = re.compile(r"(?:enterprise|(?:org|cc):[^\x00-\x1f]+)\Z")
+_SOURCE_ID_RE = re.compile(r"[^\x00-\x1f]+\Z")
 _SCENARIOS = ("business", "enterprise")
 _EVIDENCE_PLANS = ("business", "enterprise", "mixed", "unknown")
 _BILLING_MODES = ("metered", "volume", "azure", "unknown")

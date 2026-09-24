@@ -285,9 +285,17 @@ def test_reconciliation_decisions() -> None:
                                              "plan_fit:enterprise:2026-09"]
     _round_trip(rep)
     assert _report().decisions == () and names(t.ReconciliationReport)[-1] == "decisions"
-    for bad in ([("convention:s", "maybe")], [("gross_is_list:e:2026-09", "yes")],
-                [("plan_fit:e:2026-09", "mixed")], [("verdict:x", "excl")],
+    ok = _report([("gross_is_list:cc:eng team:2026-10", "true"),
+                  ("plan_fit:org:acme:2026-12", "business")])
+    assert len(ok.decisions) == 2
+    for bad in ([("convention:s", "maybe")], [("gross_is_list:enterprise:2026-09", "yes")],
+                [("plan_fit:enterprise:2026-09", "mixed")], [("verdict:x", "excl")],
                 [("convention:", "excl")], [("convention:s", "excl"), ("convention:s", "incl")],
-                [("convention:s", 1)]):
+                [("convention:s", 1)], [("convention:s\n", "excl")],
+                # <entity>:<YYYY-MM> with a pool entity id (as PoolMonth.entity_id)
+                [("gross_is_list:e:2026-09", "true")], [("gross_is_list:enterprise", "true")],
+                [("plan_fit:enterprise:2026-13", "business")],
+                [("plan_fit:enterprise:2026-09-01", "business")],
+                [("plan_fit:org::2026-09", "business")], [("gross_is_list::2026-09", "true")]):
         with pytest.raises(ContractViolation):
             _report(bad)

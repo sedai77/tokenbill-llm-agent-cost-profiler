@@ -365,6 +365,8 @@ _KEY_SUFFIX_RE = re.compile(r"[a-z0-9._-]{1,64}\Z")
 _DECIMAL_STR_RE = re.compile(r"-?[0-9]{1,40}(?:\.[0-9]{1,40})?\Z")
 _ENTITY_ID_RE = re.compile(r"(?:enterprise|run|admin_answers|(?:org|cc|budget):[^\x00-\x1f]+)\Z")
 _INT64 = 2**63 - 1
+#: 9999-12-31T23:59:59.999Z in epoch ms: the last instant with a ``datetime.date``.
+_MAX_DATE_MS = 253_402_300_799_999
 _PRINCIPAL_RE = re.compile(r"(?:[pc]_[0-9a-f]{20}|r_[A-Za-z0-9._-]{1,64})\Z")
 _STORE_PRINCIPAL_RE = re.compile(r"p_[0-9a-f]{20}\Z")
 _HASH_RE = re.compile(r"h_[0-9a-f]{20}\Z")
@@ -1486,6 +1488,8 @@ class ConfigSnapshot:
 
     def __post_init__(self) -> None:
         _count(self, "snapshot_ms")
+        if self.snapshot_ms > _MAX_DATE_MS:  # record_key derives its UTC date
+            raise _fail(self, "snapshot_ms", "after 9999-12-31")
         _one_of(self, "source_kind", CONFIG_SOURCE_KINDS)
         _one_of(self, "kind", CONFIG_KINDS)
         e = self.entity_id
@@ -1503,13 +1507,18 @@ class ConfigSnapshot:
 
 
 def _key_part(value: object) -> str:
+    """One natural-key part: ``""`` for None, ``true`` / ``false`` for bools; a backslash or the
+    ``\\x1f`` separator inside a free string is escaped, so distinct records never share a key."""
     if value is None:
         return ""
     if value is True:
         return "true"
     if value is False:
         return "false"
-    return str(value)
+    s = str(value)
+    if "\\" in s or "\x1f" in s:
+        s = s.replace("\\", "\\\\").replace("\x1f", "\\x1f")
+    return s
 
 
 def _utc_date_of_ms(ms: int) -> str:
@@ -1522,14 +1531,15 @@ def record_key(rec: LicenseSnapshot | ActivityDay | ConfigSnapshot) -> str:
     License: ``(snapshot_date, product, principal, org or "")``; activity: ``(date_utc, product,
     principal)``; configuration: ``(kind, entity_id, UTC date of snapshot_ms)`` plus, for
     ``COUNT_CONFIG_KINDS``, every non-count attr (all but ``n``, ``n_people``, ``n_users``) as
-    ``k=v`` in key order — so several count rows per entity and day never collide.
+    ``k=v`` in key order — so several count rows per entity and day never collide. A backslash or
+    ``"\\x1f"`` inside a free-string part is backslash-escaped (injective).
     """
     if isinstance(rec, LicenseSnapshot):
-        parts = [rec.snapshot_date, rec.product, rec.principal, _key_part(rec.org)]
+        parts = [rec.snapshot_date, _key_part(rec.product), rec.principal, _key_part(rec.org)]
     elif isinstance(rec, ActivityDay):
-        parts = [rec.date_utc, rec.product, rec.principal]
+        parts = [rec.date_utc, _key_part(rec.product), rec.principal]
     elif isinstance(rec, ConfigSnapshot):
-        parts = [rec.kind, rec.entity_id, _utc_date_of_ms(rec.snapshot_ms)]
+        parts = [rec.kind, _key_part(rec.entity_id), _utc_date_of_ms(rec.snapshot_ms)]
         if rec.kind in COUNT_CONFIG_KINDS:
             parts.extend(f"{k}={_key_part(v)}" for k, v in rec.attrs if k not in _COUNT_ATTRS)
     else:

@@ -321,6 +321,15 @@ def test_extension_spec() -> None:
         reg.ArgvAlias("scan", "--x", "any", ())
     with pytest.raises(ContractViolation):
         reg.ArgvAlias("scan", "--x", "any", ("",))
+    for verb, trigger in (("", "--x"), ("scan", ""), (None, "--x")):
+        with pytest.raises(ContractViolation):
+            reg.ArgvAlias(verb, trigger, "any", ("x",))  # type: ignore[arg-type]
+    with pytest.raises(ContractViolation):
+        reg.ArgvAlias("scan", "--x", "any", "copilot")  # type: ignore[arg-type]
+    listed = reg.ArgvAlias("scan", "--x", "any", ["copilot", "scan"])  # type: ignore[arg-type]
+    assert listed.target == ("copilot", "scan") and hash(listed) == hash(
+        reg.ArgvAlias("scan", "--x", "any", ("copilot", "scan")))
+    assert hash(spec)  # every spec value is immutable
 
 
 def test_registry_import_loads_no_wave2_module() -> None:

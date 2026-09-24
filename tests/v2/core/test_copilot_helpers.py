@@ -176,6 +176,28 @@ def test_load_json_exact(tmp_path: Path) -> None:
         jsonl.load_json_exact(plain, max_bytes=-1)
 
 
+@pytest.mark.parametrize("depth", [300, 500, 900, 990, 2_000, 20_000])
+def test_deep_nesting_with_surrogate_escapes_never_raises(tmp_path: Path, depth: int) -> None:
+    """The unpaired-surrogate scan is iterative: a document nested as deeply as the JSON decoder
+    accepts gives None / SourceError (lone surrogate) or parses (paired), never RecursionError."""
+    lone = '{"a":' + "[" * depth + '"\\ud800"' + "]" * depth + "}"
+    paired = '{"a":' + "[" * depth + '"\\ud83d\\ude00"' + "]" * depth + "}"
+    for exact in (False, True):
+        assert jsonl.parse_json_line(lone.encode(), exact_numbers=exact) is None
+        got = jsonl.parse_json_line(paired.encode(), exact_numbers=exact)
+        assert got is None or isinstance(got, dict)  # None only when the decoder refuses depth
+    path = tmp_path / "deep.json"
+    path.write_text(lone, encoding="utf-8")
+    with pytest.raises(SourceError):
+        jsonl.load_json_exact(path)
+    path.write_text(paired, encoding="utf-8")
+    try:
+        doc = jsonl.load_json_exact(path)
+    except SourceError:  # the decoder itself refused the depth
+        return
+    assert isinstance(doc, dict) and "a" in doc
+
+
 @given(st.binary(max_size=200))
 @settings(max_examples=300, deadline=None)
 def test_exact_parsers_fuzz(blob: bytes) -> None:

@@ -449,10 +449,17 @@ class ArgvAlias:
     target: tuple[str, ...]       # replacement prefix; the trigger token is removed
 
     def __post_init__(self) -> None:
+        if not (isinstance(self.verb, str) and self.verb and isinstance(self.trigger, str)
+                and self.trigger):
+            raise ContractViolation("ArgvAlias.verb and trigger must be non-empty strings")
         if self.position not in ("first", "any"):
             raise ContractViolation("ArgvAlias.position must be 'first' or 'any'")
-        if not self.target or not all(isinstance(t, str) and t for t in self.target):
+        target = self.target
+        if not isinstance(target, (list, tuple)) or not target or not all(
+                isinstance(t, str) and t for t in target):
             raise ContractViolation("ArgvAlias.target must be a non-empty tuple of tokens")
+        if type(target) is not tuple:  # a list target stays hashable and immutable
+            object.__setattr__(self, "target", tuple(target))
 
 
 @dataclass(frozen=True)

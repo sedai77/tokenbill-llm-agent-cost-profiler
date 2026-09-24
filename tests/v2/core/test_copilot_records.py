@@ -447,6 +447,28 @@ def test_record_keys() -> None:
         r.record_key(make_cost_line(1))  # type: ignore[arg-type]
 
 
+def test_record_key_is_injective_and_total() -> None:
+    # a separator inside a free string cannot forge another row's key
+    one = make_config("seat_counts", {"team": "a\x1fplan=business", "n": 1},
+                      entity_id="enterprise")
+    two = make_config("seat_counts", {"team": "a", "plan": "business", "n": 1},
+                      entity_id="enterprise")
+    assert r.record_key(one) != r.record_key(two)
+    assert r.record_key(one).count("\x1f") == 3
+    slash = make_config("seat_counts", {"team": "a\\x1fplan=business", "n": 1},
+                        entity_id="enterprise")
+    assert r.record_key(slash) != r.record_key(one)
+    assert r.record_key(make_license(P1, org="acme")).endswith("\x1facme")  # plain strings as-is
+    lic = make_license(P1, org="a\x1fb")
+    assert r.record_key(lic).split("\x1f")[-1] == "a\\x1fb"
+    # the key's UTC date exists for every valid snapshot (9999-12-31 is the last one)
+    last = make_config("run_flags", {}, snapshot_ms=253_402_300_799_999)
+    assert r.record_key(last).endswith("\x1f9999-12-31")
+    for ms in (253_402_300_800_000, 2**53):
+        with pytest.raises(ContractViolation):
+            make_config("run_flags", {}, snapshot_ms=ms)
+
+
 # ---------- round-trip properties ----------
 
 _ident = st.text("abcdefghijklmnopqrstuvwxyz0123456789_-.", min_size=1, max_size=12)
@@ -480,7 +502,8 @@ activity_days = st.builds(
     flags=st.lists(st.sampled_from(r.ACTIVITY_FLAGS), unique=True).map(lambda f: tuple(sorted(f))),
     fetched_ms=st.integers(0, 2**40),
 )
-_values = st.none() | st.booleans() | st.integers(-(2**63) + 1, 2**63 - 1) | _ident
+_values = (st.none() | st.booleans() | st.integers(-(2**63) + 1, 2**63 - 1) | _ident
+           | st.text("ab\\\x1f=", max_size=4))
 
 
 @st.composite
@@ -496,7 +519,7 @@ def configs(draw: st.DrawFn) -> r.ConfigSnapshot:
     entity = draw(st.sampled_from(["enterprise", "run", "admin_answers"]) | st.tuples(
         st.sampled_from(["org:", "cc:", "budget:"]), _ident).map("".join))
     return r.ConfigSnapshot(
-        snapshot_ms=draw(st.integers(0, 4_102_444_800_000)),
+        snapshot_ms=draw(st.integers(0, 253_402_300_799_999)),
         source_kind=draw(st.sampled_from(r.CONFIG_SOURCE_KINDS)),
         kind=kind,
         entity_id=entity,
@@ -528,6 +551,7 @@ def test_new_records_mutation_fuzz(rec: object, data: st.DataObject) -> None:
     if data.draw(st.booleans()):
         mutated["unknown_key"] = 1
     try:
-        r.from_json(type(rec), mutated)
+        decoded = r.from_json(type(rec), mutated)
     except ContractViolation:
-        pass
+        return
+    assert isinstance(r.record_key(decoded), str)  # every valid record has a natural key

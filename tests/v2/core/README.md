@@ -127,3 +127,15 @@ revision carrying its prices. No fixture files: every record is built in the tes
 - `to_json` leaves fields appended in wave 1.5 out while they hold their default (`records.appended`,
   `OMIT_DEFAULT`), so every pre-Copilot document — e.g. BLOCK's checked-in fixtures on the v0.2 canary — is
   byte-identical; `from_json` restores the defaults.
+
+### Hardening from the adversarial review
+
+- `core.jsonl`'s unpaired-surrogate scan is iterative: `parse_json_line` (both number modes) and
+  `load_json_exact` return None / raise `SourceError` for a document nested as deeply as the JSON decoder
+  accepts, never `RecursionError` (`test_deep_nesting_with_surrogate_escapes_never_raises`).
+- `ConfigSnapshot.snapshot_ms` ends at 9999-12-31T23:59:59.999Z, so `record_key` always has its UTC date;
+  `record_key` backslash-escapes `\x1f` (and `\`) inside free-string parts, so no attr value can forge
+  another row's key (`test_record_key_is_injective_and_total`, widened strategies).
+- `ReconciliationReport.decisions` keys follow their documented shapes: `convention:<source_id>`,
+  `gross_is_list:` / `plan_fit:` + `<entity>:<YYYY-MM>` with a pool entity id.
+- `ArgvAlias` validates `verb` / `trigger` and stores a list `target` as a tuple (specs stay hashable).
