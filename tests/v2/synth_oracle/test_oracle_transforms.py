@@ -87,7 +87,7 @@ def test_summary_tokens_come_from_the_policy_or_the_default() -> None:
 
 
 def test_compaction_on_the_first_request_uses_new_equal_to_t0() -> None:
-    # literal §9.3.3: new_0 = T_0, so a first request above the window becomes S_c + T_0 (O-6)
+    # literal §9.3.3: new_0 = T_0, so a first request above the window becomes S_c + T_0 (O-7)
     ln = _sonnet([(0, 0, 500_000, 0, 0, 0)])
     res = replay([ln], "compact-window=400000,post=20000")
     out = res.outcomes[0]  # type: ignore[index]

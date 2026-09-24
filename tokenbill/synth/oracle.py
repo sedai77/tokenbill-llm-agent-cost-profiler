@@ -19,8 +19,8 @@ and, when anything in the lane is range-sensitive, as a **low** scenario (ambigu
 alive, low tokenizer band, effort scale ``s − 0.25``, batch hit band 0.98) and a **high** scenario
 (ambiguous transitions expired, high band, ``s + 0.25``, hit band 0.30). A request's cost is the
 point scenario's point; its bounds span every scenario's priced bounds, so ``low ≤ point ≤ high``
-always holds. The interpretations of SPEC text that the SPEC leaves open are listed (O-1 …) in
-``tests/v2/synth_oracle/README.md`` and ``CONTRACT-CHANGE-SYNTH-ORACLE-1.md``.
+always holds. The readings of SPEC text that the SPEC leaves open are listed (O-1 … O-17) in
+``tests/v2/synth_oracle/CONTRACT-CHANGE-SYNTH-ORACLE-1.md``.
 """
 
 from __future__ import annotations
