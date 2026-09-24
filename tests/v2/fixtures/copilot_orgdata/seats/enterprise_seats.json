@@ -1,0 +1,298 @@
+{
+ "fetched_at": "2026-09-20T12:00:00Z",
+ "request": {
+  "path": "/enterprises/acme/copilot/billing/seats",
+  "query": {}
+ },
+ "response": {
+  "seats": [
+   {
+    "assignee": {
+     "avatar_url": "https://github.com/images/tb-canary-login-7f3a91.gif",
+     "email": "canary.TB-CANARY-7f3a91@example.com",
+     "gravatar_id": "",
+     "html_url": "https://github.com/tb-canary-login-7f3a91",
+     "id": 1000,
+     "login": "tb-canary-login-7f3a91",
+     "name": "Name TB-CANARY-7f3a91",
+     "node_id": "U_1000",
+     "site_admin": false,
+     "type": "User",
+     "url": "https://api.github.com/users/tb-canary-login-7f3a91"
+    },
+    "assigning_team": {
+     "description": "team TB-CANARY-7f3a91",
+     "html_url": "https://github.com/orgs/acme-eng/teams/platform",
+     "id": 1,
+     "name": "Platform",
+     "slug": "platform"
+    },
+    "created_at": "2026-03-01T09:00:00-06:00",
+    "last_activity_at": "2026-09-19T17:00:00-06:00",
+    "last_activity_editor": "vscode/1.77.3/copilot/1.86.82",
+    "last_authenticated_at": "2026-09-19T17:00:00-06:00",
+    "organization": {
+     "description": "org TB-CANARY-7f3a91",
+     "id": 7,
+     "login": "acme-eng",
+     "url": "https://api.github.com/orgs/acme-eng"
+    },
+    "pending_cancellation_date": null,
+    "plan_type": "business",
+    "updated_at": "2026-03-02T09:00:00-06:00"
+   },
+   {
+    "assignee": {
+     "avatar_url": "https://github.com/images/tb-canary-login-7f3a91.gif",
+     "email": "canary.TB-CANARY-7f3a91@example.com",
+     "gravatar_id": "",
+     "html_url": "https://github.com/tb-canary-login-7f3a91",
+     "id": 1000,
+     "login": "tb-canary-login-7f3a91",
+     "name": "Name TB-CANARY-7f3a91",
+     "node_id": "U_1000",
+     "site_admin": false,
+     "type": "User",
+     "url": "https://api.github.com/users/tb-canary-login-7f3a91"
+    },
+    "created_at": "2026-03-01T09:00:00-06:00",
+    "last_activity_at": "2026-09-01T10:00:00Z",
+    "last_activity_editor": "JetBrains-IU/242.23726.103/copilot-intellij/1.5.52-241",
+    "last_authenticated_at": "2026-09-01T10:00:00Z",
+    "organization": {
+     "description": "org TB-CANARY-7f3a91",
+     "id": 7,
+     "login": "acme-data",
+     "url": "https://api.github.com/orgs/acme-data"
+    },
+    "pending_cancellation_date": null,
+    "plan_type": "enterprise",
+    "updated_at": "2026-03-02T09:00:00-06:00"
+   },
+   {
+    "assignee": {
+     "avatar_url": "https://github.com/images/dev-02.gif",
+     "email": "dev-02@example.com",
+     "gravatar_id": "",
+     "html_url": "https://github.com/dev-02",
+     "id": 1001,
+     "login": "dev-02",
+     "name": "Name TB-CANARY-7f3a91",
+     "node_id": "U_1001",
+     "site_admin": false,
+     "type": "User",
+     "url": "https://api.github.com/users/dev-02"
+    },
+    "created_at": "2026-03-01T09:00:00-06:00",
+    "last_activity_at": "2026-09-20T08:00:00Z",
+    "last_activity_editor": "vscode/1.77.3/copilot/1.86.82",
+    "last_authenticated_at": "2026-09-20T08:00:00Z",
+    "organization": {
+     "description": "org TB-CANARY-7f3a91",
+     "id": 7,
+     "login": "acme-eng",
+     "url": "https://api.github.com/orgs/acme-eng"
+    },
+    "pending_cancellation_date": null,
+    "plan_type": "business",
+    "updated_at": "2026-03-02T09:00:00-06:00"
+   },
+   {
+    "assignee": {
+     "avatar_url": "https://github.com/images/dev-03.gif",
+     "email": "dev-03@example.com",
+     "gravatar_id": "",
+     "html_url": "https://github.com/dev-03",
+     "id": 1002,
+     "login": "dev-03",
+     "name": "Name TB-CANARY-7f3a91",
+     "node_id": "U_1002",
+     "site_admin": false,
+     "type": "User",
+     "url": "https://api.github.com/users/dev-03"
+    },
+    "created_at": "2026-03-01T09:00:00-06:00",
+    "last_activity_at": "2026-09-13T23:59:59Z",
+    "last_activity_editor": "vscode/1.77.3/copilot/1.86.82",
+    "last_authenticated_at": "2026-09-13T23:59:59Z",
+    "organization": {
+     "description": "org TB-CANARY-7f3a91",
+     "id": 7,
+     "login": "acme-eng",
+     "url": "https://api.github.com/orgs/acme-eng"
+    },
+    "pending_cancellation_date": null,
+    "plan_type": "business",
+    "updated_at": "2026-03-02T09:00:00-06:00"
+   },
+   {
+    "assignee": {
+     "avatar_url": "https://github.com/images/dev-04.gif",
+     "email": "dev-04@example.com",
+     "gravatar_id": "",
+     "html_url": "https://github.com/dev-04",
+     "id": 1003,
+     "login": "dev-04",
+     "name": "Name TB-CANARY-7f3a91",
+     "node_id": "U_1003",
+     "site_admin": false,
+     "type": "User",
+     "url": "https://api.github.com/users/dev-04"
+    },
+    "created_at": "2026-03-01T09:00:00-06:00",
+    "last_activity_at": "2026-09-12T12:00:00Z",
+    "last_activity_editor": "vscode/1.77.3/copilot/1.86.82",
+    "last_authenticated_at": "2026-09-12T12:00:00Z",
+    "organization": {
+     "description": "org TB-CANARY-7f3a91",
+     "id": 7,
+     "login": "acme-eng",
+     "url": "https://api.github.com/orgs/acme-eng"
+    },
+    "pending_cancellation_date": null,
+    "plan_type": "business",
+    "updated_at": "2026-03-02T09:00:00-06:00"
+   },
+   {
+    "assignee": {
+     "avatar_url": "https://github.com/images/dev-05.gif",
+     "email": "dev-05@example.com",
+     "gravatar_id": "",
+     "html_url": "https://github.com/dev-05",
+     "id": 1004,
+     "login": "dev-05",
+     "name": "Name TB-CANARY-7f3a91",
+     "node_id": "U_1004",
+     "site_admin": false,
+     "type": "User",
+     "url": "https://api.github.com/users/dev-05"
+    },
+    "created_at": "2026-03-01T09:00:00-06:00",
+    "last_activity_at": "2026-08-21T00:00:00Z",
+    "last_activity_editor": "vscode/1.77.3/copilot/1.86.82",
+    "last_authenticated_at": "2026-08-21T00:00:00Z",
+    "organization": {
+     "description": "org TB-CANARY-7f3a91",
+     "id": 7,
+     "login": "acme-eng",
+     "url": "https://api.github.com/orgs/acme-eng"
+    },
+    "pending_cancellation_date": null,
+    "plan_type": "business",
+    "updated_at": "2026-03-02T09:00:00-06:00"
+   },
+   {
+    "assignee": {
+     "avatar_url": "https://github.com/images/dev-06.gif",
+     "email": "dev-06@example.com",
+     "gravatar_id": "",
+     "html_url": "https://github.com/dev-06",
+     "id": 1005,
+     "login": "dev-06",
+     "name": "Name TB-CANARY-7f3a91",
+     "node_id": "U_1005",
+     "site_admin": false,
+     "type": "User",
+     "url": "https://api.github.com/users/dev-06"
+    },
+    "created_at": "2026-03-01T09:00:00-06:00",
+    "last_activity_at": "2026-08-20T23:00:00Z",
+    "last_activity_editor": "vscode/1.77.3/copilot/1.86.82",
+    "last_authenticated_at": "2026-08-20T23:00:00Z",
+    "organization": {
+     "description": "org TB-CANARY-7f3a91",
+     "id": 7,
+     "login": "acme-eng",
+     "url": "https://api.github.com/orgs/acme-eng"
+    },
+    "pending_cancellation_date": null,
+    "plan_type": "business",
+    "updated_at": "2026-03-02T09:00:00-06:00"
+   },
+   {
+    "assignee": {
+     "avatar_url": "https://github.com/images/dev-07.gif",
+     "email": "dev-07@example.com",
+     "gravatar_id": "",
+     "html_url": "https://github.com/dev-07",
+     "id": 1006,
+     "login": "dev-07",
+     "name": "Name TB-CANARY-7f3a91",
+     "node_id": "U_1006",
+     "site_admin": false,
+     "type": "User",
+     "url": "https://api.github.com/users/dev-07"
+    },
+    "created_at": "2026-03-01T09:00:00-06:00",
+    "last_activity_at": "2026-06-22T10:00:00Z",
+    "last_activity_editor": "vscode/1.77.3/copilot/1.86.82",
+    "last_authenticated_at": "2026-06-22T10:00:00Z",
+    "organization": {
+     "description": "org TB-CANARY-7f3a91",
+     "id": 7,
+     "login": "acme-eng",
+     "url": "https://api.github.com/orgs/acme-eng"
+    },
+    "pending_cancellation_date": null,
+    "plan_type": "business",
+    "updated_at": "2026-03-02T09:00:00-06:00"
+   },
+   {
+    "assignee": {
+     "avatar_url": "https://github.com/images/dev-08.gif",
+     "email": "dev-08@example.com",
+     "gravatar_id": "",
+     "html_url": "https://github.com/dev-08",
+     "id": 1007,
+     "login": "dev-08",
+     "name": "Name TB-CANARY-7f3a91",
+     "node_id": "U_1007",
+     "site_admin": false,
+     "type": "User",
+     "url": "https://api.github.com/users/dev-08"
+    },
+    "created_at": "2026-03-01T09:00:00-06:00",
+    "last_activity_at": "2026-06-21T10:00:00Z",
+    "last_activity_editor": "vscode/1.77.3/copilot/1.86.82",
+    "last_authenticated_at": "2026-06-21T10:00:00Z",
+    "organization": {
+     "description": "org TB-CANARY-7f3a91",
+     "id": 7,
+     "login": "acme-eng",
+     "url": "https://api.github.com/orgs/acme-eng"
+    },
+    "pending_cancellation_date": "2026-10-01",
+    "plan_type": "business",
+    "updated_at": "2026-03-02T09:00:00-06:00"
+   },
+   {
+    "assignee": {
+     "avatar_url": "https://github.com/images/dev-09.gif",
+     "email": "dev-09@example.com",
+     "gravatar_id": "",
+     "html_url": "https://github.com/dev-09",
+     "id": 1008,
+     "login": "dev-09",
+     "name": "Name TB-CANARY-7f3a91",
+     "node_id": "U_1008",
+     "site_admin": false,
+     "type": "User",
+     "url": "https://api.github.com/users/dev-09"
+    },
+    "created_at": "2026-03-01T09:00:00-06:00",
+    "last_activity_at": null,
+    "last_activity_editor": null,
+    "last_authenticated_at": null,
+    "organization": {
+     "description": "org TB-CANARY-7f3a91",
+     "id": 7,
+     "login": "acme-eng",
+     "url": "https://api.github.com/orgs/acme-eng"
+    },
+    "pending_cancellation_date": null,
+    "updated_at": "2026-03-02T09:00:00-06:00"
+   }
+  ],
+  "total_seats": 9
+ }
+}
