@@ -233,6 +233,7 @@ def test_contract_field_names() -> None:
         "unpriced_inferences",
         "unpriced_tokens",
         "coverage",
+        "pool",
     ]
     assert names(t.ReplayResult)[:5] == ["policy", "mode", "baseline", "cost", "saving"]
     assert names(t.ShardKey) == ["team", "lane_kind"]
@@ -258,4 +259,4 @@ def test_contract_field_names() -> None:
     assert names(t.PublishedAggregate)[-1] == "token"
     assert names(t.CalibrationPartial)[0] == "granularity"
     assert "allowance_headroom_monthly" in names(t.ActionPlan)
-    assert len(names(t.RunResult)) == 21
+    assert len(names(t.RunResult)) == 22
