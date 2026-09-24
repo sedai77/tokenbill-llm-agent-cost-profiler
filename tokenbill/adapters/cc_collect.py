@@ -197,7 +197,9 @@ def collect_incremental(root: Path, state: CollectorState, opts: IngestOptions, 
     or with an mtime more than :data:`CLOCK_SKEW_MS` after *now_ms* (an injected clock behind the
     file system: the file is treated as final) — or when *final* is true (e.g. a last collection
     at shutdown). The first result also carries ``dq.retention_warning`` when transcripts approach
-    ``cleanupPeriodDays``.
+    ``cleanupPeriodDays``. Once the iterator is exhausted, the cursors of transcripts no longer
+    under *root* (deleted by Claude Code's cleanup) are dropped from *state*; use one state per
+    root.
     """
     check_options(opts)
     opts = dataclasses.replace(opts, now_ms=now_ms) if opts.now_ms != now_ms else opts
@@ -213,6 +215,15 @@ def collect_incremental(root: Path, state: CollectorState, opts: IngestOptions, 
             result.notes.sort(key=lambda n: n.code)
         first = False
         yield result
+    if files:
+        # Claude Code deletes transcripts after cleanupPeriodDays: forget the cursors of files no
+        # longer under *root* so the state stays bounded by the transcripts on disk (one state
+        # per root; an empty or missing root prunes nothing)
+        live = {source_id_for(opts, p) for p in files}
+        for key in [k for k in state.cursors if k not in live]:
+            del state.cursors[key]
+        for key in [k for k in state.contexts if k not in live]:
+            del state.contexts[key]
 
 
 def _collect_file(path: Path, state: CollectorState, opts: IngestOptions,

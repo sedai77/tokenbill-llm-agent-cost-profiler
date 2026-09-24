@@ -485,3 +485,20 @@ def test_cursor_rejects_a_non_list_uuid_set() -> None:
     assert FileCursor.from_json(dict(base, recent_uuids={"u": 1})) is None
     assert FileCursor.from_json(dict(base, recent_uuids=["u"])).recent_uuids == ["u"]
     assert FileCursor.from_json(base).recent_uuids == []
+
+
+def test_cursors_of_deleted_transcripts_are_pruned(tmp_path: Path) -> None:
+    root = tmp_path / "tree"
+    bf.build(root)
+    projects = root / "projects"
+    state = CollectorState()
+    list(collect_incremental(projects, state, opts(), now_ms=NOW + 30 * 86_400_000))
+    assert len(state.cursors) == len(state.contexts) == 4
+    beta = next(projects.glob("-home-dev-beta/*.jsonl"))
+    beta.unlink()                                  # removed by cleanupPeriodDays
+    assert list(collect_incremental(projects, state, opts(),
+                                    now_ms=NOW + 31 * 86_400_000)) == []
+    assert len(state.cursors) == len(state.contexts) == 3
+    missing = tmp_path / "gone"
+    assert list(collect_incremental(missing, state, opts(), now_ms=NOW)) == []
+    assert len(state.cursors) == 3                 # an empty or missing root prunes nothing

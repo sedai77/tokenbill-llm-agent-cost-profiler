@@ -83,9 +83,15 @@ the directory; the headless files are rejected by the transcript sniffer).
 * **Duplicate lines** are detected over a sliding window of the last 2,000 uuids — the collector
   cursor's bound — so one-shot and incremental reads drop the same lines.
 * **Re-appearing message ids.** A line for an already-closed message id re-opens it: the request is
-  re-emitted (same id, start, appended items, attribution and parameters as its first emission)
-  only when the output strictly grows, so the store's per-field attribution merge never mixes two
-  versions.
+  re-emitted (same id, start, appended items, attribution, parameters and billing path as its first
+  emission) only when the output strictly grows, so the store's per-field attribution merge never
+  mixes two versions. Within one read the re-emission **replaces** the first request (one request
+  per message id, however far apart the lines are: the last 16 closed messages are kept in the
+  parser, older ones are found through a lazily built id → request map, so even a rewritten history
+  stays linear); a message emitted in an earlier collector run is re-emitted in the new chunk and
+  merged by the store. A re-emission does not repeat per-request notes (version histogram,
+  allowance count, TTL notes) or lane-state updates, so notes summed over collector chunks equal the
+  one-shot import's.
 * **Collector: trailing groups are withheld**, not emitted early — the ones still streaming and
   also a last group that already carries a stop reason (a one-shot import finalizes it only at the
   next non-assistant entry). Emitting either early could make the merged ledger differ from a
@@ -106,14 +112,18 @@ the directory; the headless files are rejected by the transcript sniffer).
 * **Channels and scope.** Billing path bedrock / vertex / foundry / claude_platform_aws selects the
   channel; without one, a Bedrock/Vertex-form model id's channel hint (and Bedrock scope) is used.
   `endpoint_scope` comes from `--attr endpoint_scope=` first.
-* **Subagent parent.** `parent_lane_key` is the main lane, or the parent agent's lane when the
-  meta file names `parentAgentId`.
+* **Subagent parent.** `parent_lane_key` of every subagent and workflow lane is the main lane of the
+  same session (§5.3 step 11), nested agents (`parentAgentId` in the meta file) included.
 * **Events.** QUOTA_STATE is emitted when the session's quota attributes change (split lines of one
   message repeat them); the `fallback` content block and the `model_refusal_fallback` entry of the
   same fallback give one MODEL_FALLBACK.
-* **Provenance.** One `SourceRef` per file (`locator` `file`); `Request.seq` is the byte offset of
-  the message's first line (stable across incremental reads). Quarantine locators are
-  `offset:<byte>`.
+* **Provenance.** One `SourceRef` per file (`locator` `file`, prefixed in a directory read by an
+  HMAC of the file's path below the root, `<f_…>:`); `Request.seq` is the byte offset of the
+  message's first line (stable across incremental reads). Quarantine locators are `offset:<byte>`
+  (with the same prefix in a directory read).
+* **Time window.** `since_ms`/`until_ms` filter requests (by start) and events; `naive_usage` sums
+  only lines whose timestamp is inside the window, so the naive ratio compares like with like.
+  Per-request data-quality counts still cover the whole file.
 * **Performance.** The importer pauses the cyclic GC during a parse, reuses one JSON decoder
   (`parse_line`, equal to `core.jsonl.parse_json_line`) and builds the common single-inference case
   directly (`message_inferences`, equal to `core.conventions.anthropic_inferences`); both
@@ -130,4 +140,13 @@ the directory; the headless files are rejected by the transcript sniffer).
   `modelUsage` without steps and would otherwise look "resumed"); a model without steps still gets
   its full output as the residual (its inputs are not in the stream and stay uncounted).
   Subagent lanes are keyed by `parent_tool_use_id` (`tool:<id>`), so a transcript of the same run
-  (keyed by agent id) merges through message ids, not lanes.
+  (keyed by agent id) merges through message ids, not lanes. A residual is priced at the service
+  tier, speed and geo of the last step on its model (standard without a step), so a fast-mode run's
+  residual output is not priced at standard rates.
+* **Collector robustness.** A saved parser context of the wrong shape (a damaged state file) is
+  discarded and the file re-read from the start (`ContextError`, logged); a rotated file that
+  emits nothing keeps no context from the file it replaced.
+* **Collector state size.** Once `collect_incremental` has run to completion, the cursors of
+  transcripts no longer under the root (deleted by `cleanupPeriodDays`) are dropped, so the state
+  file is bounded by the transcripts on disk (one state per root; an empty or missing root prunes
+  nothing).

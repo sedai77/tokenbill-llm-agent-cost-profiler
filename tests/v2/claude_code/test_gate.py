@@ -26,6 +26,7 @@ NOW = bf.T0_MS + 3_600_000
 
 def _sqlite(tmp: Path, name: str) -> Any:
     db = pytest.importorskip("tokenbill.store.db")
+    (tmp / name).mkdir(parents=True, exist_ok=True)
     return db.SqliteStore(tmp / name / "tokenbill.db", org_key=ORG_KEY,
                           name_key_id=key_id(NAME_KEY))
 
