@@ -83,6 +83,22 @@ def test_a_speed_change_inside_a_lane_breaks_the_system_tier() -> None:
                                                          context(min_usd="0")))
 
 
+def test_an_unreported_parameter_between_two_values_breaks_no_chain() -> None:
+    # effort high → (not reported) → low: core.transitions compares neighbours only and None is
+    # never a change, so neither step is an effort change — and the chain reads through
+    sdk = {"agent_product": "agent_sdk"}
+    msgs = [blk(f"ur{i}") for i in range(3)]
+    reqs = []
+    for i, effort in enumerate(("high", None, "low")):
+        blocks = [SYS, *msgs[: i + 1]]
+        reqs.append(req("UR", i, 30 * i, blocks, usage(w5=size(blocks)),
+                        params={"effort": effort}, attribution=sdk))
+    ln = lane(reqs)
+    assert [first_divergence(reqs[i - 1], reqs[i]) for i in (1, 2)] == [None, None]
+    assert predicted([ln]) == [(0, 2000, 0), (2000, 1000, 0), (3000, 1000, 0)]
+    assert BlockBreakers().detect([ln], context(min_usd="0")) == []
+
+
 class AllTiers:
     """A rules provider on which effort also salts the tools and system tiers."""
 

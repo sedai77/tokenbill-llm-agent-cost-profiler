@@ -30,7 +30,7 @@ Package BLOCK (wave 2) owns `tokenbill/sim/block_replay.py`, `tokenbill/detect/b
 | `test_gate_dual_engine.py` | **gate** (`@pytest.mark.gate`, `importorskip("tokenbill.adapters.trace_v1")`): the same checks through TRACE's real `TraceV1Adapter` |
 | `test_experiments.py` | the codebase experiments exp1, exp2b-a3, exp2b-a2, exp9-1, exp6-2 |
 | `test_fixtures.py` | the JSONL fixtures are current, deterministic and content-free |
-| `test_properties.py` | hypothesis: sizing invariants, identity, consistency, determinism, shard invariance, `first_divergence` and detector fuzz |
+| `test_properties.py` | hypothesis: sizing invariants, identity, consistency, determinism, shard invariance, `first_divergence` and detector fuzz, D28 agreement with `core.transitions` under per-request exemption flips |
 | `test_edges.py` | passthrough requests, empty fingerprints, in-lane salt changes, idle expiry, zero-size tails, rewinds |
 | `test_perf.py` | a 4,000-call run replays in ≤ 2 s (`perf`), with delta-shared and with equal-but-distinct block objects; PR variants 400 calls in ≤ 0.2 s |
 
@@ -64,13 +64,16 @@ Every fixture is synthetic; nothing comes from real transcripts.
    the size its entry recorded when written (clamped; the whole total when the hit covers every
    block). This makes the model reproduce working-cache billing exactly (agreement 1.0 on
    `well-behaved` and exp1).
-3. **Unreported parameters** — a salted parameter a request does not report takes the lane's
-   nearest reported value (pairwise in `first_divergence`), mirroring `core.transitions` where
-   None is never a change. Served speed is taken from the serving inference. Two requests' salts
-   are compared under the **later** request's effort exemption (`core.transitions` evaluates
-   `effort_change_keeps_cache` for request `i`), so an exemption that flips (a Claude Code upgrade
-   past 2.1.260, a per-message effort beta added) with an unchanged effort breaks nothing, and an
-   effort change counts exactly when the usage level calls it `effort-change`.
+3. **Parameter comparisons** — consecutive requests of a lane are compared exactly as
+   `core.transitions` compares request `i` with `i − 1`, in `first_divergence`, `salt_diff` and
+   the chain build alike: a salted parameter only one of them reports is no change (so effort
+   high → unreported → low breaks nothing), and both salts use the **later** request's effort
+   exemption (`effort_change_keeps_cache` is evaluated for request `i`), so an exemption that
+   flips (a Claude Code upgrade past 2.1.260, a per-message effort beta added) with an unchanged
+   effort breaks nothing, and an effort change counts exactly when the usage level calls it
+   `effort-change` (a hypothesis test checks the agreement). A request's own node salts (new
+   chain nodes, cross-lane sharing) fill unreported parameters from the lane's nearest reported
+   value. Served speed is taken from the serving inference.
 4. **Lookups** — each breakpoint looks back ≤ 20 collapsed positions (its own first) for the
    deepest live, visible entry; every entry a lookup finds is refreshed (its own TTL) and counts as
    read; the request reads up to the deepest hit; entries are created only at breakpoints beyond it

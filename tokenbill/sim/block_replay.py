@@ -12,12 +12,13 @@ web search, citations; messages: tool_choice, disable_parallel_tool_use, image p
 thinking, effort, output format). **Effort and thinking are left out of the messages salt when
 ``core.cache_rules.effort_change_keeps_cache`` is True for the request** (D28) — the predicate the
 usage level uses, so both engines agree. The invalidation hierarchy is thus plain inequality of
-chain nodes. Block hashes exclude ``cache_control`` (a moved marker never changes a hash). A
-parameter a request does not report (``None``) takes the lane's nearest reported value, so — as in
-``core.transitions`` — only two reported, different values count as a change; and two requests'
-salts are compared under the later request's exemption (``core.transitions`` evaluates the
-predicate for request ``i``), so a flip of the exemption itself (a client upgrade, a beta added)
-with an unchanged effort breaks nothing.
+chain nodes. Block hashes exclude ``cache_control`` (a moved marker never changes a hash).
+Consecutive requests of a lane are compared exactly as ``core.transitions`` compares request
+``i`` with ``i − 1``: a parameter only one of them reports (``None``) is no change, and both salts
+use request ``i``'s exemption — so a flip of the exemption itself (a client upgrade, a beta added)
+with an unchanged effort breaks nothing. (A request's own node salts, which only matter for new
+chain nodes and cross-lane sharing, fill unreported parameters from the lane's nearest reported
+value.)
 
 **Entries** are keyed by chain node (so by ``(cache scope, model, chain hash at block k)``) with
 ``visible_ms`` = the writer's start + ttft, else + duration, else + 1,000 ms (same-timestamp
@@ -568,19 +569,37 @@ class _Chains:
 
 
 def _lane_values(reqs: Sequence[Request], names: Sequence[str], *, pin: bool
-                 ) -> list[dict[str, object]]:
+                 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Per request: the salted parameter values with unreported ones filled from the lane's
+    nearest reported value (the request's own chain salts), and the values as reported (``None``
+    = not observed) for pairwise comparisons. Under ``pin`` both are the lane's first values."""
     raw = [{n: _param_value(r, n) for n in names} for r in reqs]
+    filled = [dict(v) for v in raw]
     for n in names:
-        first = next((v[n] for v in raw if v[n] is not None), None)
+        first = next((v[n] for v in filled if v[n] is not None), None)
         last = first
-        for v in raw:
+        for v in filled:
             if v[n] is None:
                 v[n] = last
             else:
                 last = v[n]
-    if pin and raw:
-        return [dict(raw[0]) for _ in raw]
-    return raw
+    if pin and filled:
+        pinned = [dict(filled[0]) for _ in filled]
+        return pinned, pinned
+    return filled, raw
+
+
+def _pair_fill(a: Mapping[str, object], b: Mapping[str, object]
+               ) -> tuple[dict[str, object], dict[str, object]]:
+    """Two requests' reported values where a value only one side reports is copied to the other
+    (None means not observed, never a change — ``core.transitions``)."""
+    pa: dict[str, object] = {}
+    pb: dict[str, object] = {}
+    for n, x in a.items():
+        y = b.get(n)
+        pa[n] = x if x is not None else y
+        pb[n] = y if y is not None else x
+    return pa, pb
 
 
 def _visible_ms(req: Request, rules: CacheRules) -> tuple[int, int, int]:
@@ -696,7 +715,7 @@ def _build(lanes: Sequence[Lane], *, pricer: Pricer, rules: CacheRulesProvider,
         names: list[str] = []
         for rl in dict.fromkeys(rules_list):
             names.extend(n for n in _all_salt_names(rl) if n not in names)
-        values = _lane_values(reqs, names, pin=pin)
+        values, reported = _lane_values(reqs, names, pin=pin)
         tool_fix = None
         if REPAIR_TOOL_SUPERSET in repairs:
             tool_fix = _tool_repair(reqs, superset=True)
@@ -725,7 +744,7 @@ def _build(lanes: Sequence[Lane], *, pricer: Pricer, rules: CacheRulesProvider,
                 blocks, te, imap, added = fp.blocks, fp.tier_end, None, 0
             n = len(blocks)
             rec.blocks, rec.te, rec.n = blocks, te, n
-            rec.values = values[i]
+            rec.values = reported[i]
             rec.exempt = _effort_exempt(req)
             rec.salts = _salts(req, rl, values[i], rec.exempt)
             model = req.model
@@ -755,12 +774,11 @@ def _build(lanes: Sequence[Lane], *, pricer: Pricer, rules: CacheRulesProvider,
                 for t in (1, 2):
                     if pte[t - 1] != te[t - 1]:
                         d = min(d, pte[t - 1], te[t - 1])
-                # tier salts compared under *this* request's effort exemption (core.transitions)
-                if prev.exempt == rec.exempt:
-                    ps, cs = prev.salts, rec.salts
-                else:
-                    ps = _salts(prev.req, rl, prev.values, rec.exempt)
-                    cs = _salts(req, rl, rec.values, rec.exempt)
+                # tier salts compared as core.transitions compares request i with i − 1: under
+                # request i's effort exemption, a value only one side reports is no change
+                pv, cv = _pair_fill(prev.values, rec.values)
+                ps = _salts(prev.req, rl, pv, rec.exempt)
+                cs = _salts(req, rl, cv, rec.exempt)
                 if ps[0] != cs[0]:
                     d = 0
                 elif ps[1] != cs[1]:

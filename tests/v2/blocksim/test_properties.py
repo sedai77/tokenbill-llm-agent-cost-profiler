@@ -15,11 +15,16 @@ from hypothesis import strategies as st
 
 from tests.v2.blocksim.helpers import blk, context, lane, req, system, tool
 from tokenbill.common import TokenbillError
-from tokenbill.core.cache_rules import RulesTable
+from tokenbill.core.cache_rules import (
+    PER_MESSAGE_EFFORT_BETA,
+    RulesTable,
+    effort_change_keeps_cache,
+)
 from tokenbill.core.policy import parse_policy
 from tokenbill.core.records import LaneKind, UsageBuckets, to_json
 from tokenbill.core.shards import merge_replay
 from tokenbill.core.testing import FakePricer, assert_detector_conforms
+from tokenbill.core.transitions import classify_transitions
 from tokenbill.detect.block import BlockBreakers
 from tokenbill.sim.block_replay import BLOCK_REPAIRS, PLACEMENTS, BlockReplayer, first_divergence
 
@@ -164,3 +169,58 @@ def test_only_usage_errors_escape_for_bad_policies(lanes, junk) -> None:
                                mode="documented", pricer=P, rules=RT, calibration=None)
     except TokenbillError:
         pass
+
+
+_FLIP_MSGS = [blk(f"fl{i}", 300) for i in range(8)]
+
+
+@st.composite
+def flipping_lanes(draw):
+    """One lane whose product, client version, beta, effort and thinking vary per request (the
+    D28 exemption flips inside the lane), with arbitrary billed usage."""
+    reqs = []
+    ts = 0
+    k = 1
+    model = draw(st.sampled_from(["claude-opus-5-5", "claude-opus-5", "claude-sonnet-5"]))
+    for i in range(draw(st.integers(2, 6))):
+        k = min(len(_FLIP_MSGS), k + draw(st.integers(0, 2)))
+        blocks = [_SYSTEMS[0], *_FLIP_MSGS[:k]]
+        total = sum(b.est_tokens or 0 for b in blocks)
+        r = draw(st.integers(0, total))
+        w = draw(st.integers(0, total - r))
+        ts += draw(st.integers(0, 400_000))
+        reqs.append(req("FLIP", i, ts / 1000, blocks,
+                        UsageBuckets(cache_read=r, cache_write_5m=w,
+                                     uncached_input=total - r - w, output=10),
+                        model=model,
+                        params={"effort": draw(st.sampled_from([None, "high", "low"])),
+                                "thinking": draw(st.sampled_from([None, "adaptive", "off"])),
+                                "betas": draw(st.sampled_from([(), (PER_MESSAGE_EFFORT_BETA,)]))},
+                        attribution={"agent_product": draw(st.sampled_from(
+                            ["claude_code", "agent_sdk", None])),
+                            "client_version": draw(st.sampled_from(
+                                ["2.1.250", "2.1.270", None]))}))
+    return lane(reqs)
+
+
+@SETTINGS
+@given(flipping_lanes())
+def test_param_divergences_agree_with_core_transitions_under_exemption_flips(ln) -> None:
+    """D28: the block engine's messages-tier ``param`` divergence from effort/thinking is exactly
+    the usage level's ``effort-change`` (same predicate, evaluated for the later request)."""
+    by_id = {r.request_id: i for i, r in enumerate(ln.requests)}
+    for t in classify_transitions(ln, pricer=P, rules=RT):
+        i = by_id[t.request_id]
+        a, b = ln.requests[i - 1], ln.requests[i]
+        div = first_divergence(a, b)
+        block = div is not None and div[2] == "param"
+        ctx = b.serving_inference.pricing
+        exempt = effort_change_keeps_cache(
+            agent_product=b.attribution.agent_product, model=ctx.model, channel=ctx.channel,
+            client_version=b.attribution.client_version, betas=b.params.betas)
+        assert not (block and exempt)
+        if t.is_miss_event and t.cause == "param-change":
+            assert block == (t.sub_cause == "effort-change"), (div, t.sub_cause)
+    res = _replay([ln], "repair=block:pin_params")
+    assert res.cost.nano == res.baseline.nano - res.saving.nano
+    assert_detector_conforms(BlockBreakers(), [ln], context(min_usd="0"))
