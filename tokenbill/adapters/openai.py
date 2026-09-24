@@ -166,6 +166,7 @@ class _Reader:
         self.pending: list[tuple[Draft, _LaneInfo]] = []
 
     def run(self) -> IngestResult:
+        """Read the whole file and build the :class:`IngestResult`."""
         for line_no, obj in self.scan.records():
             self.scan.count("records")
             guarded(self.scan, f"line:{line_no}", lambda o=obj, n=line_no: self._record(o, n))

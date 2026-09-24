@@ -69,6 +69,7 @@ from tokenbill.adapters.conventions_ext import (
     attempt_id,
     cache_scope,
     canonical_usage_json,
+    clean_attr,
     clean_label,
     error_type_for,
     guarded,
@@ -342,6 +343,7 @@ class _Reader:
 
     # ---------- pass 1: decode ----------
     def run(self) -> IngestResult:
+        """Read the whole file and build the :class:`IngestResult`."""
         for line_no, obj in self.scan.records():
             self.scan.count("records")
             if not any(k in obj for k in _OTLP_KEYS):
@@ -481,7 +483,7 @@ class _Reader:
                      query_source: str | None = None) -> Attribution:
         opts = self.opts
         candidates, raw_principal = _identities(attrs)
-        team = team_for(opts, candidates) or clean_label(attrs.get("team.id")) \
+        team = team_for(opts, candidates) or clean_attr(attrs.get("team.id")) \
             or opts.attribution.team
         principal = self.scan.principal(raw_principal)
         updates: dict[str, Any] = {"team": team}
@@ -490,7 +492,7 @@ class _Reader:
         for attr_key, field_name in (("cost_center", "cost_center"), ("tokenbill.arm", "arm"),
                                      ("tokenbill.wave", "wave"), ("app.entrypoint", "entrypoint"),
                                      ("app.version", "client_version")):
-            value = clean_label(attrs.get(attr_key))
+            value = clean_attr(attrs.get(attr_key))
             if value is not None:
                 updates[field_name] = value
         repo = attrs.get("vcs.repository.url.full") or attrs.get("vcs.repository.name")
@@ -501,7 +503,7 @@ class _Reader:
             value = name_or_hash(opts, attrs.get(attr_key))
             if value is not None:
                 updates[field_name] = value
-        department = clean_label(attrs.get("department"))
+        department = clean_attr(attrs.get("department"))
         if department is not None:
             extra = dict(opts.attribution.extra)
             extra["department"] = department
@@ -951,7 +953,7 @@ class _Reader:
             model_raw = clean_label(attrs.get("model")) or ""
             channel, _ = self._cc_channel()
             model = normalize_model(model_raw).model or model_raw
-            team = team_for(opts, _identities(attrs)[0]) or clean_label(attrs.get("team.id")) \
+            team = team_for(opts, _identities(attrs)[0]) or clean_attr(attrs.get("team.id")) \
                 or opts.attribution.team
             dims = {"channel": channel, "model": model, "product": "claude_code"}
             if attrs.get("speed") == "fast":

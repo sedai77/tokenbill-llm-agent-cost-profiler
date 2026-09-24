@@ -319,3 +319,12 @@ def test_source_scan_strict_mode_raises(tmp_path: Any) -> None:
     scan = ext.SourceScan("otlp", path, central(lenient=False))
     with pytest.raises(SourceError, match="line:3: bad_json"):
         scan.quarantine("line:3", "bad_json")
+
+
+def test_clean_attr_never_passes_emails_or_paths() -> None:
+    assert ext.clean_attr(" Platform Eng ") == "Platform Eng"
+    assert ext.clean_attr("cc-42") == "cc-42"
+    assert ext.clean_attr("alice@example.com") is None
+    assert ext.clean_attr("/home/alice/repo") is None
+    assert ext.clean_attr("x" * 65) is None and ext.clean_attr("   ") is None
+    assert ext.clean_attr(12) is None

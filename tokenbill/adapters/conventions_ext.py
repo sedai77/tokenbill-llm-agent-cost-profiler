@@ -443,6 +443,7 @@ _ISO_RE = re.compile(
     r"\s*(Z|z|[+-]\d{2}(?::?\d{2})?)?\s*\Z")
 _LABEL_RE = re.compile(r"[A-Za-z0-9_.:/@+=-]{1,64}\Z")
 _ENUM_RE = re.compile(r"[A-Za-z0-9_.:-]{1,64}\Z")
+_ATTR_RE = re.compile(r"[A-Za-z0-9_.:+=, -]{1,64}\Z")
 _DIGITS_RE = re.compile(r"\s*[+-]?\d{1,30}\s*\Z")
 
 
@@ -518,6 +519,15 @@ def clean_label(value: object, *, enum: bool = False) -> str | None:
         return None
     value = value.strip()
     return value if (_ENUM_RE if enum else _LABEL_RE).match(value) else None
+
+
+def clean_attr(value: object) -> str | None:
+    """A short attribution label (team, cost center, arm, …): at most 64 characters of letters,
+    digits, spaces and ``_.:+=,-``; never ``@`` or ``/`` (no emails, no paths); else None."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value if value and _ATTR_RE.match(value) else None
 
 
 def canonical_usage_json(raw: Mapping[str, object]) -> str | None:
@@ -937,8 +947,8 @@ def attribution_from(opts: IngestOptions, scan: SourceScan, meta: Mapping[str, A
         for key, value in meta.items():
             if key == "principal" and normalize_identity(value) is not None:
                 principal_raw = normalize_identity(value)
-            elif key in _CLEAR_ATTR and clean_label(value) is not None:
-                updates[key] = clean_label(value)
+            elif key in _CLEAR_ATTR and clean_attr(value) is not None:
+                updates[key] = clean_attr(value)
             elif key in _NAMED_ATTR and isinstance(value, str) and value.strip():
                 updates[key] = name_or_hash(opts, value)
             elif key in _HASHED_ATTR and isinstance(value, str) and value.strip():
@@ -947,12 +957,12 @@ def attribution_from(opts: IngestOptions, scan: SourceScan, meta: Mapping[str, A
                 updates[key] = WorkloadClass(value)
             elif key == "billing_path" and value in BILLING_PATHS:
                 updates[key] = value
-            elif key in EXTRA_KEYS and clean_label(value) is not None:
-                extra[key] = clean_label(value)
+            elif key in EXTRA_KEYS and clean_attr(value) is not None:
+                extra[key] = clean_attr(value)
             elif key == "extra" and isinstance(value, Mapping):
                 for k, v in value.items():
-                    if k in EXTRA_KEYS and clean_label(v) is not None:
-                        extra[k] = clean_label(v)
+                    if k in EXTRA_KEYS and clean_attr(v) is not None:
+                        extra[k] = clean_attr(v)
                     else:
                         scan.note("dq.unknown_fields")
             else:

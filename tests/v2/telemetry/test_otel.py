@@ -563,3 +563,14 @@ def test_adapter_surface() -> None:
     assert ADAPTER.name == "otlp"
     assert {"usage_sequence", "timing", "ttft", "aggregates"} <= ADAPTER.capabilities
     assert InferenceKind.MESSAGE.value == "message"
+
+
+def test_resource_labels_never_carry_emails_or_paths(tmp_path: Path) -> None:
+    resource = {"team.id": "someone@example.com", "cost_center": "/srv/finance",
+                "department": "Data Platform", "tokenbill.arm": "control"}
+    path = h.write_lines(tmp_path / "o.jsonl", [h.logs([api_request(h.T0, "r1")], resource)])
+    (req,) = read(path, team_map=()).requests
+    a = req.attribution
+    assert (a.team, a.cost_center, a.arm) == (None, None, "control")
+    assert dict(a.extra) == {"department": "Data Platform"}
+    assert "someone" not in h.blob(read(path, team_map=())) and "/srv" not in repr(a)
