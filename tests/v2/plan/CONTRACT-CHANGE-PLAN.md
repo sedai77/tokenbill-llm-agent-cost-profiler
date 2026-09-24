@@ -25,11 +25,12 @@ days=7, target=None)`; CLI-SAVINGS: `tokenbill policy check-effect --lever ID [-
 **What.** `cc.fast_mode_opt_in` (`fastModePerSessionOptIn`), `cc.max_effort` (`maxEffortLevel`) and
 `model.same_tier_upgrade` (`env.ANTHROPIC_DEFAULT_*_MODEL`) are delivered by Claude Code managed
 settings but have selector `all` (their grids `fast=off`, `effort=…` and `model=…@model:<m>` are
-unscoped / model-scoped). PLAN replays each lever only on the lanes its selectors match, so their
-savings on SDK / API lanes (`lane_kind:api_run`, `agent_product:agent_sdk`) are credited to a
-Claude Code setting that cannot reach those lanes. On the synthetic fleet, `fast=off` on the agents
-team's SDK lanes lands in the credit of `cc.fast_mode_opt_in`, and the "all" selector joins every
-lever into one interaction group.
+unscoped / model-scoped). PLAN replays each lever only on the lanes its selectors match, so any
+saving these clauses find on SDK / API lanes (`lane_kind:api_run`, `agent_product:agent_sdk`)
+would be credited to a Claude Code setting that cannot reach those lanes. (On the synthetic fleet
+`fast=off` saves only on the infra team's Claude Code main lanes, so the credit is right there;
+but the `all` selector still joins `cc.fast_mode_opt_in`, `cc.prompt_cache_ttl.main` and `sdk.ttl`
+into one interaction group.)
 
 **Proposed.** Selector `agent_product:claude_code` for these three levers (and the grid clauses
 scoped the same way, e.g. `effort=high@agent_product:claude_code`); an SDK-side fast-mode lever, if
