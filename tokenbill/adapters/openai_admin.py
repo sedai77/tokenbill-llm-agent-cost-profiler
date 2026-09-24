@@ -109,7 +109,6 @@ class OpenAIUsageBucketsAdapter(PageAdapter):
 
     def _row(self, ctx: ReadContext, page: Page, start: int, end: int,
              result: Mapping[str, Any]) -> None:
-        usage = openai_usage(result, ctx)
         dims = {
             "channel": CHANNEL,
             "workspace_id": ctx.name(result.get("project_id"), "project_id"),
@@ -117,6 +116,7 @@ class OpenAIUsageBucketsAdapter(PageAdapter):
             "model": model_id(result.get("model")),
             "service_tier": service_tier(result),
         }
+        usage = openai_usage(result, ctx)  # last: its sum-check note is for this row only
         if result.get("user_id") is not None:
             ctx.stat("person_dims_dropped")
         ctx.add_aggregate(self.source_kind, start, end, dims, usage, fetched_ms=page.fetched_ms)

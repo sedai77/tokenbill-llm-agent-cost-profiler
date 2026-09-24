@@ -25,9 +25,10 @@ Privacy (SPEC §5.1, §8): workspace and API key ids become ``h_`` pseudonyms un
 (unless listed in ``opts.name_allowlist``); person-level dimensions (``account_id``,
 ``service_account_id``, actors, e-mails, Slack user ids) are dropped and their rows summed; actor
 references are used only to look up ``opts.team_map`` and never leave the adapter, not even
-pseudonymized. Money is never a float: JSON numbers are parsed as ``Decimal`` and every amount is
-accumulated exactly as a scaled integer and rounded half-even once per record
-(:func:`tokenbill.core.money.cents_to_nano` / :func:`usd_str_to_nano`).
+pseudonymized. Money is never a float: JSON numbers are parsed as ``Decimal``, cents are shifted
+to USD exactly, every amount is accumulated exactly as a scaled integer, and each cost line or
+aggregate is rounded half-even once (:func:`tokenbill.core.money.usd_str_to_nano`, identical to
+``cents_to_nano`` on the cents string).
 
 The shared page machinery here (:class:`ReadContext`, :func:`load_documents`, amount and timestamp
 parsing) is also used by :mod:`tokenbill.adapters.openai_admin` and
@@ -51,7 +52,7 @@ from tokenbill.core.ids import pseudonym, stable_id
 from tokenbill.core.jsonl import iter_lines, open_text
 from tokenbill.core.kanon import merge_small_groups
 from tokenbill.core.models import normalize_model
-from tokenbill.core.money import cents_to_nano, decimal_to_nano, usd_str_to_nano
+from tokenbill.core.money import decimal_to_nano, usd_str_to_nano
 from tokenbill.core.records import (
     MAX_TOKENS,
     CostLine,
@@ -295,14 +296,10 @@ def scaled_to_decimal(scaled: int) -> Decimal:
 
 def scaled_to_nano(scaled: int) -> tuple[int, int]:
     """``(nano, remainder_e18)``: half-even to 1e-9 USD through ``core.money.usd_str_to_nano`` (the
-    single rounding) and the remainder in 1e-18 USD units (half-even; |remainder| ≤ 5e8)."""
+    single rounding; cents amounts were shifted to USD exactly, so this equals
+    ``core.money.cents_to_nano`` on the cents string) and the remainder in 1e-18 USD units
+    (half-even; |remainder| ≤ 5e8)."""
     nano, remainder = usd_str_to_nano(str(scaled_to_decimal(scaled)))
-    return nano, remainder_e18(remainder)
-
-
-def cents_str_to_nano(value: str) -> tuple[int, int]:
-    """A cents decimal string → ``(nano, remainder_e18)`` through ``core.money.cents_to_nano``."""
-    nano, remainder = cents_to_nano(value)
     return nano, remainder_e18(remainder)
 
 
@@ -314,10 +311,8 @@ def remainder_e18(remainder_usd: Decimal) -> int:
     return decimal_to_nano(Decimal((sign, digits, int(exp) + 9)))
 
 
-def currency(value: Any, *, required: bool = True) -> None:
+def currency(value: Any) -> None:
     """Only USD amounts are supported (every documented source reports USD)."""
-    if value is None and not required:
-        return
     if not isinstance(value, str) or value.strip().upper() != "USD":
         raise BadRecord("bad_type:currency")
 
@@ -412,8 +407,11 @@ def source_files(path: Path) -> list[Path]:
     return [path]
 
 
-def read_source_bytes(path: Path, limit: int = MAX_DOC_BYTES) -> bytes | None:
-    """The (decompressed) bytes of *path*, or None when larger than *limit*."""
+def read_source_bytes(path: Path, limit: int | None = None) -> bytes | None:
+    """The (decompressed) bytes of *path*, or None when larger than *limit* (default
+    :data:`MAX_DOC_BYTES`)."""
+    if limit is None:
+        limit = MAX_DOC_BYTES
     try:
         with open_text(path) as f:
             data = f.read(limit + 1)
