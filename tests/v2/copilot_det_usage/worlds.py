@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 from collections.abc import Iterable, Sequence
 from typing import Any
 
@@ -130,7 +129,3 @@ def attrs(f: Finding, ref: str) -> dict[str, Any]:
 
 def tri(fig: Any) -> tuple[int | None, int | None, int | None]:
     return (fig.low_nano, fig.nano, fig.high_nano)
-
-
-def replace_ctx(ctx: AnalysisContext, **kw: Any) -> AnalysisContext:
-    return dataclasses.replace(ctx, **kw)
