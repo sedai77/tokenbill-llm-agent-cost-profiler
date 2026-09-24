@@ -55,6 +55,14 @@ def test_snapshot_has_zero_discrepancies() -> None:
 
 
 def test_one_injected_discrepancy_is_reported_with_its_row_id() -> None:
+    target = "anthropic/anthropic_api/claude-haiku-4-5/2025-10-15"
+    drifted = _with_row(target, cache_read_mult=Decimal("0.12"),
+                        published_absolute=(("cache_read", Decimal("0.12")),))
+    assert [(d.row_id, d.field, d.ours, d.theirs, d.authoritative)
+            for d in verify_snapshot(drifted)] == [(target, "cache_read", "0.12", "0.1", True)]
+
+
+def test_an_output_drift_also_shows_in_the_batch_table() -> None:
     target = "anthropic/anthropic_api/claude-sonnet-4-6/2026-02-17"
     drifted = _with_row(target, output_usd_per_mtok=Decimal("16.00"))
     found = verify_snapshot(drifted)

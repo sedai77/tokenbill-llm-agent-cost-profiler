@@ -43,7 +43,7 @@ from typing import Any
 from tokenbill.core.errors import PricingError, UsageError
 from tokenbill.core.labels import Basis, Evidence, Figure, exact, unpriced
 from tokenbill.core.models import normalize_model
-from tokenbill.core.money import EXACT_CTX, decimal_to_nano, ratio, token_nano
+from tokenbill.core.money import EXACT_CTX, decimal_to_nano, ratio, scaled_to_nano
 from tokenbill.core.protocols import Pricer
 from tokenbill.core.records import (
     COPILOT_BILLING_PATHS,
@@ -123,11 +123,33 @@ def _date_of(ts_ms: int) -> str:
         raise UsageError("ts_ms out of range") from None
 
 
+_RATE_PARTS: dict[Decimal, tuple[int, int]] = {}
+_RATE_TEXT: dict[Decimal, str] = {}
+
+
 def _dec_str(d: Decimal) -> str:
-    text = format(d, "f")
-    if "." in text:
-        text = text.rstrip("0").rstrip(".")
-    return text or "0"
+    text = _RATE_TEXT.get(d)
+    if text is None:
+        text = format(d, "f")
+        if "." in text:
+            text = text.rstrip("0").rstrip(".")
+        text = text or "0"
+        if len(_RATE_TEXT) < _CACHE_LIMIT:
+            _RATE_TEXT[d] = text
+    return text
+
+
+def _line_nano(tokens: int, usd_per_mtok: Decimal) -> int:
+    """``core.money.token_nano(tokens, rate)`` in integer arithmetic: the rate is ``n × 10^e``, so
+    the line is ``tokens × n`` at scale ``6 − e`` rounded half-even once (``scaled_to_nano``)."""
+    parts = _RATE_PARTS.get(usd_per_mtok)
+    if parts is None:
+        sign, digits, exp = usd_per_mtok.as_tuple()
+        n = int("".join(map(str, digits)) or "0")
+        parts = (-n if sign else n, 6 - int(exp))
+        if len(_RATE_PARTS) < _CACHE_LIMIT:
+            _RATE_PARTS[usd_per_mtok] = parts
+    return scaled_to_nano(tokens * parts[0], parts[1])
 
 
 def _generation(value: str) -> tuple[int, ...]:
@@ -624,7 +646,7 @@ class RateCard:
             def amount(q: int, r: Decimal) -> int:
                 if per_request:
                     return decimal_to_nano(EXACT_CTX.multiply(Decimal(q), r))
-                return token_nano(q, r)
+                return _line_nano(q, r)
 
             point = amount(qty, rate)
             lo = hi = None

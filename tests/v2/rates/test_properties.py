@@ -208,3 +208,14 @@ def test_copilot_band_hypotheses(uncached: int, read: int, output: int, tier: st
     assert p.figure.evidence is Evidence.ESTIMATED
     assert "dq.copilot_band_hypothesis" in p.figure.note
     assert (p.figure.low_nano, p.figure.nano, p.figure.high_nano) == (low, row_price(above), high)
+
+
+@SETTINGS
+@given(tokens=st.integers(0, 2**53), digits=st.integers(0, 10**30),
+       exponent=st.integers(-40, 3))
+def test_integer_line_path_equals_the_decimal_path(tokens: int, digits: int,
+                                                   exponent: int) -> None:
+    from tokenbill.rates.engine import _line_nano
+
+    rate = Decimal(digits).scaleb(exponent)
+    assert _line_nano(tokens, rate) == token_nano(tokens, rate)
