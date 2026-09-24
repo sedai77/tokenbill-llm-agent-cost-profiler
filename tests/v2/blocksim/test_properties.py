@@ -149,7 +149,18 @@ def test_first_divergence_never_raises(lanes) -> None:
           suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large])
 @given(lane_sets())
 def test_the_detector_never_raises_and_conforms(lanes) -> None:
+    findings = assert_detector_conforms(BlockBreakers(), lanes, context(min_usd="0"))
+    for f in findings:
+        assert f.recoverable is None or f.recoverable.nano is None or f.recoverable.nano >= 0
+
+
+@SETTINGS
+@given(lane_sets(), st.text(max_size=12))
+def test_only_usage_errors_escape_for_bad_policies(lanes, junk) -> None:
+    from tokenbill.core.types import Policy
     try:
-        assert_detector_conforms(BlockBreakers(), lanes, context(min_usd="0"))
+        BlockReplayer().replay(lanes, Policy(name="x", breakpoint_policy=junk or None,
+                                             repairs=(f"block:{junk}",) if junk else ()),
+                               mode="documented", pricer=P, rules=RT, calibration=None)
     except TokenbillError:
         pass
