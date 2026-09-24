@@ -486,10 +486,11 @@ def _store_principal(obj: object, name: str, *, optional: bool = False) -> None:
 def _prefixed_key_ok(key: str, fixed: tuple[str, ...], *,
                      prefix_suffix_re: re.Pattern[str] | None = None) -> bool:
     """Whether *key* is in *fixed* or is a prefix entry (ending in ``.`` or ``:``) plus a suffix."""
-    if key in fixed:
-        return True
     for entry in fixed:
-        if entry[-1:] in (".", ":") and key.startswith(entry) and len(key) > len(entry):
+        if entry[-1:] not in (".", ":"):
+            if key == entry:
+                return True
+        elif key.startswith(entry) and len(key) > len(entry):
             suffix = key[len(entry):]
             if prefix_suffix_re is None or prefix_suffix_re.match(suffix):
                 return True
