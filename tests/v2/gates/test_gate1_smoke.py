@@ -97,7 +97,7 @@ def _sort_key(f: Any) -> tuple[int, str, str]:
 
 def _ingest_fixtures(store: Any, pricer: Any) -> tuple[frozenset[str], int]:
     capabilities: set[str] = set()
-    cc = cc_mod.ClaudeCodeAdapter()
+    cc = registry.get_adapter("claude-code")  # the SPEC §3.7 way to instantiate an adapter
     read = 0
     for path in _files(CC_DIR):
         head = path.read_bytes()[:64 * 1024]
@@ -117,10 +117,23 @@ def _ingest_fixtures(store: Any, pricer: Any) -> tuple[frozenset[str], int]:
     return frozenset(capabilities), read
 
 
+def _rate_card() -> Any:
+    """The built-in ``RateCard``. SPEC §6 fixes ``load_builtin()`` but not the ``RateCard``
+    constructor, so the common layer-sequence forms are tried in turn."""
+    layer = schema_mod.load_builtin()
+    for build in (lambda: engine_mod.RateCard([layer]), lambda: engine_mod.RateCard((layer,)),
+                  lambda: engine_mod.RateCard(layers=[layer]), lambda: engine_mod.RateCard(layer)):
+        try:
+            return build()
+        except TypeError:
+            continue
+    pytest.fail("cannot build a RateCard from load_builtin(); update _rate_card()")
+
+
 def test_gate1_smoke(tmp_path: Path) -> None:
     if not CC_DIR.is_dir() or not ADMIN_DIR.is_dir():
         pytest.skip("CC and ADMIN fixtures are not merged yet")
-    pricer = engine_mod.RateCard([schema_mod.load_builtin()])
+    pricer = _rate_card()
     db_path = tmp_path / "ledger" / "tokenbill.db"
     store = db_mod.SqliteStore(db_path, org_key=ORG_KEY, name_key_id=key_id(NAME_KEY),
                                pricer=pricer)
