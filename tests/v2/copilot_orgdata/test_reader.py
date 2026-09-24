@@ -60,6 +60,8 @@ def test_head_helpers() -> None:
             b'billing?x=1", "query": {}}, "response": {"seat_breakdown": {}}}')
     assert gc.head_request_path(head) == "/orgs/a/copilot/billing"
     assert gc.head_request_path(b'{"endpoint": "/x"}') is None
+    nested = b'{"request": {"query": {"day": "2026-09-20"}, "path": "/orgs/b/copilot/billing"}}'
+    assert gc.head_request_path(nested) == "/orgs/b/copilot/billing"
     assert {"seat_breakdown", "request", "path"} <= gc.head_keys(head)
 
 

@@ -190,14 +190,16 @@ class CopilotMetricsAdapter:
     capabilities = frozenset({"activity", "outcomes"})
 
     def sniff(self, path: Path, head: bytes) -> bool:
-        """Per-user, aggregated, 28-day, user-teams, repository and legacy metrics records."""
+        """Per-user, aggregated, 28-day (any record with a report window, so an unverified
+        dashboard shape is quarantined rather than left unread), user-teams, repository and
+        legacy metrics records."""
         keys = head_keys(head)
         if "user_login" in keys and keys & {"ai_credits_used", "user_initiated_interaction_count",
                                             "loc_added_sum", "totals_by_ide", "used_chat",
                                             "code_generation_activity_count"}:
             return True
-        if "day_totals" in keys or "daily_active_users" in keys:
-            return True
+        if keys & {"day_totals", "daily_active_users", "report_start_day", "report_end_day"}:
+            return True  # a 28-day window of any shape is claimed (and checked by read)
         if {"user_login", "team_id", "slug"} <= keys or {"repo_id", "pull_requests"} <= keys:
             return True
         return ("total_active_users" in keys and ("total_engaged_users" in keys

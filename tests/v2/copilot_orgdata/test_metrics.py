@@ -201,7 +201,9 @@ def test_28day_window_needs_valid_days(tmp_path: Path) -> None:
            {"report_end_day": "2026-09-22", "user_login": "x"},
            {"report_start_day": "2026-08-26", "report_end_day": "2026-09-22",
             "day_totals": [{"no_day": 1}, 5]}]
-    res = ADAPTER.read(write_lines(tmp_path / "w.ndjson", bad), opts())
+    path = write_lines(tmp_path / "w.ndjson", bad)
+    assert ADAPTER.sniff(path, path.read_bytes())
+    res = ADAPTER.read(path, opts())
     assert sorted(q.reason for q in res.quarantined) == [
         "dashboard-shape-unverified", "dashboard-shape-unverified", "missing:day",
         "missing:day"]

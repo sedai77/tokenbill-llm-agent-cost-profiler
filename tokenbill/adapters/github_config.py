@@ -131,7 +131,8 @@ _TS_RE = re.compile(
     r"\s*(Z|z|UTC|[+-]\d{2}(?::?\d{2})?)?\Z")
 _HEAD_KEY_RE = re.compile(rb'"([A-Za-z0-9_@./-]{1,64})"\s*:')
 _HEAD_PATH_RE = re.compile(
-    rb'"request"\s*:\s*\{[^{}]{0,4096}?"(?:path|url)"\s*:\s*"([^"\\]{1,512})"')
+    rb'"request"\s*:\s*\{(?:[^{}]|\{[^{}]{0,1024}\}){0,4096}?"(?:path|url)"\s*:\s*'
+    rb'"([^"\\]{1,512})"')
 _DATA_SUFFIXES = (".json", ".jsonl", ".ndjson")
 
 
