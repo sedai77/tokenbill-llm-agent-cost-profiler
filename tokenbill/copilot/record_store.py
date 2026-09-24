@@ -352,7 +352,7 @@ class CopilotRecordStore:
                 raise UsageError(
                     f"record store: cannot create the database ({type(exc).__name__})") from None
         try:
-            self._conn = sqlite3.connect(str(path), timeout=30.0, isolation_level=None)
+            self._conn = sqlite3.connect(str(path), timeout=30, isolation_level=None)
         except sqlite3.Error as exc:
             raise UsageError(
                 f"record store: cannot open the database ({type(exc).__name__})") from None
