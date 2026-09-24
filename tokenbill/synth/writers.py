@@ -159,9 +159,11 @@ def _placeholder(request_id: str, output: int) -> int:
 
 def write_cc_transcripts(world: Any, out_dir: Path,
                          session_keys: Sequence[str] | None = None) -> dict[str, Path]:
-    """A ``projects/<slug>/<sessionId>.jsonl`` tree (plus ``subagents/agent-<id>.jsonl`` and
-    ``.meta.json``) for *session_keys* (default: the infra transcript sample). Keys are
-    ``claude-code/projects/...``."""
+    """A ``projects/<slug>/<sessionId>.jsonl`` tree (plus ``<sessionId>/subagents/agent-<id>.jsonl``
+    for subagents and ``<sessionId>/workflows/<run>/agent-<id>.jsonl`` for workflow agents, each
+    with its ``.meta.json``) for *session_keys* (default: the infra transcript sample; any
+    Claude Code session of the world can be written). QUOTA_STATE events become ``quotaLimits``
+    on the next assistant entry (SPEC §5.3 #8). Keys are ``claude-code/projects/...``."""
     hints = _require_hints(world)
     sessions = tuple(session_keys) if session_keys is not None else hints.transcript_sessions
     files: dict[str, Path] = {}
@@ -179,7 +181,12 @@ def write_cc_transcripts(world: Any, out_dir: Path,
             if lane.kind is LaneKind.MAIN:
                 rel = f"claude-code/projects/{slug}/{native}.jsonl"
             else:
-                rel = f"claude-code/projects/{slug}/{native}/subagents/agent-{agent}.jsonl"
+                base = f"claude-code/projects/{slug}/{native}"
+                if lane.kind is LaneKind.WORKFLOW_AGENT:
+                    run = "run-" + stable_id("wf", lane.parent_lane_key or native)[3:11]
+                    rel = f"{base}/workflows/{run}/agent-{agent}.jsonl"
+                else:
+                    rel = f"{base}/subagents/agent-{agent}.jsonl"
                 meta = _session_meta(lane)
                 k, p = _write(out_dir, rel[:-len(".jsonl")] + ".meta.json",
                               json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
@@ -192,6 +199,9 @@ def write_cc_transcripts(world: Any, out_dir: Path,
 def _session_meta(lane: Lane) -> dict[str, Any]:
     meta = next((e for e in lane.events if e.kind is LaneEventKind.SESSION_META), None)
     attrs = dict(meta.attrs) if meta is not None else {}
+    if lane.kind is LaneKind.WORKFLOW_AGENT:     # workflow meta: agentType, spawnDepth, phase
+        return {"agentType": attrs.get("agent_type") or "workflow-subagent",
+                "spawnDepth": attrs.get("spawn_depth") or 1, "workflowPhase": "execute"}
     return {"agentType": attrs.get("agent_type") or "general-purpose",
             "description": f"Investigate the failing module {CANARY}",
             "model": attrs.get("model_alias") or "sonnet",
@@ -221,6 +231,8 @@ def _transcript_lines(lane: Lane, native: str, dev: Any, agent: str,
         parent = uid
 
     humans = {e.ts_ms for e in lane.events if e.kind is LaneEventKind.HUMAN_PROMPT}
+    quotas = sorted((e.ts_ms, dict(e.attrs)) for e in lane.events
+                    if e.kind is LaneEventKind.QUOTA_STATE)
     fallbacks = {e.ts_ms: dict(e.attrs) for e in lane.events
                  if e.kind is LaneEventKind.MODEL_FALLBACK}
     compactions = sorted((e.ts_ms, dict(e.attrs)) for e in lane.events
@@ -270,6 +282,15 @@ def _transcript_lines(lane: Lane, native: str, dev: Any, agent: str,
         tool_name = next_item.name if next_item is not None and next_item.name in _TOOLS \
             else "Read"
         lines_for = _assistant_lines(req, tool_name, effort)
+        prev_ts = reqs[i - 1].ts_start_ms if i else -1
+        for q_ts, q in quotas:
+            if prev_ts < q_ts <= ts:   # the state reported with this response
+                resets = q.get("resets_at_ms")
+                lines_for[0][0]["quotaLimits"] = {
+                    "status": q.get("status"), "rateLimitType": q.get("rate_limit_type"),
+                    "isUsingOverage": q.get("using_overage"),
+                    "overageStatus": q.get("overage_status"),
+                    "resetsAt": resets // 1000 if isinstance(resets, int) else None}
         att = req.final_attempt
         for j, (entry, tool_id) in enumerate(lines_for):
             dur = att.duration_ms or 1000

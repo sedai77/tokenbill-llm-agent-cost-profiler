@@ -83,6 +83,7 @@ __all__ = [
     "FLEET_NAME_KEY",
     "FLEET_ORG_KEY",
     "FLEET_WORKSPACES",
+    "MAX_DEVS",
     "TEAMS",
     "WINDOW_START",
     "DevInfo",
@@ -151,15 +152,21 @@ _TEAM_BY_NAME = {t.name: t for t in TEAMS}
 _BASE_DEVS = sum(t.devs for t in TEAMS)   # 61
 
 
+#: Upper bound on ``devs`` (a full world holds every record in memory: ~430 requests/developer).
+MAX_DEVS = 10_000
+
+
 def team_sizes(devs: int = _BASE_DEVS) -> dict[str, int]:
     """Developers per team: the §18 table, with any developers above 61 dealt round-robin to the
     non-tiny teams (the tiny team stays at 3, below k)."""
-    if type(devs) is not int or devs < _BASE_DEVS:
-        raise UsageError(f"devs must be an int >= {_BASE_DEVS} (the SPEC §18 team table)")
+    if type(devs) is not int or not _BASE_DEVS <= devs <= MAX_DEVS:
+        raise UsageError(f"devs must be an int in [{_BASE_DEVS}, {MAX_DEVS}] "
+                         "(the SPEC §18 team table)")
     sizes = {t.name: t.devs for t in TEAMS}
     growable = [t.name for t in TEAMS if t.name != "tiny"]
-    for i in range(devs - _BASE_DEVS):
-        sizes[growable[i % len(growable)]] += 1
+    extra, rest = divmod(devs - _BASE_DEVS, len(growable))
+    for i, name in enumerate(growable):
+        sizes[name] += extra + (i < rest)
     return sizes
 
 

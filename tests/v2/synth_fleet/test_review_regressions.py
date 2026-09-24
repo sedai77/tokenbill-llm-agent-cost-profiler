@@ -169,3 +169,44 @@ def test_scale_mode_grows_the_population() -> None:
     assert len(principals) > 61
     one_epoch = F.generate(seed=5, scale_requests=5_000)
     assert len({q.attribution.principal for q in one_epoch.requests}) <= 61
+
+
+def test_team_sizes_are_arithmetic_and_bounded() -> None:
+    for devs in (61, 62, 71, 72, 1_000, F.MAX_DEVS):
+        sizes = F.team_sizes(devs)
+        assert sum(sizes.values()) == devs and sizes["tiny"] == 3
+        grown = [sizes[t.name] - t.devs for t in F.TEAMS if t.name != "tiny"]
+        assert max(grown) - min(grown) <= 1 and grown == sorted(grown, reverse=True)
+    with pytest.raises(UsageError):
+        F.team_sizes(F.MAX_DEVS + 1)
+    with pytest.raises(UsageError):
+        F.generate(devs=10**12)
+
+
+def test_quota_state_and_workflow_agents_are_written(world: F.FleetWorld,
+                                                     tmp_path: Path) -> None:
+    """``write_cc_transcripts`` on any session: QUOTA_STATE → ``quotaLimits`` on the next
+    assistant entry (SPEC §5.3 #8), workflow agents under ``<session>/workflows/<run>/``."""
+    hints = world.hints
+    overage = sorted({q.session_key for q in world.requests
+                      if q.attribution.billing_path == "usage_credits"})
+    workflow = sorted({ln.session_key for ln in world.lanes("data")
+                       if ln.kind is LaneKind.WORKFLOW_AGENT})[:2]
+    assert overage and workflow and hints.overage_days
+    files = W.write_cc_transcripts(world, tmp_path, [overage[0], *workflow])
+    quota = []
+    for key, path in files.items():
+        if key.endswith(".jsonl"):
+            for raw in path.read_text("utf-8").splitlines():
+                line = json.loads(raw)
+                if "quotaLimits" in line:
+                    assert line["type"] == "assistant"
+                    quota.append(line["quotaLimits"])
+    assert quota == [{"status": "allowed", "rateLimitType": "seven_day",
+                      "isUsingOverage": True, "overageStatus": "allowed",
+                      "resetsAt": quota[0]["resetsAt"]}]
+    assert isinstance(quota[0]["resetsAt"], int)
+    wf = [k for k in files if "/workflows/" in k]
+    assert wf and all("/subagents/" not in k for k in wf)
+    metas = [json.loads(files[k].read_text()) for k in wf if k.endswith(".meta.json")]
+    assert metas and all(set(m) == {"agentType", "spawnDepth", "workflowPhase"} for m in metas)

@@ -9,6 +9,7 @@ TELEM, TRACE, ADMIN) is merged."""
 from __future__ import annotations
 
 from collections.abc import Iterable
+from pathlib import Path
 
 import pytest
 
@@ -17,6 +18,7 @@ from tokenbill.core.records import (
     CostLine,
     InferenceKind,
     LaneEventKind,
+    LaneKind,
     Request,
     UsageAggregate,
     WorkloadClass,
@@ -25,6 +27,7 @@ from tokenbill.core.registry import get_adapter
 from tokenbill.core.types import IngestResult
 from tokenbill.synth.fleet import FleetWorld
 from tokenbill.synth.truth import TokenTotals, token_totals
+from tokenbill.synth.writers import write_cc_transcripts
 
 pytestmark = pytest.mark.gate
 
@@ -231,3 +234,41 @@ def test_aws_cur(world: FleetWorld) -> None:
     assert tokens == sum(dict(source.totals)["all"].as_tuple())
     # §5.13: account → h_ workspace, IAM principal → p_ (org key), usage type as sku
     assert _cost_rows(lines, "aws.cur2") == _cost_rows(world.cost_lines, "aws.cur2")
+
+
+def _overage_and_workflow_sessions(world: FleetWorld) -> tuple[list[str], list[str]]:
+    hints = world.hints
+    overage = set(world.truth.recon.overage_dates)
+    mobile = sorted(sk for sk, team in hints.session_team.items() if team == "mobile"
+                    and any(q.session_key == sk and q.attribution.billing_path == "usage_credits"
+                            for q in world.requests))
+    assert mobile and overage
+    workflow = sorted({ln.session_key for ln in world.lanes("data")
+                       if ln.kind is LaneKind.WORKFLOW_AGENT})[:3]
+    assert workflow
+    return mobile[:4], workflow
+
+
+def test_claude_code_transcripts_of_other_teams(world: FleetWorld, tmp_path: Path) -> None:
+    """``write_cc_transcripts`` on any Claude Code session: the importer recovers the billing path
+    (``usage_credits`` while ``quotaLimits.isUsingOverage``, §5.3 #8) and the lane kinds
+    (``…/workflows/…`` → WORKFLOW_AGENT) of the canonical records."""
+    pytest.importorskip("tokenbill.adapters.claude_code")
+    mobile, workflow = _overage_and_workflow_sessions(world)
+    kinds = {ln.lane_key: ln.kind for ln in world.lanes()}
+    adapter = get_adapter("claude-code")
+    for team, sessions, path in (("mobile", mobile, "subscription"),
+                                 ("data", workflow, "api_key")):
+        files = write_cc_transcripts(world, tmp_path / team, sessions)
+        opts = world.ingest_options(identity_mode="install", attribution=Attribution(
+            team=team, billing_path=path, workspace_id=world.hints.workspaces[team]))
+        results = [adapter.read(p, opts) for k, p in files.items()
+                   if not k.endswith(".meta.json")]
+        got = {q.request_id: q for q in _requests(results)}
+        shells = {ln.lane_key: ln.kind for res in results for s in res.sessions for ln in s.lanes}
+        canonical = [q for q in world.requests if q.session_key in set(sessions)]
+        assert canonical
+        for want in canonical:
+            have = got[want.request_id]
+            assert have.attribution.billing_path == want.attribution.billing_path
+            assert shells[have.lane_key] is kinds[want.lane_key]
