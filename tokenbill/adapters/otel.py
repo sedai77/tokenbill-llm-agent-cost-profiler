@@ -676,7 +676,8 @@ class _Reader:
             qs = attrs.get("query_source")
             kind = _LANE_KIND_BY_QUERY_SOURCE.get(qs if isinstance(qs, str) else "",
                                                   LaneKind.UNKNOWN)
-            lane = self._cc_lane(self._cc_session(attrs), kind, None, None)
+            lane = self._cc_lane(self._cc_session(attrs), kind, None, None,
+                                 self._cc_channel(clean_label(attrs.get("model")))[0])
             self.scan.count("api_errors_unjoined")
         if self.scan.in_window(rec.ts_ms):
             self.events.append(LaneEvent(lane_key=lane, ts_ms=rec.ts_ms,
