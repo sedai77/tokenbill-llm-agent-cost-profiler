@@ -29,12 +29,17 @@ hand-off (the lines left are defensive branches).
 | `test_conformance.py` | `assert_detector_conforms` (incl. shard invariance) for all eight classes on a mixed six-team fleet; team-by-team shards through `core.shards.merge_findings`; registry paths and ordering; exactly one `missing-capabilities` finding per unmet `requires` via `run_detectors`; healthy control clean; CANARY absent from every finding; no floats; `core.kanon.rescope_findings` publication; self view |
 | `test_edges.py` | range-priced contexts (Bedrock unknown endpoint scope), other-TTL (OpenAI 30m) writes, failing pricers, unpriced models, refusing and mislabeling replayers, compaction events before any request or without a TTL, K* without unit rates, heterogeneity without principals, mixed Claude Code/SDK cohorts |
 | `test_properties.py` | hypothesis: random lane sets (teams, kinds, billing classes, products, models incl. an unpriced one, gaps around both TTLs, partial reads, uncached input, fast toggles, edits, reset events) — every detector conforms, never raises, never emits unpriced or negative figures |
-| `test_gate_replay.py` | **gate** (`importorskip("tokenbill.sim.usage_replay")`): the real `UsageReplayer` on A.1 ($1.1508), A.2b ($0.318), A.2 (none), A.4 (keepalive $2.10 − $0.6924), and the restore-caching, stagger-fanout and fallback-credit repairs |
+| `test_review_fixes.py` | adversarial-review regressions: evidence kinds from the SPEC value set; table-driven billing classes (an additive class such as Copilot's `pool` gets its own scope, list-equivalent basis); every §10.1 threshold override below (and invalid values → `UsageError`); keepalive never replayed on Claude Code lanes of a mixed API_RUN cohort; the D26 statement kept at the end of every allowance summary, also after `core.kanon` re-scoping; team names never cut in titles or summaries; an unpriced repair replay keeps the finding (recoverable "unpriced", gated on cost); unpriced events disclosed; one unpriced lane does not erase a cohort's TTL advice; `K_rem` in one backward pass equals its definition (hypothesis) |
+| `test_gate_replay.py` | **gate** (`importorskip("tokenbill.sim.usage_replay")`): the real `UsageReplayer` on A.1 ($1.1508), A.2b ($0.318), A.2 (none), A.4 (keepalive $2.10 − $0.6924), the restore-caching, stagger-fanout and fallback-credit repairs, and an unpriced lane beside A.1 (advice kept, lane disclosed) |
+| `test_gate_cc.py` | **gate** (`importorskip("tokenbill.adapters.claude_code")`): CC's checked-in transcript fixtures through the real `ClaudeCodeAdapter` and `MemoryStore` into every cache detector — `assert_detector_conforms` (shard invariance included), `run_detectors`, canary absent, no floats (the replay-free part of the F-KIT gate-1 smoke path) |
 | `test_gate_fleet.py` | **gate** (`importorskip` `tokenbill.synth.fleet` and the replayer): every cache plant of `synth.fleet.generate()` (payments 1h, platform no-cache, mobile cold resumes allowance + overage, agents keepalive + edit churn) recovered within its `FleetTruth` tolerance in its exact scope; the core control team produces no cache finding; k-anonymous publication; canary absent |
 
-The gate tests were run on a scratch merge of this branch with `pkg/REPLAY` (d5a9183),
-`pkg/SYNTH-FLEET` (33dec38) and `pkg/SYNTH-ORACLE` (653c2c2) under `.tbscratch/` (never
-committed): all 12 green, every plant recovered to the nano.
+The gate tests were run on a scratch copy of this branch overlaid with the modules of
+`pkg/REPLAY` (8206a5d), `pkg/SYNTH-FLEET` (732301e), `pkg/SYNTH-ORACLE` (e3e574a) and `pkg/CC`
+(767f21e) under `.tbscratch/` (never committed): all 15 green, every plant recovered to the nano.
+On the scale fleet of `synth.fleet.generate(scale_requests=…)` the eight detectors (real replays
+included) take 5.3 s for 100k requests and 15.6 s for 300k (linear; ≈ 52 s per 10⁶ requests,
+single process, 0.5 GB peak RSS at 300k).
 
 ## Fixtures and provenance
 
@@ -54,18 +59,44 @@ thresholds and constants from `core.evidence` (`COLD_RESUME_MIN_CONTEXT`, `KEEPA
 value shape and resume-input fields are `verified` in facts.json but marked **VERIFY** in SPEC
 §19.5; the command path `hooks/tokenbill_session_start.py` is PLAN's template name (§11.3).
 
+## Thresholds (SPEC §10.1: every default is overridable)
+
+`min_usd` (default `"1.00"`) and, as `ctx.thresholds["<detector id>.<name>"]` (decimal strings;
+shares in [0, 1], counts non-negative, else `UsageError`):
+
+| key | default | meaning |
+|---|---|---|
+| `cache.cold-resume.min_context` | 100000 | `P_{i−1}` floor (`COLD_RESUME_MIN_CONTEXT`) |
+| `cache.cold-resume.min_write_share` | 0.5 | `W_i ≥ share·P_{i−1}` |
+| `cache.ttl-advisor.spend_share` | 0.02 | saving ≥ max(`min_usd`, share × cohort spend) |
+| `cache.ttl-advisor.heterogeneity_share` | 0.60 | `ttl-heterogeneous` below this share of ≥ k principals |
+| `cache.gateway-disabled.min_requests` | 5 | no-cache lane length |
+| `cache.gateway-disabled.min_prompt_tokens` | 4096 | median `T ≥ max(min_cacheable, value)` |
+| `cache.gateway-disabled.min_5m_requests` | 20 | beta-header-dropped: requests writing 5m only |
+| `cache.gateway-disabled.tool_search_misses_per_100` | 3 | tool-search-disabled rate |
+| `cache.unread-write.read_share` | 0.95 | write-never-read: `R_j < share·(R_i + W_i)` |
+| `cache.cold-fanout.window_s` | 10 | lane-first requests starting within the window |
+| `cache.cold-fanout.min_write_tokens` | 1024 | each member's `W` |
+| `cache.cold-fanout.max_read_share` | 0.5 | each member's `R < share·T` |
+
+`policy.ttl.<team>` (`"1h"`, `"3600"` or `"3600s"`) configures beta-header-dropped (read raw, see
+`CONTRACT-CHANGE-DETECT-CACHE-1.md` §2).
+
 ## Interpretations (where the SPEC is silent)
 
 - **Cohorts and scopes.** Findings aggregate per `core.findings.cohort_key` cohort at (team, lane
-  kind[, `billing_class` = allowance]). The TTL advisor splits a cohort by billing path (§10.2) and
+  kind[, `billing_class`]); the billing class is in the scope unless it is the default `billed`,
+  and the list-equivalent classes are a table (`allowance`, D26; Copilot's `pool`, R-E20), so an
+  additive class never shares a finding id with the billed cohort. The TTL advisor splits a cohort by billing path (§10.2) and
   adds a `billing_path` scope dim only when a billed cohort holds more than one path (so the
   common case keeps the plant scope `(team, lane_kind)`). Cold fan-out groups by (cache scope,
   model, cwd key) inside a cohort.
 - **`min_usd`.** Miss-by-cause kinds and the triage kinds of the gateway detector (`beta-header-dropped`,
   `tool-search-disabled`) and of unread writes gate on `cost_observed`; every other finding gates
-  on its recoverable point (or on `cost_observed` when it has no recoverable). A finding whose
-  gated figure is unpriced is not emitted; unpriced events are counted in evidence, never priced
-  as zero.
+  on its recoverable point (or on `cost_observed` when it has no recoverable, or when its
+  replayed recoverable is unpriced — shown as "unpriced", never zero). A finding whose gated
+  figure is unpriced is not emitted; unpriced events are counted in `n_events` and evidence,
+  never priced as zero, and the summary says how many were left out of the dollars.
 - **Exactness.** A priced line is exact exactly when the pricer prices it exactly (R9): unknown-TTL
   writes and unknown endpoint scopes become ESTIMATED ranges, including in `cost_observed`.
   Rewrite tokens are allocated to the billed write buckets 1h → 5m → other → unknown (longer TTLs
@@ -77,7 +108,10 @@ value shape and resume-input fields are `verified` in facts.json but marked **VE
   writes by their hint). Candidates are the TTLs different from the observed one (both for
   `mixed`/`unknown`) plus keepalive for `api_run` cohorts with a non-Claude-Code lane (§10.2 and
   R-E11). The replayed policies are `ttl=<τ>@lane_kind:<kind>` and
-  `keepalive=240s,max=3600s@lane_kind:<kind>` on the cohort's lanes only. `ttl-heterogeneous`
+  `keepalive=240s,max=3600s@lane_kind:<kind>` on the cohort's lanes only — keepalive on its
+  SDK/API (non-Claude-Code) lanes only, and every replay on the lanes whose inferences are all
+  priceable (an unpriced lane would make the whole baseline unpriced; the lanes left out are
+  disclosed in the summary). `ttl-heterogeneous`
   replaces the TTL recommendation when fewer than 60% of at least `k` principals are individually
   cheaper (per-lane savings from the observed and policy `per_lane` points), carrying the same
   recoverable and patch with per-cohort delivery text. No replayer, no advice.
@@ -92,5 +126,10 @@ value shape and resume-input fields are `verified` in facts.json but marked **VE
 - **Capabilities.** `requires` is one frozenset, so `cache.rebuild` declares
   `{usage_sequence, timing}` and gates its kinds internally (`events` for compaction-cold,
   `events` or `attempts` for edit churn) — see `CONTRACT-CHANGE-DETECT-CACHE-1.md`.
+- **Generated text.** Summaries stay within 330 chars so `core.kanon`'s re-scope prefix fits in
+  400 without cutting the D26 statement, which (with any unpriced-events note) is kept whole at
+  the end; team names are never cut in half (kanon scrubs whole tokens): a text too long drops the
+  team from its label (the scope names it) and is otherwise cut at a word boundary. Evidence items
+  use the SPEC kinds only (per-lane items are `aggregate`).
 - **Self view.** With `ctx.self_principal` the findings are `self` audience and only lanes of that
   principal (or without a principal) are analyzed.

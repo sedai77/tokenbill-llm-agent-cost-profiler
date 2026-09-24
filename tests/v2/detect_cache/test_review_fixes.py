@@ -242,6 +242,8 @@ def test_summary_budget_keeps_the_note_and_the_allowance_tail() -> None:
     assert text.endswith("… note." + cm.ALLOWANCE_SUMMARY)
     billed = cm.Cohort(team="x", lane_kind="main", billing_class="billed", lanes=())
     assert billed.summary("short") == "short"
+    assert billed.fit("alpha beta gamma delta", 12) == "alpha beta…"     # word boundary
+    assert billed.fit("7 in x main lanes of a long text", 20) == "7 in main lanes of…"
 
 
 # ---------------------------------------------------------------------------------------------

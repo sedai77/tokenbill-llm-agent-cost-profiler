@@ -1,4 +1,4 @@
-# CONTRACT-CHANGE-DETECT-CACHE-1 — per-kind capability requirements and non-decimal thresholds
+# CONTRACT-CHANGE-DETECT-CACHE-1 — per-kind capability requirements, non-decimal thresholds, kanon summary truncation
 
 Raised by DETECT-CACHE (wave 2) under SPEC §21 #3. Nothing here blocks the package: the code
 implements the current contract with the interpretations below. The contract owner decides whether
@@ -32,3 +32,20 @@ Implemented: the detector reads `ctx.thresholds.get("policy.ttl.<team>")` direct
 
 Proposed: document in §3.5 that `policy.*` keys carry policy values (TTL strings) and are read raw,
 or move team policy into a dedicated `AnalysisContext.team_policy: Mapping[str, str]`.
+
+## 3. `core.kanon` re-scoping truncates the end of a summary (a bug, not a signature)
+
+`core.kanon._merge_findings` builds `summary = (prefix + summary)[:400]` with the prefix
+"[re-scoped for k-anonymity (k=…); N finding(s) merged] " (≈ 60 chars). The end of a generated
+summary is where D26 requires the allowance statement ("list-equivalent, not invoice dollars",
+§10.1), so any detector whose allowance summary is longer than ≈ 340 chars loses that statement
+when the finding is re-scoped. It also cuts words in half.
+
+Implemented (DETECT-CACHE): every cache summary stays within 330 chars and keeps the allowance
+statement (and any unpriced-events note) whole at its end, so the prefix always fits
+(`test_review_fixes.py::test_allowance_statement_survives_long_summaries_and_rescoping`).
+
+Proposed (contract-owner hotfix, no signature change): shorten the body, not the tail — e.g.
+`prefix + summary` when it fits, else `prefix + summary[:400 − len(prefix) − 1] + "…"` only when
+the summary does not end with the D26 statement, otherwise shorten the text before it — so other
+detectors (DETECT-OTHER) keep the statement too.
