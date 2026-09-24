@@ -431,8 +431,7 @@ class TtlAdvisor:
                     "outputs, a forced tool_choice or thinking enabled); pings bill reads only.")
             return Fix(text=text, config_patch=None, target="sdk", doc_url=API_CACHE_DOC), levers
         assert ttl is not None
-        levers = applicable_levers(kind if kind != "ttl-heterogeneous" else "ttl-heterogeneous",
-                                   lanes)
+        levers = applicable_levers(kind, lanes)
         claude_code = [lane for lane in lanes if is_claude_code(lane)]
         per_cohort = (" Deliver it per cohort (MDM group or Claude apps gateway IdP group), not "
                       "org-wide.") if hetero is not None else ""

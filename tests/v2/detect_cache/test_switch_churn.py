@@ -93,6 +93,7 @@ def test_plan_toggle_opusplan() -> None:
     assert f.n_events == 2
     assert f.cost_observed.nano == 100_000 * 2_500 + 102_000 * 5_000
     assert f.recoverable is None
+    assert f.needs_eval                                        # a trade-off
     assert f.fix is not None and "opusplan switches models on every plan-mode toggle" in f.fix.text
 
 

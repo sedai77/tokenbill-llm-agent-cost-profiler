@@ -215,11 +215,17 @@ def test_unattributed_team_scope_omits_team() -> None:
 
 
 def test_long_team_names_are_bounded() -> None:
+    """Team names are never cut (k-anonymity scrubs whole tokens): a long name reads "the team"
+    and titles/summaries stay within their limits."""
     team = "t" * 300
     lane_ = lane("LT", [(0, 0, 100_000, 0, 0, 500), (420, 0, 102_000, 0, 0, 500)], team=team)
+    seen = 0
     for detector_id in ALL_DETECTORS:
         for f in _detector(detector_id).detect([lane_], _fleet_ctx()):
+            seen += 1
             assert len(f.title) <= 120 and len(f.summary) <= 400
+            assert "the team" in f.title and "tttt" not in f.title + f.summary
+    assert seen
 
 
 def test_lanes_without_serving_inference_are_skipped() -> None:

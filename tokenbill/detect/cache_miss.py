@@ -275,8 +275,12 @@ class Money:
 
 
 def team_label(team: str | None) -> str:
-    """A short, sanitized team label for generated text."""
-    return sanitize(team, 40) if team else "unattributed"
+    """The team name for generated text: never truncated (``core.kanon`` scrubs dropped scope
+    values as whole tokens), so a name over 40 characters reads "the team" instead."""
+    if not team:
+        return "unattributed"
+    clean = sanitize(team)
+    return clean if len(clean) <= 40 else "the team"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -830,6 +834,8 @@ _SWITCH_ORDER = ("refusal-fallback-no-credit", "availability-ping-pong", "plan-t
 #: kind → the repair replayed for ``recoverable`` (kinds absent here are trade-offs: none).
 _SWITCH_REPAIR = {"refusal-fallback-no-credit": "repair=fallback_credit",
                   "fast-toggle": "fast=off"}
+#: Behavior changes that trade quality or convenience for cache hits: evaluate before rollout.
+_SWITCH_TRADEOFFS = frozenset({"plan-toggle", "user-model-switch", "effort-change"})
 _SWITCH_REFS = ("cc-model-switch-cost", "fp-fallback-credit", "cc-cache-breakers",
                 "cc-model-effort-mix")
 _PER_MESSAGE_EFFORT = ("Use per-message effort (beta header "
@@ -948,7 +954,8 @@ class SwitchChurn:
             references=_SWITCH_REFS, lever_ids=applicable_levers(kind, lanes),
             fix=Fix(text=fix_text, config_patch=config, target=target, doc_url=doc, gates=gates),
             confidence="high" if kind in ("refusal-fallback-no-credit", "fast-toggle") else
-            "medium")
+            "medium",
+            needs_eval=kind in _SWITCH_TRADEOFFS)
         return emit(self, ctx, cohort, tally, spec, cost, recoverable)
 
 
