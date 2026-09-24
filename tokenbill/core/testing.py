@@ -868,7 +868,8 @@ class MemoryStore:
         self._audit: list[tuple[int, str, str, str]] = []
         self._name_mismatch = 0
         self._state: _State | None = None
-        self._price_cache: dict[tuple[str, int, int], PricedInference] = {}
+        # keyed by the (hashable, frozen) inference itself: two inferences may share an id
+        self._price_cache: dict[tuple[Inference, int], PricedInference] = {}
 
     # ---------- ingest ----------
 
@@ -1072,7 +1073,7 @@ class MemoryStore:
             return PricedInference(inference_id=inf.inference_id, lines=(),
                                    figure=unpriced("no pricer"), exact_nano=0, estimated=None,
                                    unpriced_reason="no pricer")
-        key = (inf.inference_id, ts_ms, id(p))
+        key = (inf, ts_ms)
         cached = self._price_cache.get(key) if pricer is None else None
         if cached is None:
             cached = p.price_inference(inf, ts_ms=ts_ms)
@@ -2773,6 +2774,7 @@ class SmokeTtlDetector:
     requires = frozenset({"usage_sequence", "timing"})
 
     def detect(self, lanes: Sequence[Lane], ctx: AnalysisContext) -> list[Finding]:
+        """One ``ttl-expiry`` finding per cohort with at least one TTL-expiry miss event."""
         from tokenbill.core import findings as fh
         from tokenbill.core.transitions import classify_transitions
 

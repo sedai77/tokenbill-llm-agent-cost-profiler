@@ -297,3 +297,17 @@ def test_misc_edges() -> None:
     assert keys._default_runner([sys.executable, "-c", "raise SystemExit(3)"]) == 3
     with pytest.raises(PrivacyError):
         kanon.require_self_or_aggregate(["principal"], "")
+
+
+def test_price_cache_distinguishes_inferences_sharing_an_id() -> None:
+    usage = UsageBuckets(output=1000)
+    billed = make_request("L1", 0, T0, usage, request_id="rq_1",
+                          extra_inferences=[make_inference(usage, inference_id="inf_same")])
+    allowance = make_request("L2", 0, T0, usage, request_id="rq_2", billing_path="subscription",
+                             extra_inferences=[make_inference(usage, inference_id="inf_same",
+                                                              billing_path="subscription")])
+    s = _store()
+    s.ingest(kit._result(kit._src("s1", "claude-code"), [billed, allowance]))
+    rows = s.cost_rows(group_by=["billing_path"], **W)
+    assert {r.basis for r in rows} == {Basis.LIST, Basis.LIST_EQUIVALENT}
+    assert sum(r.priced_nano for r in rows if r.basis is Basis.LIST) == 2 * 20_000_000
