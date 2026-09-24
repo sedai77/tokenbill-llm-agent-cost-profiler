@@ -108,3 +108,20 @@ does not depend on ingest order. Factory convention: `factory(org_key=…, name_
 **K-12 — `FakeReplayer` keys** are `policy.spec()`; before F-SEM's `core.policy` exists they fall back
 to `policy.name` (`FakeReplayer.policy_key`). Its savings sit on the last request of each lane in
 `outcomes`.
+
+## Contract-owner grants for wave 1.5 (GitHub Copilot) — orchestrator, 2026-09-23
+
+- **G-1 (O-1):** F-CORE-C is a contract-owner amendment run on F-CORE's files: its branch is checked with
+  `scripts/check_ownership.py --package F-CORE`. F-KIT-C likewise runs on F-KIT's files (`--package F-KIT`),
+  F-SEM-C on F-SEM's files (`--package F-SEM`). F-EXT and F-POOL are new owners added to `OWNERSHIP.toml` by
+  F-CORE-C (C-32).
+- **G-2 (O-4):** research-derived fixture inputs are copied by their OWNING packages at build time (the
+  orchestrator does not commit files owned by packages that do not exist yet): CP-RATES copies
+  `/private/tmp/claude-501/-Users-shyamsedai-Library-Application-Support-Claude-scratch-workspaces-6ca7e323-9883-4573-b4f5-6b954b9105d0-24cd3ab5-9c38-4bd2-9927-e0d5ba6ed36e-scratch-2026-09-13-3536c7/0268c3f3-9470-4bd9-93db-0269a23905e9/scratchpad/copilot/raw/yml/*.yml` + `commits.txt` into `tests/v2/fixtures/copilot_rates/yml/`; CP-OTEL copies
+  `/private/tmp/claude-501/-Users-shyamsedai-Library-Application-Support-Claude-scratch-workspaces-6ca7e323-9883-4573-b4f5-6b954b9105d0-24cd3ab5-9c38-4bd2-9927-e0d5ba6ed36e-scratch-2026-09-13-3536c7/0268c3f3-9470-4bd9-93db-0269a23905e9/scratchpad/copilot/src/**/awf-v0.28.7-aic-token-usage.jsonl` into `tests/v2/fixtures/copilot_otel/gh_aw/` and
+  `/private/tmp/claude-501/-Users-shyamsedai-Library-Application-Support-Claude-scratch-workspaces-6ca7e323-9883-4573-b4f5-6b954b9105d0-24cd3ab5-9c38-4bd2-9927-e0d5ba6ed36e-scratch-2026-09-13-3536c7/0268c3f3-9470-4bd9-93db-0269a23905e9/scratchpad/copilot/inputs/vscode-otel-DDL.sql` into `tests/v2/fixtures/copilot_otel/vscode/DDL.sql`; CP-VSCODE copies the same
+  DDL into `tests/v2/fixtures/copilot_vscode/DDL.sql`; CP-HANDOFF writes the activity-report provenance note from
+  `/private/tmp/claude-501/-Users-shyamsedai-Library-Application-Support-Claude-scratch-workspaces-6ca7e323-9883-4573-b4f5-6b954b9105d0-24cd3ab5-9c38-4bd2-9927-e0d5ba6ed36e-scratch-2026-09-13-3536c7/0268c3f3-9470-4bd9-93db-0269a23905e9/scratchpad/copilot/raw/_en_enterprise-cloud_latest_copilot_reference_metrics-data.md` into
+  `tests/v2/fixtures/copilot_handoff/README.md`.
+- **G-3 (R-E23):** TELEM and REPLAY started on the gate-F core; after gate F' they rebase and apply A-4 / A-6
+  (recorded as `tests/v2/kit/CONTRACT-CHANGE-COPILOT-TELEM.md` / `-REPLAY.md`).
