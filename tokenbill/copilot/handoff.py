@@ -711,7 +711,7 @@ def _hit_label(cat: str, fields: set[str]) -> str:
 def _value_hits(value: str, fields: set[str], prepared: _Prepared) -> set[str]:
     hits: set[str] = set()
     low = value.lower()
-    if _MACHINE_RE.match(low) or low in _VOCABULARY or "quantity" in fields:
+    if _MACHINE_RE.match(low) or low in _VOCABULARY or fields <= {"quantity"}:
         return hits
     decimal = _DECIMAL_RE.match(low) is not None
     cat = prepared.exact.get(low.strip())
@@ -771,26 +771,48 @@ def _is_pairs(items: list[object]) -> bool:
         isinstance(x, list) and len(x) == 2 and isinstance(x[0], str) for x in items)
 
 
+def _add_value(out: dict[str, set[str]], value: str, fld: str) -> None:
+    fields = out.get(value)
+    if fields is not None:
+        fields.add(fld)
+    elif _MACHINE_RE.match(value) is None:
+        out[value] = {fld}
+
+
 def _walk_strings(doc: object, out: dict[str, set[str]]) -> None:
+    """Every JSON string value of *doc* with the field it occurs in (the object key; for the
+    ``dims`` / ``attrs`` / ``counts`` / ``extra`` pair lists the pair key, and ``<list>#key`` for
+    the pair key itself); machine values (ids, pseudonyms, dates) are skipped."""
     stack: list[tuple[object, str]] = [(doc, "#root")]
     while stack:
         value, fld = stack.pop()
-        if isinstance(value, str):
-            out.setdefault(value, set()).add(fld)
-        elif isinstance(value, dict):
+        if isinstance(value, dict):
             for k, v in value.items():
-                stack.append((v, k if isinstance(k, str) else "#key"))
+                key = k if isinstance(k, str) else "#key"
+                if type(v) is str:
+                    _add_value(out, v, key)
+                elif isinstance(v, (dict, list)):
+                    stack.append((v, key))
         elif isinstance(value, list):
             if fld in ("dims", "attrs", "counts", "extra") and _is_pairs(value):
                 for key, v in value:  # type: ignore[misc]
-                    out.setdefault(key, set()).add(f"{fld}#key")
-                    stack.append((v, key))
+                    _add_value(out, key, f"{fld}#key")
+                    if type(v) is str:
+                        _add_value(out, v, key)
+                    elif isinstance(v, (dict, list)):
+                        stack.append((v, key))
             else:
                 for item in value:
-                    stack.append((item, fld))
+                    if type(item) is str:
+                        _add_value(out, item, fld)
+                    elif isinstance(item, (dict, list)):
+                        stack.append((item, fld))
+        elif isinstance(value, str):
+            _add_value(out, value, fld)
 
 
 def _text_hits(data: bytes) -> set[str]:
+    """Checks (b), (d) and (e) over the raw member text."""
     low = data.lower()
     hits = set()
     for canary in (CANARY, CANARY_LOGIN, CANARY_EMAIL):
@@ -798,7 +820,8 @@ def _text_hits(data: bytes) -> set[str]:
             hits.add("canary")
     if b"http://" in low or b"https://" in low:
         hits.add("url")
-    if _EMAIL_RE.search(data.decode("utf-8", errors="replace")):
+    text = data.decode("utf-8", errors="replace")
+    if b"@" in data and _EMAIL_RE.search(text):
         hits.add("e-mail pattern")
     return hits
 
@@ -859,15 +882,17 @@ class _Records:
 
 
 def _latest(items: Iterable[Any], key: Any) -> list[Any]:
-    """One record per natural key: the latest ``fetched_ms`` wins, ties by canonical JSON."""
-    best: dict[str, tuple[tuple[int, str], Any]] = {}
+    """One record per natural key: the latest ``fetched_ms`` wins, ties by canonical JSON
+    (computed only for colliding keys)."""
+    groups: dict[str, list[Any]] = {}
     for rec in items:
-        k = key(rec)
-        rank = (getattr(rec, "fetched_ms", 0), _line(rec))
-        cur = best.get(k)
-        if cur is None or rank > cur[0]:
-            best[k] = (rank, rec)
-    return [best[k][1] for k in sorted(best)]
+        groups.setdefault(key(rec), []).append(rec)
+    out = []
+    for k in sorted(groups):
+        recs = groups[k]
+        out.append(recs[0] if len(recs) == 1 else max(
+            recs, key=lambda r: (getattr(r, "fetched_ms", 0), _line(r))))
+    return out
 
 
 def _outcome_key(o: OutcomeAggregate) -> str:
@@ -1617,12 +1642,27 @@ def _read_raw(path: Path) -> tuple[BundleManifest, dict[str, list[Any]], dict[st
     return manifest, recs, raw
 
 
+_JSON_STRING_RE = re.compile(rb'"([^"\\]*(?:\\.[^"\\]*)*)"')
+
+
 def _recheck(raw: Mapping[str, bytes]) -> None:
-    """Defence in depth on read: the content checks of the leak gate that need no terms."""
-    hits = leak_scan(raw, LeakTerms())
-    if hits:
-        member, cat = hits[0]
-        raise SourceError(f"bundle: member {member} failed the content re-check ({cat})")
+    """Defence in depth on read: the leak-gate checks that need no terms (e-mail pattern, secrets,
+    canaries, URLs) over each member's text and over its distinct non-machine string values."""
+    for member in _MEMBER_ORDER:
+        data = raw.get(member)
+        if data is None:
+            continue
+        hits = _text_hits(data)
+        for token in set(_JSON_STRING_RE.findall(data)):
+            try:
+                value = json.loads(b'"' + token + b'"')
+            except ValueError:
+                value = token.decode("utf-8", errors="replace")
+            if _MACHINE_RE.match(value) is None:
+                hits.update(f"secret ({kind})" for kind, _, _ in find_secrets(value))
+        if hits:
+            raise SourceError(f"bundle: member {member} failed the content re-check "
+                              f"({', '.join(sorted(hits))})")
 
 
 def read_bundle(path: Path) -> tuple[BundleManifest, IngestResult]:

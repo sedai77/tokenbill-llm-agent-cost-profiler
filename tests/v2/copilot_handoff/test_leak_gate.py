@@ -145,6 +145,8 @@ def test_numeric_ids_and_machine_values() -> None:
     assert scan({"description": "58323171"}, terms) == ["numeric user id"]
     assert scan({"description": "user 58323171 x"}, terms) == ["numeric user id"]
     assert scan({"quantity": "58323171"}, terms) == []                  # decimal quantity
+    assert scan({"quantity": "58323171", "description": "58323171"},
+                terms) == ["numeric user id"]                             # also outside quantity
     assert scan({"description": "1.58323171"}, terms) == []            # inside a decimal
     assert scan({"description": "4242"}, terms) == ["numeric user id"]
     assert scan({"description": "a4242b"}, terms) == []                 # < 6 digits: exact only
