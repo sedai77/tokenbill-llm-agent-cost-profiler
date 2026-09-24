@@ -1946,8 +1946,9 @@ def _credit_text(credits: Decimal) -> str:
 
 
 def _ratio(draw: Decimal, allowance: Decimal) -> str:
-    pct = int(EXACT_CTX.divide(EXACT_CTX.multiply(draw, Decimal(100)),
-                               allowance).to_integral_value())
+    twice = EXACT_CTX.multiply(draw, Decimal(200))
+    pct = int(EXACT_CTX.divide_int(EXACT_CTX.add(twice, allowance),
+                                   EXACT_CTX.multiply(allowance, Decimal(2))))
     return f"{pct}%"
 
 
@@ -1968,13 +1969,12 @@ def _skipped(run: _Run) -> list[Finding]:
               "enterprise" if run.mode == "enterprise" else None)
     kinds = [k for k in KINDS if k in reasons]
     evidence = [_ev(f"kind:{k}", missing="; ".join(reasons[k])) for k in kinds]
-    names = ", ".join(kinds)
+    head = (f"{_NO_FIX}: {len(kinds)} kinds could not run for missing inputs (each named with "
+            f"its missing input in the evidence); load that data or accept the gap.")
+    listing = _cut("Skipped: " + ", ".join(kinds) + ".", MAX_SUMMARY - len(head) - 1)
     return [_finding(
         run, "dq.skipped-kinds", scope={"entity": entity},
         title=f"Copilot seats and budgets: {len(kinds)} kinds skipped (missing inputs)",
-        summary=_summary(
-            f"Skipped for missing inputs: {names}.",
-            f"{_NO_FIX}; load the missing data (seats list or activity report, usage metrics, "
-            f"budgets, cost centers, org settings) or accept the gap."),
+        summary=_summary(head, listing),
         cost=unpriced("data-quality note; no dollars"), n_users=0, evidence=evidence,
         confidence="high", use_catalog_fix=False)]
