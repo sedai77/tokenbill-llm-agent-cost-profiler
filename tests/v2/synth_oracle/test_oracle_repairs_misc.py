@@ -317,3 +317,49 @@ def test_retry_cap_ignores_first_requests_and_cold_lanes() -> None:
     first_only = lane_of([req("Lf", 0, 0, {"cache_write_5m": 1_000})], kind=LaneKind.API_RUN)
     assert replay([first_only], "repair=retry_backoff_cap").saving.nano == 0
     assert bounds(replay([first_only], "repair=fallback_credit").cost)[0] == 1_000 * W5
+
+
+@pytest.mark.parametrize("change", [{"client_version": ("2.1.250", "2.1.270")},
+                                    {"cwd_key": (CWD, "h_" + "a" * 20)}])
+def test_client_upgrade_and_directory_change_block_a_ttl_flip(change) -> None:
+    (key, (before, after)), = change.items()
+    reqs = [req("Lcu", 0, 0, {"cache_write_5m": 100_000},
+                attribution={"agent_product": "claude_code", key: before}),
+            req("Lcu", 1, 420, {"cache_write_5m": 102_000},
+                attribution={"agent_product": "claude_code", key: after})]
+    res = replay([lane_of(reqs)], "ttl=1h")
+    assert res.outcomes is not None and res.outcomes[1].usage.cache_read == 0
+
+
+def test_a_non_billable_serving_inference_keeps_the_chain_but_costs_nothing() -> None:
+    errored = req("Lnb", 1, 30, {"cache_read": 100_000, "cache_write_5m": 2_000},
+                  billable=False, billing_rule_id="anthropic.batch.errored_canceled_expired")
+    ln = lane_of([req("Lnb", 0, 0, {"cache_write_5m": 100_000}), errored,
+                  req("Lnb", 2, 500, {"cache_write_5m": 104_000})])
+    res = replay([ln], "ttl=1h")
+    assert costs(res)[1] == (0, 0, 0)
+    # request 2 reads the non-billed request's prefix (P' = 102k) after the 470 s gap
+    assert res.outcomes[2].usage.cache_read == 102_000  # type: ignore[index]
+
+
+def test_write_class_helpers() -> None:
+    from tokenbill.core.records import UsageBuckets
+    from tokenbill.synth.oracle import _own_class, _own_ttl_s
+
+    other = UsageBuckets(cache_write_other=10, cache_write_other_ttl_s=1_800)
+    assert _own_ttl_s(other, None) == 1_800 and _own_class(other) == ("other", 1_800)
+    unknown = UsageBuckets(cache_write_unknown=10)
+    assert _own_ttl_s(unknown, "1h") == 3_600 and _own_ttl_s(unknown, None) is None
+    assert _own_class(UsageBuckets(cache_write_5m=1, cache_write_1h=1)) is None
+    assert _own_ttl_s(UsageBuckets(cache_write_5m=1, cache_write_1h=1), None) == 300
+
+
+def test_stagger_ignores_lanes_without_a_serving_request() -> None:
+    residual = make_inference({"output": 10}, kind=InferenceKind.OUTPUT_RESIDUAL,
+                              inference_id="inf_only_residual")
+    att = make_attempt((residual,), ts_ms=EPOCH_MS, attempt_id="at_only_residual")
+    only = lane_of([req("Lonly", 0, 0, None, request_id="rq_only", attempts=[att])],
+                   kind=LaneKind.SUBAGENT)
+    res = replay([only, _first("F1", 0, 50_000), _first("F2", 1_000, 50_000)],
+                 "repair=stagger_fanout")
+    assert res.saving.nano == 50_000 * (W5 - READ)

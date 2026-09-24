@@ -863,10 +863,9 @@ class ReferenceReplay:
 
     @staticmethod
     def _tau_here(plan: _LanePlan, t: Transition | None, source: Inference) -> int:
-        """τπ of this request: the policy TTL, else the observed τ of the transition, else the
-        TTL of the request's own writes, else 300 s (the 5m point of R5)."""
-        if plan.keepalive is not None:
-            return KEEPALIVE_TTL_S
+        """τπ of this request (lanes without keepalive): the policy TTL, else the observed τ of
+        the transition, else the TTL of the request's own writes, else 300 s (the 5m point of
+        R5)."""
         if plan.ttl_s is not None:
             return plan.ttl_s
         if t is not None and t.ttl_s is not None:
@@ -1105,11 +1104,10 @@ class ReferenceReplay:
 
     @staticmethod
     def _price(items: Iterable[_Item], run: _Run) -> Figure:
-        """Σ of ``Pricer.price_usage`` figures (the Decimal path) over *items*."""
+        """Σ of ``Pricer.price_usage`` figures (the Decimal path) over *items* (billable ones:
+        non-billable inferences never become items)."""
         fig = zero(run.basis)
         for item in items:
-            if item.billable is False:
-                continue
             priced = run.pricer.price_usage(item.usage, item.ctx, ts_ms=item.ts_ms,
                                             billable=item.billable,
                                             usage_source=item.usage_source,

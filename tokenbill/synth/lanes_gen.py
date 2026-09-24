@@ -37,6 +37,7 @@ from tokenbill.core.builders import (
     make_request,
 )
 from tokenbill.core.errors import UsageError
+from tokenbill.core.evidence import CC_FLEET_USD_PER_ACTIVE_DAY
 from tokenbill.core.ids import stable_id
 from tokenbill.core.labels import Figure
 from tokenbill.core.policy import parse_policy
@@ -971,6 +972,9 @@ def closed_form(name: str) -> tuple[list[Lane], dict[str, int]]:
 # =============================================================================================
 
 _PPM = 1_000_000
+#: Synthetic default level of cost per active developer-day: the published Claude Code enterprise
+#: average (CC_FLEET_USD_PER_ACTIVE_DAY, core.evidence) — a generator default, never a prediction.
+_BASE_USD = str(CC_FLEET_USD_PER_ACTIVE_DAY.value)
 _DOW_PPM = (40_000, 60_000, 50_000, 30_000, -20_000, -150_000, -180_000)   # Mon … Sun
 
 
@@ -1081,7 +1085,7 @@ def _round(value: Fraction) -> int:
 def rollout_panel(*, clusters: int | Sequence[str], weeks: int,
                   true_effect: Decimal | str | int | float, waves: int,
                   holdback: Decimal | str | int | float, seed: int, org_wide: bool = False,
-                  base_usd_per_dev_day: Decimal | str = "13", noise_ppm: int = 30_000,
+                  base_usd_per_dev_day: Decimal | str = _BASE_USD, noise_ppm: int = 30_000,
                   price_change: Decimal | str | int | float = "0") -> list[PanelRow]:
     """A seeded cluster-day panel (SPEC §13.1 ``PanelRow``) with a known treatment effect.
 
@@ -1095,7 +1099,8 @@ def rollout_panel(*, clusters: int | Sequence[str], weeks: int,
     * ``org_wide=True``: one cluster ``"org"`` (all developers) whose cost shifts by the effect
       from the middle day of the window on (``treated`` marks the post period; arm/wave None) —
       the series for the event-study ITS tests.
-    * Costs: ``base_usd_per_dev_day`` × active dev-days × cluster level (≈ ±6%) × day-of-week ×
+    * Costs: ``base_usd_per_dev_day`` (default: the published CC_FLEET_USD_PER_ACTIVE_DAY) ×
+      active dev-days × cluster level (≈ ±6%) × day-of-week ×
       weekly trend × noise (``noise_ppm`` spread), exact integer nano (rounded once, half-even).
       ``cost_actual_nano`` equals the baseline-repriced cost except that ``price_change`` (e.g.
       ``"-0.2"`` for a 20% price cut) applies from the first treatment day on (rate variance, R8).
@@ -1124,7 +1129,7 @@ def rollout_panel(*, clusters: int | Sequence[str], weeks: int,
 def rollout_truth(*, clusters: int | Sequence[str], weeks: int,
                   true_effect: Decimal | str | int | float, waves: int,
                   holdback: Decimal | str | int | float, seed: int, org_wide: bool = False,
-                  base_usd_per_dev_day: Decimal | str = "13", noise_ppm: int = 30_000) -> int:
+                  base_usd_per_dev_day: Decimal | str = _BASE_USD, noise_ppm: int = 30_000) -> int:
     """The exact average treatment effect on the treated of :func:`rollout_panel` with the same
     arguments, in nano per active developer-day: ``Σ(cost − cost₀) / Σ dev-days`` over treated
     cluster-days (negative for a cost reduction), rounded half-even."""
@@ -1134,7 +1139,7 @@ def rollout_truth(*, clusters: int | Sequence[str], weeks: int,
                                  waves=waves, holdback=holdback, seed=seed, org_wide=org_wide,
                                  base_nano=_round(base * _M), noise=noise_ppm)
     treated = [c for c in cells if c.treated]
-    if not treated:
+    if not treated:  # pragma: no cover - the wave schedule always treats a cluster-day
         raise UsageError("panel has no treated cluster-day")
     return _round(Fraction(sum(c.cost - c.cost0 for c in treated),
                            sum(c.dev_days for c in treated)))
