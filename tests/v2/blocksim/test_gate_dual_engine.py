@@ -55,7 +55,12 @@ def demo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, tuple[Lane, list
         path = tmp_path_factory.mktemp("demo") / f"{name}.jsonl"
         write_trace(path, calls)
         lanes = _read(path)
-        assert len(lanes) == 1, f"{name}: one API_RUN lane per run (§5.5)"
+        # §10.4 needs the run as one lane: split by infer_lanes (§5.5/§5.8 "requiring the same
+        # tools-tier hash"), a tool-order rotation starts a new lane and no lane ever sees the
+        # churn — see CONTRACT-CHANGE-BLOCK-1 §4
+        assert len(lanes) == 1, (
+            f"{name}: TraceV1Adapter produced {len(lanes)} lanes for one run; the §10.4 "
+            "acceptance needs one API_RUN lane per demo run (CONTRACT-CHANGE-BLOCK-1 §4)")
         lane = lanes[0]
         missing = [r.request_id for r in lane.requests if r.fingerprint is None]
         assert not missing, f"{name}: TraceV1Adapter produced no fingerprint (fingerprint tier)"

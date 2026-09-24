@@ -112,7 +112,15 @@ def test_an_expired_unread_entry_is_replaced_and_idle_gaps_are_not_breakers() ->
     res = BlockReplayer().replay([ln], parse_policy("repair=block:drop_unread"),
                                  mode="documented", pricer=P, rules=RulesTable(),
                                  calibration=None)
-    assert res.saving.nano == 2000 * (W5 - 4000)          # r0's write was never read
+    # r0's write expired unread over the idle gap: that is the TTL levers' saving (usage
+    # level), not write-never-read's, so block:drop_unread keeps the breakpoint
+    assert res.saving.nano == 0
+    # without the idle gap, the same never-read write is dropped (a one-shot lane)
+    one_shot = lane([req("ID1", 0, 0, [SYS, blk("a")], usage(w5=2000))])
+    res1 = BlockReplayer().replay([one_shot], parse_policy("repair=block:drop_unread"),
+                                  mode="documented", pricer=P, rules=RulesTable(),
+                                  calibration=None)
+    assert res1.saving.nano == 2000 * (W5 - 4000)
 
 
 def test_zero_size_blocks_after_a_hit_write_nothing() -> None:

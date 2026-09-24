@@ -301,9 +301,22 @@ def test_read_agreement() -> None:
 
 
 def test_drop_unread_survives_the_index_shift_of_tool_superset() -> None:
+    # r0 marks the system prompt (1h) and its end (5m); r1 reads r0's end entry, so the 1h
+    # system entry is shadowed and never read (write-never-read); r2 adds a tool (subset churn)
     t1, t2, sysb = tool("dt1", 500), tool("dt2", 500), system("dsys", 1000)
-    r0 = req("DS", 0, 0, [t1, sysb, blk("da")], usage(w5=2500))
-    r1 = req("DS", 1, 30, [t1, t2, sysb, blk("da"), blk("db")], usage(w5=4000))
-    res = replay([lane([r0, r1])], "repair=block:drop_unread;repair=block:tool_superset")
-    # observed 6500·W5; r0 (3000 with the superset) sends uncached, r1 writes 4000
-    assert res.saving.nano == 6500 * W5 - (3000 * U + 4000 * W5)
+    a, b, c = blk("da"), blk("db"), blk("dc")
+    r0 = req("DS", 0, 0, [t1, sysb, a], usage(w1=1500, w5=1000), bps=[(1, "1h"), (2, "5m")])
+    r1 = req("DS", 1, 30, [t1, sysb, a, b], usage(r=2500, w5=1000))
+    r2 = req("DS", 2, 60, [t1, t2, sysb, a, b, c], usage(w5=5000))
+    ln = lane([r0, r1, r2])
+    W1 = 8000
+    # model(observed): r0 1500·W1 + 1000·W5; r1 2500·R + 1000·W5; r2 5000·W5 = 47,500,000
+    observed = 1500 * W1 + 1000 * W5 + 2500 * R + 1000 * W5 + 5000 * W5
+    # drop only: r0's 1h segment is written at 5m instead
+    assert replay([ln], "repair=block:drop_unread").saving.nano == 1500 * (W1 - W5)
+    # drop + superset: r0 = [t1, t2, sys, a] (3,000 tokens) keeps only its end breakpoint (the
+    # dropped one is ordinal 0 — at index 1 before the shift, index 2 after), r1 reads 3,000 and
+    # writes 1,000, r2 reads 4,000 and writes 1,000
+    repaired = 3000 * W5 + (3000 * R + 1000 * W5) + (4000 * R + 1000 * W5)
+    res = replay([ln], "repair=block:drop_unread;repair=block:tool_superset")
+    assert res.saving.nano == observed - repaired == 21_100_000

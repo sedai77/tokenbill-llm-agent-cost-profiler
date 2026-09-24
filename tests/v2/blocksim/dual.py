@@ -29,12 +29,13 @@ def context() -> AnalysisContext:
                            thresholds={"min_usd": "0"})
 
 
-def _ts(call: Any) -> int:
-    return int(round(call.ts * 1000))
-
-
-def _by_ts(lane: Lane) -> dict[int, str]:
-    return {r.ts_start_ms: r.request_id for r in lane.requests}
+def _request_of(lane: Lane, calls: Sequence[Any]) -> dict[int, Any]:
+    """v0.1 call index → the lane's request for it. One request per call in call order (§5.5),
+    matched by position rather than by millisecond timestamp, so the check does not depend on
+    how an adapter rounds v0.1's float seconds."""
+    assert len(lane.requests) == len(calls), (len(lane.requests), len(calls))
+    return {c.index: r for c, r in zip(sorted(calls, key=lambda c: (c.ts, c.index)),
+                                       lane.requests, strict=True)}
 
 
 def check_timestamp(lane: Lane, calls: Sequence[Any]) -> None:
@@ -42,8 +43,9 @@ def check_timestamp(lane: Lane, calls: Sequence[Any]) -> None:
     findings = BlockBreakers().detect([lane], context())
     assert [f.kind for f in findings] == ["volatile-system"], [f.kind for f in findings]
     f = findings[0]
-    assert f.first_seen_ms == _ts(calls[1])
-    assert _by_ts(lane)[_ts(calls[1])] in {e.ref for e in f.evidence}
+    call1 = _request_of(lane, calls)[calls[1].index]
+    assert f.first_seen_ms == call1.ts_start_ms
+    assert call1.request_id in {e.ref for e in f.evidence}
     assert f.n_events == len(calls) - 1
 
 
@@ -54,8 +56,8 @@ def check_tool_churn(lane: Lane, calls: Sequence[Any]) -> None:
     assert [f.kind for f in findings] == ["tool-churn"], [f.kind for f in findings]
     f = findings[0]
     rotations = [c for c in calls[1:] if c.index % 4 == 0]
-    ids = _by_ts(lane)
-    assert {e.ref for e in f.evidence} == {ids[_ts(c)] for c in rotations}
+    by_call = _request_of(lane, calls)
+    assert {e.ref for e in f.evidence} == {by_call[c.index].request_id for c in rotations}
     assert all(dict(e.attrs)["cause"] == "order" for e in f.evidence)
     assert "order" in f.title
 

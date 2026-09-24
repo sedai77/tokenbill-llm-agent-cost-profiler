@@ -76,18 +76,22 @@ from tokenbill.sim.block_replay import (
     _build,
     _Rec,
     _simulate,
+    _wasted_unread,
     first_divergence,
     lane_skip_reason,
     salt_diff,
 )
 
-__all__ = ["KINDS", "BlockBreakers"]
+__all__ = ["KINDS", "TOOL_CHANGES_BETA", "BlockBreakers"]
 
 KINDS = ("volatile-system", "system-edit", "serialization-churn", "tool-churn",
          "history-rewrite", "param-churn", "missing-breakpoint", "lookback-overflow",
          "breakpoint-placement", "write-never-read", "fanout")
 
 _CACHING_DOC = "https://platform.claude.com/docs/en/build-with-claude/prompt-caching"
+#: Beta for mid-conversation tool changes (SPEC §19.3; verified 2026-09-23 against
+#: https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages).
+TOOL_CHANGES_BETA = "mid-conversation-tool-changes-2026-07-01"
 _RESETS = frozenset({LaneEventKind.COMPACTION, LaneEventKind.CLEAR, LaneEventKind.CONTEXT_EDIT})
 _DIVERGENCE_KINDS = frozenset({"volatile-system", "system-edit", "serialization-churn",
                                "tool-churn", "history-rewrite", "param-churn"})
@@ -292,19 +296,10 @@ class _Cohort:
                 "lookback-overflow", rec, "messages", last_bp, "lookback", expected, True))
 
     def _unread(self) -> None:
-        for e in self.sim.unread:
+        # the same entries block:drop_unread drops (sim.block_replay._wasted_unread): not a
+        # fan-out, overflow, divergence, idle-gap or final write; billed writes confirm it
+        for e in _wasted_unread(self.sim):
             w = e.writer
-            if e.writers > 1 or e.overflow or w.inf.usage.cache_write <= 0:
-                continue
-            if w.lane_n > 1 and w.lane_i == w.lane_n - 1:
-                continue                                   # a lane's final write: unavoidable
-            recs = self.by_lane[w.lane.lane_key]
-            if w.lane_i + 1 < len(recs):
-                succ = recs[w.lane_i + 1]
-                if succ.d <= e.bp_index:
-                    continue                               # the successor diverged: a breaker
-                if succ.t > e.expires:
-                    continue                               # idle past the TTL: usage level
             pred = self.sim.preds[w.req.request_id]
             seg = next((s for idx, s, ent in pred.written if ent is e), 0)
             self.events["write-never-read"].append(_Event(
@@ -312,14 +307,13 @@ class _Cohort:
 
     def _fanout(self) -> None:
         for rec in self.chains.order:
+            if rec.inf.usage.cache_write <= 0:
+                continue                                   # billed writes confirm the re-write
             pred = self.sim.preds[rec.req.request_id]
             for e in pred.fanout:
                 seg = next((s for idx, s, ent in pred.written if ent is e), 0)
                 self.events["fanout"].append(_Event(
-                    "fanout", rec, "messages", e.bp_index, "concurrent", seg,
-                    rec.inf.usage.cache_write > 0, "event"))
-        if not any(ev.confirmed for ev in self.events["fanout"]):
-            self.events["fanout"] = []
+                    "fanout", rec, "messages", e.bp_index, "concurrent", seg, True, "event"))
 
     # ------------------------------------------------------------------ money
     def _replay(self, lanes: Sequence[Lane], spec: str) -> Figure:
@@ -480,10 +474,20 @@ class _Cohort:
                 texts.append("send tool definitions in one fixed order (sort them by name once "
                              "at startup)")
             if "subset" in subs:
-                texts.append("keep a constant tool set: defer rarely used tools with "
-                             "defer_loading / tool search, or add tools with the tool_addition "
-                             "beta where supported")
-                gates = ("anthropic-beta:mid-conversation-tool-changes-2026-07-01",)
+                # tool_addition / tool_removal (beta mid-conversation-tool-changes-2026-07-01)
+                # support the same models as mid-conversation role:system messages (Opus 5/5.5/
+                # 4.8, Fable, Mythos; not Sonnet 5 — verified 2026-09-23 against the Anthropic
+                # mid-conversation system messages docs), so the same pricer feature gates it
+                if self._models_support("mid_conversation_system", lanes):
+                    texts.append("keep a constant tool set: declare every tool up front and "
+                                 "offer or withdraw tools with tool_addition / tool_removal "
+                                 "blocks (beta), or defer rarely used tools with defer_loading "
+                                 "/ tool search")
+                    gates = ("anthropic-beta:" + TOOL_CHANGES_BETA,)
+                else:
+                    texts.append("keep a constant tool set: defer rarely used tools with "
+                                 "defer_loading / tool search instead of adding and removing "
+                                 "them")
             if "definition" in subs:
                 texts.append("keep tool definitions byte-stable across calls")
             joined = "; ".join(texts) or "keep tool definitions byte-stable across calls"

@@ -123,7 +123,19 @@ def test_tool_churn_subset() -> None:
     # observed 2500·W5 + 4000·W5 + (4000·R + 1000·W5) = 38,300,000;
     # constant superset: 3000·W5 + (3000·R + 1000·W5) + (4000·R + 1000·W5) = 26,400,000
     assert f.recoverable.nano == 11_900_000
-    assert "subset" in f.title and f.fix.gates
+    assert "subset" in f.title
+    assert f.fix.gates == ("anthropic-beta:mid-conversation-tool-changes-2026-07-01",)
+    assert "tool_addition" in f.fix.text
+
+
+def test_tool_churn_subset_fix_offers_the_tool_changes_beta_only_where_supported() -> None:
+    # Sonnet 5 supports neither mid-conversation system messages nor tool_addition/tool_removal
+    t1, t2, sysb = tool("ps1"), tool("ps2"), system("pssys", 1000)
+    blocks = [[t1, sysb, *MSG[:1]], [t1, t2, sysb, *MSG[:2]], [t1, t2, sysb, *MSG[:3]]]
+    f = only(detect([lane(growing("QS", blocks[0], blocks[1:], model="claude-sonnet-5"))]),
+             "tool-churn")
+    assert f.fix.gates == () and "tool_addition" not in f.fix.text
+    assert "defer_loading" in f.fix.text
 
 
 def test_tool_churn_definition_only_has_no_repair() -> None:
@@ -262,6 +274,30 @@ def test_fanout() -> None:
 def test_fanout_needs_billed_writes() -> None:
     lanes = [lane([req(f"FU{i}", 0, 0, [system("fus", 3000)], usage(u=3000))]) for i in range(3)]
     assert "fanout" not in kinds(detect(lanes, min_usd="0"))
+
+
+def test_fanout_counts_only_requests_whose_billed_writes_confirm_it() -> None:
+    billed = [usage(w5=3000), usage(w5=3000), usage(u=3000)]      # FM2 billed no write
+    lanes = [lane([req(f"FM{i}", 0, 0, [system("fms", 3000)], billed[i], ttft_ms=900)])
+             for i in range(3)]
+    f = only(detect(lanes), "fanout")
+    assert f.n_events == 1 and [e.ref for e in f.evidence] == [lanes[1].requests[0].request_id]
+    assert f.cost_observed.nano == 3000 * W5 and f.confidence == "high"
+
+
+def test_write_never_read_leaves_idle_gap_writes_to_the_ttl_levers() -> None:
+    # r0 marks the system prompt (1h) and its end (5m); r1 reads the end entry, so the 1h system
+    # entry is never read: write-never-read. r1's own write expires over a 66-minute idle gap
+    # before r2 (the usage-level TTL advisor's case), so it is neither an event nor dropped.
+    sysb, a, b, c = system("wi-sys", 2000), blk("wi-a"), blk("wi-b"), blk("wi-c")
+    r0 = req("WI", 0, 0, [sysb, a], usage(w1=2000, w5=1000), bps=[(0, "1h"), (1, "5m")])
+    r1 = req("WI", 1, 30, [sysb, a, b], usage(r=3000, w5=1000))
+    r2 = req("WI", 2, 4000, [sysb, a, b, c], usage(w5=4000))
+    f = only(detect([lane([r0, r1, r2])]), "write-never-read")
+    assert f.n_events == 1 and f.evidence[0].ref == r0.request_id
+    # dropping the 1h breakpoint writes those 2,000 tokens at 5m (r1's read is kept)
+    assert f.recoverable.nano == 2000 * (8000 - W5)
+    assert f.cost_observed.nano == 2000 * 8000 + 1000 * W5
 
 
 def test_every_kind_has_a_fixture_here() -> None:

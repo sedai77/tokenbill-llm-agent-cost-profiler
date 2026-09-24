@@ -7,14 +7,17 @@ import dataclasses
 import pytest
 
 from tests.v2.blocksim.fp import fingerprint
-from tests.v2.blocksim.helpers import blk, req, system, tool, usage
+from tests.v2.blocksim.helpers import blk, context, lane, req, size, system, tool, usage
 from tokenbill.core.cache_rules import (
     PER_MESSAGE_EFFORT_BETA,
     RulesTable,
     effort_change_keeps_cache,
 )
 from tokenbill.core.records import Request
-from tokenbill.sim.block_replay import chain_hashes, first_divergence, salt_diff
+from tokenbill.core.testing import FakePricer
+from tokenbill.core.transitions import classify_transitions
+from tokenbill.detect.block import BlockBreakers
+from tokenbill.sim.block_replay import BlockReplayer, chain_hashes, first_divergence, salt_diff
 
 TOOLS = (tool("t1"), tool("t2"))
 SYS = (system("sys"),)
@@ -93,6 +96,53 @@ def test_appendix_a13_rows(product, model, channel, version, betas, keeps) -> No
     assert tools_eq and system_eq
     assert messages_eq is keeps
     assert (first_divergence(a, b) is None) is keeps
+
+
+@pytest.mark.parametrize("prev_kw,cur_kw", [
+    # Claude Code upgraded mid-session past 2.1.260 on Opus 5.5: the exemption turns on
+    ({"attribution": {"agent_product": "claude_code", "client_version": "2.1.250"}},
+     {"attribution": {"agent_product": "claude_code", "client_version": "2.1.270"}}),
+    # ... and the reverse (a downgrade)
+    ({"attribution": {"agent_product": "claude_code", "client_version": "2.1.270"}},
+     {"attribution": {"agent_product": "claude_code", "client_version": "2.1.250"}}),
+    # an SDK lane starts sending the per-message effort beta on Opus 5
+    ({"attribution": {"agent_product": "agent_sdk"}, "model": "claude-opus-5"},
+     {"attribution": {"agent_product": "agent_sdk"}, "model": "claude-opus-5",
+      "betas": (PER_MESSAGE_EFFORT_BETA,)}),
+])
+def test_an_exemption_flip_with_unchanged_effort_is_no_change(prev_kw, cur_kw) -> None:
+    """``core.transitions`` evaluates ``effort_change_keeps_cache`` for the later request only,
+    so a flip of the exemption itself with the same effort (and thinking unreported on both) is
+    not a parameter change; the block engine compares both salts under that same exemption."""
+    def make(seq, kw, blocks):
+        kw = dict(kw)
+        params = {"effort": "high", "betas": kw.pop("betas", ())}
+        return req("FL", seq, 30 * seq, blocks, usage(w5=size(blocks)), params=params, **kw)
+
+    a = make(0, prev_kw, (*SYS, MSGS[0]))
+    b = make(1, cur_kw, (*SYS, *MSGS))
+    assert first_divergence(a, b) is None
+    assert salt_diff(a, b) == ()
+    ln = lane([a, b])
+    t = classify_transitions(ln, pricer=FakePricer(), rules=RulesTable())[0]
+    assert t.sub_cause != "effort-change"
+    assert BlockBreakers().detect([ln], context(min_usd="0")) == []
+    # the chain carries on: request 1 reads request 0's entry
+    outs = BlockReplayer().predict([ln], pricer=FakePricer())
+    assert outs[1].usage.cache_read == size((*SYS, MSGS[0]))
+
+
+def test_an_effort_change_is_judged_by_the_later_requests_exemption() -> None:
+    """High → low while the exemption turns on: no change (the later request is exempt); low →
+    high while it turns off: a messages-tier change — exactly core.transitions' effort-change."""
+    old = {"agent_product": "claude_code", "client_version": "2.1.250"}
+    new = {"agent_product": "claude_code", "client_version": "2.1.270"}
+    a = _req(0, params={"effort": "high"}, attribution=old)
+    b = _req(1, params={"effort": "low"}, attribution=new)
+    assert first_divergence(a, b) is None
+    c = _req(2, params={"effort": "high"}, attribution=old)
+    assert first_divergence(b, c) == ("messages", 3, "param")
+    assert salt_diff(b, c) == (("messages", "effort"),)
 
 
 def test_tool_definition_change_invalidates_every_tier() -> None:

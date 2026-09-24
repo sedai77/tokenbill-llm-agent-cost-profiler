@@ -14,7 +14,10 @@ thinking, effort, output format). **Effort and thinking are left out of the mess
 usage level uses, so both engines agree. The invalidation hierarchy is thus plain inequality of
 chain nodes. Block hashes exclude ``cache_control`` (a moved marker never changes a hash). A
 parameter a request does not report (``None``) takes the lane's nearest reported value, so — as in
-``core.transitions`` — only two reported, different values count as a change.
+``core.transitions`` — only two reported, different values count as a change; and two requests'
+salts are compared under the later request's exemption (``core.transitions`` evaluates the
+predicate for request ``i``), so a flip of the exemption itself (a client upgrade, a beta added)
+with an unchanged effort breaks nothing.
 
 **Entries** are keyed by chain node (so by ``(cache scope, model, chain hash at block k)``) with
 ``visible_ms`` = the writer's start + ttft, else + duration, else + 1,000 ms (same-timestamp
@@ -48,8 +51,10 @@ lanes).
 lane's constant superset of tool definitions in first-seen order; the added definitions add
 tokens at the request's own scale), ``block:pin_params`` (tier salts pinned to the lane's first
 values), ``block:add_end`` (one end breakpoint on requests without breakpoints or automatic
-caching), ``block:drop_unread`` (hindsight: drop observed breakpoints whose entry is never read;
-the tail write of a multi-request lane and concurrently re-written entries are kept) and
+caching), ``block:drop_unread`` (hindsight: drop the observed breakpoints the
+``write-never-read`` breaker flags — entries never read, billed as written, that no other lever
+explains: fan-out, lookback overflow, a divergence of the next request, an idle gap past the TTL
+and the tail write of a multi-request lane are kept) and
 ``block:stagger`` (send one, await its first token, then the rest: the visibility delay is
 waived).
 
@@ -70,6 +75,7 @@ import hashlib
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from decimal import Decimal
+from operator import attrgetter
 
 from tokenbill.core.cache_rules import CacheRules, RulesTable, effort_change_keeps_cache
 from tokenbill.core.errors import UsageError
@@ -143,6 +149,7 @@ _EFFORT_PARAMS = ("thinking", "effort")
 _DEFAULT_TTL_S = 300
 _DAY_MS = 86_400_000
 _OTHER_TTL_S = 1800
+_H = attrgetter("h")
 
 
 # =============================================================================================
@@ -192,11 +199,17 @@ def _all_salt_names(rules: CacheRules) -> tuple[str, ...]:
     return tuple(names)
 
 
-def _salts(req: Request, rules: CacheRules, values: Mapping[str, object]
-           ) -> tuple[tuple[tuple[str, object], ...], ...]:
-    """The three tier salts of *req* (tools, system, messages) from parameter *values*."""
+def _salts(req: Request, rules: CacheRules, values: Mapping[str, object],
+           exempt: bool | None = None) -> tuple[tuple[tuple[str, object], ...], ...]:
+    """The three tier salts of *req* (tools, system, messages) from parameter *values*.
+
+    *exempt* is the D28 effort exemption to apply (default: *req*'s own). Pairwise comparisons
+    pass the exemption of the later request for both sides, exactly as ``core.transitions``
+    evaluates ``effort_change_keeps_cache`` for request ``i`` only — so an exemption that flips
+    between two requests (a client upgrade, a beta added) with an unchanged effort is no change."""
     names = _salt_names(rules)
-    exempt = _effort_exempt(req)
+    if exempt is None:
+        exempt = _effort_exempt(req)
     all_tiers = (not exempt) and req.model in rules.effort_invalidates_all_tiers_models
     out = []
     for ti, tier_names in enumerate(names):
@@ -231,10 +244,12 @@ def _pair_values(prev: Request, cur: Request, rules: CacheRules
 def salt_diff(prev: Request, cur: Request, *, rules: CacheRules | None = None
               ) -> tuple[tuple[str, str], ...]:
     """``(tier, parameter)`` pairs whose tier salt differs between two requests (after the effort
-    exemption and the pairwise None rule), in tier order."""
+    exemption of *cur*, applied to both sides as in ``core.transitions``, and the pairwise None
+    rule), in tier order."""
     rules = rules if rules is not None else _rules_for(RulesTable(), cur)
     pv, cv = _pair_values(prev, cur, rules)
-    ps, cs = _salts(prev, rules, pv), _salts(cur, rules, cv)
+    exempt = _effort_exempt(cur)
+    ps, cs = _salts(prev, rules, pv, exempt), _salts(cur, rules, cv, exempt)
     out: list[tuple[str, str]] = []
     for ti, tier in enumerate(_TIERS):
         a, b = dict(ps[ti]), dict(cs[ti])
@@ -350,8 +365,9 @@ def first_divergence(prev: Request, cur: Request, *, rules: CacheRules | None = 
     another order / tools added or removed / a changed definition), ``system-edit``, and in the
     messages tier ``compaction`` (a compaction block), ``context-edit`` (applied context edits on
     *cur*), ``thinking-dropped`` (server-dropped thinking blocks) or ``history-rewrite``. Moved
-    ``cache_control`` markers never diverge (hashes exclude them). None when either request has
-    no fingerprint."""
+    ``cache_control`` markers never diverge (hashes exclude them). The effort exemption is *cur*'s,
+    applied to both requests (the ``core.transitions`` rule). None when either request has no
+    fingerprint."""
     pf, cf = prev.fingerprint, cur.fingerprint
     if pf is None or cf is None:
         return None
@@ -361,7 +377,8 @@ def first_divergence(prev: Request, cur: Request, *, rules: CacheRules | None = 
         return ("tools", 0, "key")
     rules = rules if rules is not None else _rules_for(RulesTable(), cur)
     pv, cv = _pair_values(prev, cur, rules)
-    ps, cs = _salts(prev, rules, pv), _salts(cur, rules, cv)
+    exempt = _effort_exempt(cur)
+    ps, cs = _salts(prev, rules, pv, exempt), _salts(cur, rules, cv, exempt)
     pblocks, cblocks = pf.blocks, cf.blocks
     n = len(cblocks)
     starts_c, starts_p = _tier_starts(cf.tier_end), _tier_starts(pf.tier_end)
@@ -524,13 +541,15 @@ def _units(block: BlockRef) -> int:
 class _Rec:
     """One request with a serving inference, as the engine sees it."""
 
-    __slots__ = ("auto", "base", "blocks", "bp_nodes", "bps", "ctx", "d", "end_ttl", "inf",
-                 "key_of", "lane", "lane_i", "lane_n", "last", "min_cache", "n", "order", "over",
-                 "prev", "req", "root", "rules", "salts", "t", "tbase", "te", "total", "units",
-                 "vis")
+    __slots__ = ("auto", "base", "blocks", "bp_nodes", "bps", "ctx", "d", "end_ttl", "exempt",
+                 "inf", "keys", "lane", "lane_i", "lane_n", "last", "min_cache", "n", "next",
+                 "order", "prev", "req", "root", "rules", "salts", "t", "tbase", "te", "total",
+                 "units", "values", "vis")
 
     def __init__(self) -> None:
         self.prev: _Rec | None = None
+        self.next: _Rec | None = None
+        self.keys: list[str] | None = None
 
 
 class _Chains:
@@ -706,7 +725,9 @@ def _build(lanes: Sequence[Lane], *, pricer: Pricer, rules: CacheRulesProvider,
                 blocks, te, imap, added = fp.blocks, fp.tier_end, None, 0
             n = len(blocks)
             rec.blocks, rec.te, rec.n = blocks, te, n
-            rec.salts = _salts(req, rl, values[i])
+            rec.values = values[i]
+            rec.exempt = _effort_exempt(req)
+            rec.salts = _salts(req, rl, values[i], rec.exempt)
             model = req.model
             rec.root = nodes.root(("root", fp.key_id, scope, model, rl.collapse_tool_runs))
             # --- common prefix with the lane predecessor (chain reuse) ---
@@ -715,27 +736,39 @@ def _build(lanes: Sequence[Lane], *, pricer: Pricer, rules: CacheRulesProvider,
                 pb = prev.blocks
                 m = min(len(pb), n)
                 if pb[m - 1] is blocks[m - 1] and pb[:m] == blocks[:m]:
-                    d = m
+                    d = m                      # delta-shared blocks: a C-speed identity compare
                 else:
-                    kf = keyfn
-                    k = 0
-                    while k < m:
-                        a, b = pb[k], blocks[k]
-                        if a is not b and (a.tier != b.tier or (
-                                (kf(a) != kf(b)) if kf is not None else (a.h != b.h))):
-                            break
-                        k += 1
-                    d = k
-                pte, ps = prev.te, prev.salts
+                    # equal but distinct blocks: compare hash-key lists (C speed), keeping only
+                    # the newest request's keys; tiers are enforced by the tier_end clamp below
+                    kf = keyfn if keyfn is not None else _H
+                    pk = prev.keys if prev.keys is not None else [kf(b) for b in pb]
+                    ck = [kf(b) for b in blocks]
+                    if pk[:m] == ck[:m]:
+                        d = m
+                    else:
+                        k = 0
+                        while k < m and pk[k] == ck[k]:
+                            k += 1
+                        d = k
+                    rec.keys = ck
+                pte = prev.te
                 for t in (1, 2):
                     if pte[t - 1] != te[t - 1]:
                         d = min(d, pte[t - 1], te[t - 1])
-                if ps[0] != rec.salts[0]:
+                # tier salts compared under *this* request's effort exemption (core.transitions)
+                if prev.exempt == rec.exempt:
+                    ps, cs = prev.salts, rec.salts
+                else:
+                    ps = _salts(prev.req, rl, prev.values, rec.exempt)
+                    cs = _salts(req, rl, rec.values, rec.exempt)
+                if ps[0] != cs[0]:
                     d = 0
-                elif ps[1] != rec.salts[1]:
+                elif ps[1] != cs[1]:
                     d = min(d, te[0])
-                elif ps[2] != rec.salts[2]:
+                elif ps[2] != cs[2]:
                     d = min(d, te[1])
+            if prev is not None:
+                prev.keys = None               # only the newest request's key list is kept
             rec.d = d
             if d > 0:
                 assert prev is not None
@@ -809,7 +842,8 @@ def _build(lanes: Sequence[Lane], *, pricer: Pricer, rules: CacheRulesProvider,
                 min_memo[mkey] = mc
             rec.min_cache = mc
             rec.prev = prev
-            rec.over = None
+            if prev is not None:
+                prev.next = rec
             lane_recs.append(rec)
             prev = rec
         ch.lane_ttl[lane.lane_key] = (max(ttl_counts.items(), key=lambda kv: (kv[1], kv[0]))[0]
@@ -1063,19 +1097,33 @@ def _simulate(ch: _Chains, placement: str = "observed", *, add_end: bool = False
     return sim
 
 
-def _drop_set(ch: _Chains, sim: _Sim) -> frozenset[tuple[str, int]]:
-    """Observed breakpoints to drop under ``block:drop_unread``, as ``(request id, ordinal among
-    the request's observed breakpoints)`` (stable under the index shifts of tool repairs):
-    single-writer entries never read, except the tail write of a multi-request lane."""
-    out = set()
+def _wasted_unread(sim: _Sim) -> list[_Entry]:
+    """Entries written and never read that a dropped breakpoint would have saved — the
+    ``write-never-read`` breaker's events and exactly what ``block:drop_unread`` drops, so its
+    recoverable never counts what another lever recovers. Excluded: concurrent re-writes (fan-out,
+    ``block:stagger``), entries out of the lookback window (lookback overflow, ``every_15``),
+    writes billing does not confirm, the final write of a multi-request lane (unavoidable), entries
+    the lane's next request diverged before (a divergence breaker's repair makes them read) and
+    entries that expired before the next request (idle gaps: the usage-level TTL levers)."""
+    out: list[_Entry] = []
     for e in sim.unread:
         w = e.writer
-        if e.writers > 1:
+        if e.writers > 1 or e.overflow or w.inf.usage.cache_write <= 0:
             continue
         if w.lane_n > 1 and w.lane_i == w.lane_n - 1:
             continue
-        out.add((w.req.request_id, e.bp_ord))
-    return frozenset(out)
+        succ = w.next
+        if succ is not None and (succ.d <= e.bp_index or succ.t > e.expires):
+            continue
+        out.append(e)
+    return out
+
+
+def _drop_set(sim: _Sim) -> frozenset[tuple[str, int]]:
+    """Observed breakpoints to drop under ``block:drop_unread``, as ``(request id, ordinal among
+    the request's observed breakpoints)`` (stable under the index shifts of tool repairs): the
+    entries of :func:`_wasted_unread`."""
+    return frozenset((e.writer.req.request_id, e.bp_ord) for e in _wasted_unread(sim))
 
 
 # =============================================================================================
@@ -1241,7 +1289,7 @@ class BlockReplayer:
         chain_repairs = repairs & _CHAIN_REPAIRS
         pol_ch = _build(members, pricer=pricer, rules=rules, repairs=chain_repairs) \
             if chain_repairs else obs_ch
-        drop = _drop_set(obs_ch, obs) if REPAIR_DROP_UNREAD in repairs else frozenset()
+        drop = _drop_set(obs) if REPAIR_DROP_UNREAD in repairs else frozenset()
         pol = _simulate(pol_ch, placement, add_end=REPAIR_ADD_END in repairs, drop=drop,
                         stagger=REPAIR_STAGGER in repairs)
         pol_recs = {r.req.request_id: r for r in pol_ch.recs}

@@ -1,4 +1,4 @@
-# CONTRACT-CHANGE-BLOCK-1 — `block:` repair ids, their levers, and cohort-scoped cache sharing
+# CONTRACT-CHANGE-BLOCK-1 — `block:` repair ids, their levers, cohort-scoped cache sharing and trace@1 lane inference
 
 Raised by BLOCK (wave 2). Implemented against the current contract; nothing in `core/*` was edited.
 
@@ -19,7 +19,7 @@ ids. The breaker table (§10.4) describes each repair in prose only.
 | `block:tool_superset` | every request sends the lane's constant tool superset (added tokens priced) | `tool-churn` (subset) |
 | `block:pin_params` | tier salts pinned to the lane's first values | `param-churn` |
 | `block:add_end` | one end-of-prompt breakpoint on requests with none | `missing-breakpoint` |
-| `block:drop_unread` | drop observed breakpoints whose entry is never read (hindsight) | `write-never-read` |
+| `block:drop_unread` | drop the observed breakpoints `write-never-read` flags: entries never read, billed as written, not explained by fan-out, lookback overflow, a divergence of the next request, an idle gap past the TTL or a lane's final write (hindsight) | `write-never-read` |
 | `block:stagger` | send one, await its first token, then the rest | `fanout` |
 
 `lookback-overflow` and `breakpoint-placement` are priced with `breakpoints=every_15` and the
@@ -65,3 +65,31 @@ two teams sharing a system prompt in one workspace) is therefore not modeled: th
 conservative there.
 
 **Proposal.** Ratify the cohort scope in §9.7 #2 ("within a cohort, keyed by …").
+
+## 4. trace@1 lane inference conflicts with the §10.4 dual-engine acceptance (TRACE, contract owner)
+
+**What.** §5.5 infers lanes (`infer_lanes`, §5.8) when a trace@1 run "contains more than one
+model or the fingerprints show non-prefix-extending successors", and §5.8 lets a request join an
+existing lane only with "the same model and tools-tier hash; otherwise it opens a new lane". The
+v0.1 `tool-churn` demo rotates the tool order every 4th call, so every rotation is a
+non-prefix-extending successor whose tools-tier hash is new: read literally, `TraceV1Adapter`
+splits the run into one lane per tool order, each lane has a constant order, and no lane can show
+`tool-churn` — the §10.4 acceptance ("`tool-churn` → `tool-churn` (order) at the rotation calls")
+becomes impossible. The breakers compare a request with its lane predecessor only (cross-lane
+comparison would break the cohort/shard rules of §10.1).
+
+The same rule has a second effect on real traffic: independent requests of one trace@1 run that
+share a preamble (a batch job, the exp2b-a3 shape) join one lane by longest common prefix, and
+each one then "rewrites" its predecessor's final turn — a false `history-rewrite` (the v0.1
+false positive the codebase review reported as exp10). BLOCK's own exp2b-a3 fixture encodes the
+requests as separate lanes, as the recorder's per-request lanes would.
+
+**Current implementation.** BLOCK is unchanged; `test_gate_dual_engine.py` asserts one lane per
+demo run and fails with a message pointing here if the adapter splits it (verified in scratch
+with a stand-in adapter that keeps one lane per run: all six gate tests pass, also with
+timestamps rounded differently from v0.1's).
+
+**Proposal.** In `infer_lanes`, key lane membership on the model and the tools-tier **multiset**
+(`h_sorted`, order-insensitive) rather than the tools-tier hash — or infer lanes in trace@1 only
+when a run interleaves models; and open a new lane when a successor diverges from every open
+lane's last request inside the messages tier at the final turn (a sibling, not a continuation).

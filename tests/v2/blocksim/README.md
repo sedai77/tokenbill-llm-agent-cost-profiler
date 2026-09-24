@@ -21,7 +21,7 @@ Package BLOCK (wave 2) owns `tokenbill/sim/block_replay.py`, `tokenbill/detect/b
 
 | file | covers |
 |---|---|
-| `test_tier_salts.py` | tier salts, Appendix A.13 rows, tool/model/speed/system/messages params, the None rule, marker moves |
+| `test_tier_salts.py` | tier salts, Appendix A.13 rows, tool/model/speed/system/messages params, the None rule, exemption flips judged by the later request (agreement with `core.transitions`), marker moves |
 | `test_cache_model.py` | 20-position lookback, collapsed tool_result runs, TTL refresh and expiry, 1h, first-token visibility, minimum prefix, sizing to billed `total_input`, 4-breakpoint limit, automatic caching, scope and model isolation, OpenAI rules |
 | `test_replayer.py` | `assert_replayer_conforms` (FakePricer, FlatRates), identity, minimal change, outcome usage, skipped lanes, billing classes, repairs, shard invariance, determinism |
 | `test_breakers.py` | one hand-computed fixture per kind (11), the v0.1 floor wording, trigger rules, `assert_detector_conforms` (incl. shard invariance), registry, allowance cohorts, canary |
@@ -32,7 +32,7 @@ Package BLOCK (wave 2) owns `tokenbill/sim/block_replay.py`, `tokenbill/detect/b
 | `test_fixtures.py` | the JSONL fixtures are current, deterministic and content-free |
 | `test_properties.py` | hypothesis: sizing invariants, identity, consistency, determinism, shard invariance, `first_divergence` and detector fuzz |
 | `test_edges.py` | passthrough requests, empty fingerprints, in-lane salt changes, idle expiry, zero-size tails, rewinds |
-| `test_perf.py` | a 4,000-call run replays in ≤ 2 s (`perf`); PR variant 400 calls in ≤ 0.2 s |
+| `test_perf.py` | a 4,000-call run replays in ≤ 2 s (`perf`), with delta-shared and with equal-but-distinct block objects; PR variants 400 calls in ≤ 0.2 s |
 
 Helpers (area-local): `helpers.py` (named blocks with exact sizes, fingerprinted requests, lanes,
 contexts), `fp.py` (a small §5.8 fingerprinter and a §5.5 trace@1 → Lane bridge), `exps.py`
@@ -66,7 +66,11 @@ Every fixture is synthetic; nothing comes from real transcripts.
    `well-behaved` and exp1).
 3. **Unreported parameters** — a salted parameter a request does not report takes the lane's
    nearest reported value (pairwise in `first_divergence`), mirroring `core.transitions` where
-   None is never a change. Served speed is taken from the serving inference.
+   None is never a change. Served speed is taken from the serving inference. Two requests' salts
+   are compared under the **later** request's effort exemption (`core.transitions` evaluates
+   `effort_change_keeps_cache` for request `i`), so an exemption that flips (a Claude Code upgrade
+   past 2.1.260, a per-message effort beta added) with an unchanged effort breaks nothing, and an
+   effort change counts exactly when the usage level calls it `effort-change`.
 4. **Lookups** — each breakpoint looks back ≤ 20 collapsed positions (its own first) for the
    deepest live, visible entry; every entry a lookup finds is refreshed (its own TTL) and counts as
    read; the request reads up to the deepest hit; entries are created only at breakpoints beyond it
@@ -86,7 +90,9 @@ Every fixture is synthetic; nothing comes from real transcripts.
    overflow, write-never-read and fan-out need billed confirmation (a billed miss / billed writes).
    Write-never-read counts single-writer entries of one-shot lanes or shadowed breakpoints (not a
    lane's final write, not after an idle gap, not after the successor diverged, not an overflow
-   miss). Placement is evaluated on lanes with markers and no other breaker (so a lane gets the
+   miss), and `block:drop_unread` drops exactly those breakpoints, so its recoverable never
+   includes what the TTL levers, a divergence repair, `every_15` or `block:stagger` recover.
+   Fan-out events are the concurrent re-writes whose own billed writes confirm them. Placement is evaluated on lanes with markers and no other breaker (so a lane gets the
    specific diagnosis, not a generic one).
 10. **Money** — `cost_observed` is billed arithmetic on the affected requests (uncached + write
     input; all input for placement; writes for write-never-read and fan-out); `recoverable` is the
@@ -94,6 +100,17 @@ Every fixture is synthetic; nothing comes from real transcripts.
     with "no recovery modeled — billed caching already beats the simulated fix"; fan-out savings
     are upper bounds; `min_usd` gates the recoverable point (the observed cost for kinds without a
     repair).
+
+## Facts
+
+Verified by BLOCK on 2026-09-23 against the primary sources (Anthropic prompt-caching and
+mid-conversation system messages docs): the mid-conversation tool changes beta
+`mid-conversation-tool-changes-2026-07-01` (`tool_addition` / `tool_removal` blocks; Fable 5.1,
+Mythos 5.1, Fable 5, Mythos 5, Opus 5.5, Opus 4.8, Opus 5 — not Sonnet 5; the same models as
+mid-conversation `role: system`, so the `tool-churn` fix offers it only where the pricer reports
+`mid_conversation_system`); the 20-position lookback counting the breakpoint as the first, with
+runs of `tool_use` / `tool_result` collapsed on the Claude API; entries readable only after the
+first response begins.
 
 ## Unverified facts
 
@@ -109,4 +126,20 @@ written (TRACE owns the real fingerprinter).
 A 4,000-call growing conversation (4,002 blocks at the end, one breakpoint on the newest block)
 replays under `breakpoints=every_15` in ≈ 0.35 s on the build machine (baseline pricing included),
 against the 2 s budget; the chain build compares delta-shared block tuples at C speed and interns
-only new blocks, the static prefix walk is memoized per node.
+only new blocks, the static prefix walk is memoized per node. When consecutive requests carry equal
+but distinct block objects (a reader that decodes each request independently), the build compares
+per-request hash-key lists instead (O(prefix) per request at C speed, keeping only the newest
+list): ≈ 0.7 s for the same run.
+
+## Known limits
+
+- The replay saving is a point at the pricer's unit (low) rates; when a request's pricing is a
+  range (unknown endpoint scope, unknown TTL), the cost range is the baseline range minus that
+  point (SPEC §6.4: unit rates are the point rates).
+- Providers that cache prefixes automatically without markers (OpenAI) are modeled only when the
+  adapter sets `automatic_caching`; no v0.2 adapter fingerprints OpenAI payloads (§5.8).
+- `write-never-read` can co-fire with `breakpoint-placement` on one-shot shared-prefix lanes
+  (exp2b-a3): both are true (the question write is never read; the shared prefix should be
+  marked) and both link the `blocks.breakpoints` lever.
+- trace@1 lane inference (§5.5/§5.8) as written would split the `tool-churn` demo run by tool
+  order; see CONTRACT-CHANGE-BLOCK-1 §4.
