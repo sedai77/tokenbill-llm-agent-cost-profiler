@@ -210,7 +210,8 @@ def finding(scope: dict, n_users: int, *, kind: str = "ttl-expiry", detector: st
     return Finding(
         finding_id=_finding_id(detector, kind, sc), detector_id=detector, kind=kind,
         detector_version="1", category=category, lever_class="cache_transform",
-        audience=audience, title="t", summary="s", scope=sc, n_events=2, n_lanes=1,
+        audience=audience, title=kw.pop("title", "t"), summary=kw.pop("summary", "s"),
+        scope=sc, n_events=2, n_lanes=1,
         n_users=n_users, first_seen_ms=kw.pop("first_seen_ms", 50),
         cost_observed=exact(1000, Basis.LIST),
         recoverable=None if recoverable is None else estimated(recoverable, Basis.LIST, note="x"),
@@ -346,3 +347,28 @@ def test_merge_small_groups() -> None:
     with pytest.raises(UsageError):
         kanon.merge_small_groups([("x", -1, 1)], k=K)
     assert kanon.merge_small_groups([], k=K) == ([], 0)
+
+
+def test_rescoped_text_never_names_the_dropped_child_scope() -> None:
+    small = finding({"team": "mobile", "lane_kind": "main", "model": "claude-opus-5"}, 2,
+                    title="Cache TTL expiries in mobile main lanes on claude-opus-5",
+                    summary="Team mobile rebuilt its cache; claude-opus-5-5 unaffected.",
+                    fix=Fix(text="Set 1h TTL for mobile.", config_patch=None, target=None,
+                            doc_url=None),
+                    evidence=(EvidenceItem(kind="aggregate", ref="rq_1",
+                                           attrs=(("team", "mobile"), ("n", 3))),),
+                    validated_against="mobile: 3/3")
+    out = kanon.rescope_findings([small], k=K, count_users=lambda s: 0 if s.dims else 40)
+    (f,) = out
+    assert f.scope.dims == ()
+    for text in (f.title, f.summary, f.fix.text, f.validated_against,
+                 repr(f.evidence)):
+        assert "mobile" not in text
+    assert f.title == "Cache TTL expiries in (other) (other) lanes on (other)"
+    assert "claude-opus-5-5 unaffected" in f.summary  # only whole values are replaced
+    assert f.evidence[0].attrs == (("team", kanon.SCRUBBED), ("n", 3))
+    # a value still in the parent scope is kept
+    kept = kanon.rescope_findings(
+        [finding({"team": "payments", "lane_kind": "main", "model": "m1"}, 2,
+                 title="payments main m1")], k=K, count_users=lambda s: 9)
+    assert kept[0].title == "payments main (other)"

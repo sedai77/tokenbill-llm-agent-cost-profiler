@@ -15,7 +15,9 @@
   distinct counts from the store (``count_users``) when given. Data-quality findings (kinds ``dq.*``
   and category ``data-quality``, e.g. the missing-capabilities finding) carry no personal data and
   are exempt (R-E1); so are provider-side ``aggregate`` findings whose scope names no person or API
-  key (SPEC §8.5).
+  key (SPEC §8.5). A re-scoped finding's generated text (title, summary, fix text, evidence
+  attributes, ``validated_against``) has the values of the dropped scope dimensions replaced by
+  ``"(other)"``, so an org-level finding never names the small team it was merged away from.
 * :func:`require_self_or_aggregate` refuses grouping by person without the self view;
   :func:`merge_small_groups` is the ingest-time team aggregation of SPEC §5.11.
 """
@@ -23,6 +25,7 @@
 from __future__ import annotations
 
 import dataclasses
+import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from decimal import Decimal
 from typing import Any, TypeVar
@@ -34,6 +37,7 @@ from tokenbill.core.records import UsageBuckets
 from tokenbill.core.types import (
     _PUBLISH_TOKEN,
     AggRow,
+    EvidenceItem,
     Finding,
     PricedTotal,
     PublishedAggregate,
@@ -44,6 +48,7 @@ from tokenbill.core.types import (
 __all__ = [
     "PERSON_DIMS",
     "RESCOPE_LEVELS",
+    "SCRUBBED",
     "merge_small_groups",
     "other_label",
     "publish",
@@ -286,8 +291,34 @@ def _sum_opt(figs: Iterable[Figure | None]) -> Figure | None:
     return out
 
 
+#: What the values of scope dimensions dropped by re-scoping are replaced with in generated text.
+SCRUBBED = "(other)"
+
+
+def _scrubber(children: Sequence[Finding], scope: Scope) -> Callable[[str], str]:
+    """A function removing, from generated text, the values of the scope dimensions that
+    re-scoping dropped (a title "… in team mobile …" must not name the small child scope it was
+    merged away from). Whole tokens only; values still present in *scope* are kept."""
+    kept = {v for _, v in scope.dims}
+    dropped = sorted({v for c in children for n, v in c.scope.dims
+                      if (n, v) not in scope.dims and v and v not in kept},
+                     key=lambda v: (-len(v), v))
+    if not dropped:
+        return lambda text: text
+    pattern = re.compile(r"(?<![\w.\-])(?:" + "|".join(re.escape(v) for v in dropped)
+                         + r")(?![\w\-]|\.\w)")
+    return lambda text: pattern.sub(SCRUBBED, text)
+
+
+def _scrub_evidence(item: EvidenceItem, scrub: Callable[[str], str]) -> EvidenceItem:
+    attrs = tuple((name, scrub(value) if isinstance(value, str) else value)
+                  for name, value in item.attrs)
+    return item if attrs == item.attrs else dataclasses.replace(item, attrs=attrs)
+
+
 def _merge_findings(children: Sequence[Finding], scope: Scope, n_users: int, k: int) -> Finding:
     first = children[0]
+    scrub = _scrubber(children, scope)
     cost = children[0].cost_observed
     for c in children[1:]:
         cost = add(cost, c.cost_observed)
@@ -295,15 +326,19 @@ def _merge_findings(children: Sequence[Finding], scope: Scope, n_users: int, k: 
     seen: set = set()
     for c in children:
         for item in c.evidence:
+            item = _scrub_evidence(item, scrub)
             if item not in seen:
                 seen.add(item)
                 evidence.append(item)
     validated = {c.validated_against for c in children}
     fix = next((c.fix for c in children if c.fix is not None), None)
-    summary = first.summary
+    if fix is not None:
+        fix = dataclasses.replace(fix, text=scrub(fix.text))
+    summary = scrub(first.summary)
     if len(children) > 1 or scope != first.scope:
         prefix = f"[re-scoped for k-anonymity (k={k}); {len(children)} finding(s) merged] "
         summary = (prefix + summary)[:400]
+    only = validated.pop() if len(validated) == 1 else None
     return dataclasses.replace(
         first,
         finding_id=_finding_id(first.detector_id, first.kind, scope),
@@ -312,6 +347,7 @@ def _merge_findings(children: Sequence[Finding], scope: Scope, n_users: int, k: 
         n_lanes=sum(c.n_lanes for c in children),
         n_users=n_users,
         first_seen_ms=min(c.first_seen_ms for c in children),
+        title=scrub(first.title)[:120],
         summary=summary,
         cost_observed=cost,
         recoverable=_sum_opt(c.recoverable for c in children),
@@ -322,7 +358,7 @@ def _merge_findings(children: Sequence[Finding], scope: Scope, n_users: int, k: 
         fix=fix,
         confidence=min((c.confidence for c in children),
                        key=lambda v: _CONFIDENCE_RANK.get(v, 1)),
-        validated_against=validated.pop() if len(validated) == 1 else None,
+        validated_against=scrub(only) if only is not None else None,
         needs_eval=any(c.needs_eval for c in children),
         references=tuple(sorted({r for c in children for r in c.references})),
     )
@@ -343,7 +379,9 @@ def rescope_findings(findings: Sequence[Finding], *, k: int = 5,
     published finding with exactly that scope). The merged ``n_users`` is
     ``count_users(parent_scope)`` — an exact distinct count from the store — or, without it, the
     largest child count (a lower bound, which can only suppress more). What stays below *k* at the
-    org level is withheld. Exempt and passed through unchanged: data-quality findings (R-E1),
+    org level is withheld. Generated text of a re-scoped finding has the values of the dropped
+    dimensions replaced by :data:`SCRUBBED`. Exempt and passed through unchanged: data-quality
+    findings (R-E1),
     provider-side aggregate findings without person or API-key dimensions, and ``self``-audience
     findings (published only to the self view by the caller). Output order: (−recoverable point or
     0, detector_id, finding_id).
