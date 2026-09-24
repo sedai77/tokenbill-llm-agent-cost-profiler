@@ -152,7 +152,7 @@ def test_azure_channel_uses_the_subscription_scope(fixture: IngestResult) -> Non
     assert lane.cache_scope_key == "sub:" + pseudonym(h.NAME_KEY, "h", "sub-0000-azure")
     assert "sub-0000-azure" not in h.blob(fixture)
     assert req.attribution.team == "search"
-    assert req.attribution.principal == h.p_of(h.CANARY_EMAIL.lower())
+    assert req.attribution.principal == h.p_of(h.CANARY_EMAIL)  # as reported (§5.1)
     assert req.ts_start_ms == h.T0 + 600_000
 
 

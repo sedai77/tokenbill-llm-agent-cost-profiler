@@ -6,7 +6,8 @@ Reads JSONL of Messages API response objects (``type: "message"``), Message Batc
 ``request_meta = {ts_ms, lane, session, attribution, channel, endpoint_scope, model_raw,
 billing_path, request_id, account}``. Vertex responses carry no model in the body: ``model_raw``
 comes from ``request_meta`` (the endpoint URL's model id) and ``endpoint_scope`` from
-``request_meta.endpoint_scope`` (the region is not in the id).
+``request_meta.endpoint_scope`` (the region is not in the id). Without ``request_meta.channel``
+a Bedrock profile id or a Vertex ``@`` id names the channel; anything else is the Claude API.
 
 Usage goes through ``core.conventions.anthropic_inferences`` (convention ``anthropic.messages``:
 iterations, refusal rule, TTL split). The request id is keyed by the message id
@@ -43,6 +44,7 @@ from tokenbill.adapters.conventions_ext import (
     lane_capabilities,
     member,
     meta_ts,
+    model_channel,
     source_ref,
     to_int,
 )
@@ -174,13 +176,15 @@ class _Reader:
             self.scan.count("outside_window")
             return
         opts = self.opts
-        channel = meta.get("channel") if meta and member(meta.get("channel"), _CHANNELS) \
-            else "anthropic_api"
+        model_raw = (clean_label(meta.get("model_raw")) if meta else None) \
+            or clean_label(resp.get("model")) or ""
+        if meta and member(meta.get("channel"), _CHANNELS):
+            channel = meta["channel"]
+        else:  # a Bedrock / Vertex model id names its channel; else the Claude API
+            channel = model_channel("anthropic_api", normalize_model(model_raw))
         billing = meta.get("billing_path") if meta else None
         billing_path = billing if billing in BILLING_PATHS else (
             opts.attribution.billing_path or BILLING_PATH_BY_CHANNEL.get(channel, "unknown"))
-        model_raw = (clean_label(meta.get("model_raw")) if meta else None) \
-            or clean_label(resp.get("model")) or ""
         mid = normalize_model(model_raw, channel if channel in ("bedrock", "vertex") else None)
         scope = meta.get("endpoint_scope") if meta else None
         if not member(scope, _SCOPES):

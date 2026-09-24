@@ -25,19 +25,24 @@ What becomes what:
 * ``claude_code.api_request_body`` / ``api_response_body`` (``OTEL_LOG_RAW_API_BODIES``) are
   counted in ``dq.raw_bodies_ignored`` and never decoded.
 * Metrics ``claude_code.token.usage`` / ``claude_code.cost.usage`` →
-  ``UsageAggregate(source_kind="otel.metric")`` (coverage only, never in the ledger; per-user
-  series are summed per team so no identity survives).
+  ``UsageAggregate(source_kind="otel.metric")`` (coverage only, never in the ledger): one row per
+  UTC hour (of each point's end) × channel × model × team × speed; per-user series are summed
+  into the team row so no row carries an identity or a single person's series.
 * GenAI spans (``gen_ai.operation.name`` ∈ {chat, generate_content, text_completion}) →
   conventions ``otel.genai`` / ``otel.genai.legacy`` by the attribute names present; OpenInference
   spans with ``openinference.span.kind == "LLM"`` only (never AGENT/CHAIN roll-ups) → convention
   ``openinference``, lane = (trace, nearest AGENT ancestor); an LLM span without an agent ancestor
-  is its own lane.
+  is its own lane. A model-call span that wraps another model-call span of the same trace (a
+  framework span around an instrumented SDK call) is skipped: only the innermost span is a
+  request (``stats["nested_model_spans"]``).
 
 Identity (``central-ingest``): ``user.email`` / ``user.account_uuid`` / ``user.account_id`` /
 ``user.id`` map to a team through ``opts.team_map``, the first one present becomes a ``p_``
-pseudonym under ``opts.principal_key``, and every raw value is dropped. Resource and record
-attributes ``team.id``, ``cost_center``, ``department``, ``tokenbill.arm``, ``tokenbill.wave``,
-``app.entrypoint``, ``app.version`` and ``vcs.*`` (→ ``h_`` repo) feed the attribution.
+pseudonym (of the value as reported) under ``opts.principal_key``, and every raw value is
+dropped. Resource and record attributes ``team.id``, ``cost_center``, ``department``,
+``tokenbill.arm``, ``tokenbill.wave``, ``app.entrypoint``, ``app.version`` and ``vcs.*`` (→ ``h_``
+repo) feed the attribution. A Bedrock / Vertex model id reported without a channel (no billing
+path, no provider table entry) is priced on the channel its id names, never on the Claude API.
 """
 
 from __future__ import annotations
@@ -77,6 +82,7 @@ from tokenbill.adapters.conventions_ext import (
     key_part,
     lane_capabilities,
     member,
+    model_channel,
     name_or_hash,
     normalize_claude_code_otel,
     normalize_identity,
@@ -128,6 +134,7 @@ _HEX_RE = re.compile(r"[0-9a-fA-F]{1,64}\Z")
 _NANOS_RE = re.compile(r"\s*\d{1,19}\s*\Z")
 _EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
 _MAX_DEPTH = 8
+_HOUR_MS = 3_600_000  # otel.metric aggregates are UTC-hour team rows
 _MAX_ATTRS = 2048
 
 _API_REQUEST = "claude_code.api_request"
@@ -351,11 +358,13 @@ class _Reader:
                 continue
             guarded(self.scan, f"line:{line_no}", lambda o=obj, n=line_no: self._line(o, n))
         self._assemble_claude_code()
-        self._assemble_spans(self.genai_spans, self._genai_draft)
-        self._assemble_spans(self.oi_spans, self._oi_draft)
+        nested = self._nested_model_spans()
+        self._assemble_spans(self.genai_spans, self._genai_draft, nested)
+        self._assemble_spans(self.oi_spans, self._oi_draft, nested)
         aggregates = self._aggregates()
         requests, sessions = assemble(self.drafts, self.shells, self.opts, self.scan)
-        events = sorted(self.events, key=lambda e: (e.lane_key, e.ts_ms, e.kind.value, e.attrs))
+        events = sorted(self.events, key=lambda e: (
+            e.lane_key, e.ts_ms, e.kind.value, tuple((k, repr(v)) for k, v in e.attrs)))
         caps = lane_capabilities(requests, self.shells)
         if events:
             caps.add("events")
@@ -523,19 +532,25 @@ class _Reader:
                                               source_kind=source_kind)
 
     # ---------- Claude Code ----------
-    def _cc_channel(self) -> tuple[str, str]:
+    def _cc_channel(self, model_raw: str | None = None) -> tuple[str, str]:
+        """(channel, billing path): the channel named by ``opts.attribution.billing_path``;
+        with an unknown billing path, a Bedrock/Vertex model id's channel hint; else the Claude
+        API. The billing path itself only ever comes from the options (§5.9)."""
         billing_path = self.opts.attribution.billing_path or "unknown"
-        return CHANNEL_BY_BILLING_PATH.get(billing_path, "anthropic_api"), billing_path
+        channel = CHANNEL_BY_BILLING_PATH.get(billing_path, "anthropic_api")
+        if billing_path == "unknown" and model_raw:
+            channel = model_channel(channel, normalize_model(model_raw))
+        return channel, billing_path
 
     def _cc_session(self, attrs: Mapping[str, Any]) -> str:
         return key_part(attrs.get("session.id")) or f"nosession:{self.scan.source_id}"
 
     def _cc_lane(self, session_id: str, kind: LaneKind, agent_id: str | None,
-                 parent_agent: str | None) -> str:
+                 parent_agent: str | None, channel: str | None = None) -> str:
         """Lane key (and shell) of a Claude Code call; subagent/helper lanes shared by a session
         are inexact."""
         session_key = stable_id("ses", "otlp", session_id)
-        channel, _ = self._cc_channel()
+        channel = channel or self._cc_channel()[0]
         scope = cache_scope(channel, self.opts.attribution.workspace_id)
         main = stable_id("ln", "otlp", session_id, "main")
         if kind is LaneKind.MAIN:
@@ -586,6 +601,9 @@ class _Reader:
                 seen.add(rid)
 
             def one_span(span: _Rec = span, rid: str | None = rid) -> None:
+                if span.start_ms is None:  # never date a request 1970-01-01
+                    self.scan.quarantine(span.locator, "missing:startTimeUnixNano")
+                    return
                 call = self._cc_call(span, span, rid, from_span=True)
                 calls.append(call)
                 if rid:
@@ -623,8 +641,10 @@ class _Reader:
         if agent_id is not None:
             kind = LaneKind.SUBAGENT
         session_id = self._cc_session(attrs)
+        model_raw = clean_label(attrs.get("model")) or clean_label(sattrs.get("model"))
         lane_key = self._cc_lane(session_id, kind, agent_id,
-                                 key_part(sattrs.get("parent_agent_id")))
+                                 key_part(sattrs.get("parent_agent_id")),
+                                 self._cc_channel(model_raw)[0])
         duration = to_int(attrs.get("duration_ms"))
         if from_span and rec.start_ms is not None:
             ts_start = rec.start_ms
@@ -682,8 +702,8 @@ class _Reader:
             return None
         buckets, codes = normalize_claude_code_otel(raw)
         self.scan.notes(codes, tokens=buckets.cache_write_unknown or None)
-        channel, billing_path = self._cc_channel()
         model_raw = clean_label(merged.get("model")) or ""
+        channel, billing_path = self._cc_channel(model_raw)
         mid = normalize_model(model_raw, channel if channel in ("bedrock", "vertex") else None)
         if not mid.model:
             self.scan.note("dq.unpriced_model")
@@ -739,8 +759,9 @@ class _Reader:
         params = RequestParams(model_requested=model_raw, effort=effort,
                                speed="fast" if fast else None)
         end = call.ts_start + (call.duration or 0)
+        # the request starts with its first attempt (Request.ts_start_ms): seq follows that order
         return Draft(request_id=call.request_id, session_key=shell.session_key,
-                     lane_key=call.lane_key, ts_ms=call.ts_start, order=call.rec.order,
+                     lane_key=call.lane_key, ts_ms=attempts[0].ts_start_ms, order=call.rec.order,
                      attribution=attribution, params=params, attempts=attempts,
                      source=source_ref(self.scan, f"line:{call.rec.order[0]}",
                                        Fidelity.NO_TTL_SPLIT, _PRIORITY),
@@ -793,24 +814,52 @@ class _Reader:
         if conversation is not None and source_kind != OPENINFERENCE:
             lane = stable_id("ln", "otlp", "conv", conversation)
             self._shell(lane, session_key, LaneKind.API_RUN, None, scope, True, source_kind)
-            return session_key, lane
-        agent = self._agent_ancestor(rec)
-        if agent is None:
-            lane = stable_id("ln", "otlp", "span", trace, rec.span or rec.locator)
-            self._shell(lane, session_key, LaneKind.API_RUN, None, scope, False, source_kind)
-            self.scan.note("dq.lanes_inferred")
-            return session_key, lane
-        lane = stable_id("ln", "otlp", "agent", *agent)
-        outer = self._agent_ancestor(_Rec(locator="", order=(0, 0), ts_ms=0, attrs={},
-                                          trace=agent[0], span=agent[1],
-                                          parent=self.span_index[agent][0]))
-        parent_lane = stable_id("ln", "otlp", "agent", *outer) if outer else None
-        self._shell(lane, session_key, LaneKind.SUBAGENT if outer else LaneKind.API_RUN,
-                    parent_lane, scope, True, source_kind)
-        return session_key, lane
+        else:
+            agent = self._agent_ancestor(rec)
+            if agent is None:
+                lane = stable_id("ln", "otlp", "span", trace, rec.span or rec.locator)
+                self._shell(lane, session_key, LaneKind.API_RUN, None, scope, False,
+                            source_kind)
+                self.scan.note("dq.lanes_inferred")
+            else:
+                lane = stable_id("ln", "otlp", "agent", *agent)
+                outer = self._agent_ancestor(_Rec(locator="", order=(0, 0), ts_ms=0, attrs={},
+                                                  trace=agent[0], span=agent[1],
+                                                  parent=self.span_index[agent][0]))
+                parent_lane = stable_id("ln", "otlp", "agent", *outer) if outer else None
+                self._shell(lane, session_key,
+                            LaneKind.SUBAGENT if outer else LaneKind.API_RUN,
+                            parent_lane, scope, True, source_kind)
+        # every request of a lane carries the lane's session (the first span that opened it),
+        # even when a later span of the same lane reports another session.id
+        return self.shells[lane].session_key, lane
 
-    def _assemble_spans(self, recs: list[_Rec], build: Callable[[_Rec], Draft | None]) -> None:
+    def _nested_model_spans(self) -> set[tuple[str, str]]:
+        """Model-call spans (GenAI chat / OpenInference LLM) with a model-call descendant in the
+        same trace. A framework's LLM span wrapping an instrumented SDK call reports the same
+        tokens twice; only the innermost span is a request (never double count)."""
+        spans = [r for r in (*self.genai_spans, *self.oi_spans) if r.trace and r.span]
+        model = {(r.trace, r.span) for r in spans}
+        nested: set[tuple[str, str]] = set()
+        for rec in spans:
+            parent, hops = rec.parent, 0
+            while parent is not None and hops < 256:
+                key = (rec.trace or "", parent)
+                if key in model:
+                    nested.add(key)
+                entry = self.span_index.get(key)
+                if entry is None:
+                    break
+                parent, hops = entry[0], hops + 1
+        return nested
+
+    def _assemble_spans(self, recs: list[_Rec], build: Callable[[_Rec], Draft | None],
+                        nested: set[tuple[str, str]]) -> None:
         for rec in sorted(recs, key=lambda r: r.order):
+            if rec.trace and rec.span and (rec.trace, rec.span) in nested:
+                self.scan.count("nested_model_spans")
+                continue
+
             def one(rec: _Rec = rec) -> None:
                 draft = build(rec)
                 if draft is not None:
@@ -837,7 +886,10 @@ class _Reader:
                     session_id: str | None, conversation: str | None, response_id: str | None,
                     tier: str, max_tokens: int | None) -> Draft | None:
         opts = self.opts
-        ts = rec.start_ms if rec.start_ms is not None else rec.ts_ms
+        if rec.start_ms is None:  # never date a request 1970-01-01
+            self.scan.quarantine(rec.locator, "missing:startTimeUnixNano")
+            return None
+        ts = rec.start_ms
         raw = _usage_raw(rec.attrs, keys)
         if not raw and not rec.error:
             self.scan.quarantine(rec.locator, "missing:usage")
@@ -845,6 +897,12 @@ class _Reader:
         if not self.scan.in_window(ts):
             self.scan.count("outside_window")
             return None
+        mid = normalize_model(model_raw, channel if channel in ("bedrock", "vertex") else None)
+        hinted = model_channel(channel, mid)
+        if hinted != channel:  # a Bedrock / Vertex id reported under a generic provider
+            channel = hinted
+            if provider == "unknown" and "claude" in model_raw:
+                provider = "anthropic"
         session_key, lane = self._span_lane(rec, session_id, conversation, channel, convention)
         msg_id = response_id if provider == "anthropic" and response_id \
             and response_id.startswith("msg_") else None
@@ -852,7 +910,6 @@ class _Reader:
                                     f"span:{rec.trace}/{rec.span}" if rec.span else rec.locator)
         att_id = attempt_id(request_id, 0)
         duration = rec.end_ms - ts if rec.end_ms is not None and rec.end_ms >= ts else None
-        mid = normalize_model(model_raw, channel if channel in ("bedrock", "vertex") else None)
         if not mid.model:
             self.scan.note("dq.unpriced_model")
         scope = mid.endpoint_scope
@@ -949,11 +1006,14 @@ class _Reader:
                 deltas.append((start, end, attrs, value, name))
         points = deltas + [(s, e, a, v, n) for s, e, _c, a, v, n in latest.values()]
         groups: dict[tuple[Any, ...], dict[str, Any]] = {}
-        for start, end, attrs, value, name in points:
-            if not self.scan.in_window(end) and not self.scan.in_window(start):
+        for _start, end, attrs, value, name in points:
+            if not self.scan.in_window(end):
                 continue
+            # one bucket per UTC hour of the point's end: every user's series (each process has
+            # its own export interval) is summed into the team row, so no row is one person's
+            bucket = end - end % _HOUR_MS
             model_raw = clean_label(attrs.get("model")) or ""
-            channel, _ = self._cc_channel()
+            channel, _ = self._cc_channel(model_raw)
             model = normalize_model(model_raw).model or model_raw
             team = team_for(opts, _identities(attrs)[0]) or clean_attr(attrs.get("team.id")) \
                 or opts.attribution.team
@@ -962,7 +1022,7 @@ class _Reader:
                 dims["speed"] = "fast"
             if team:
                 dims["team"] = team
-            key = (start, end, tuple(sorted(dims.items())))
+            key = (bucket, tuple(sorted(dims.items())))
             group = groups.setdefault(key, {"usage": {}, "cost": None})
             if name == _COST_METRIC:
                 nano = usd_to_nano(value)
@@ -979,16 +1039,17 @@ class _Reader:
                 continue
             group["usage"][bucket] = group["usage"].get(bucket, 0) + tokens
         out: list[UsageAggregate] = []
-        for (start, end, dims), group in sorted(groups.items()):
+        for (start, dims), group in sorted(groups.items()):
             try:
                 usage = UsageBuckets(**group["usage"])
             except Exception:  # noqa: BLE001 - a sum beyond 2**53 tokens is not a real metric
                 self.scan.count("bad_metric_points")
                 continue
+            end = start + _HOUR_MS
             out.append(UsageAggregate(
                 agg_id=stable_id("agg", self.scan.source_id, "otel.metric", start, end,
                                  *(f"{k}={v}" for k, v in dims)),
-                source_kind="otel.metric", bucket_start_ms=start, bucket_end_ms=max(start, end),
+                source_kind="otel.metric", bucket_start_ms=start, bucket_end_ms=end,
                 dims=dims, usage=usage, reported_cost_nano=group["cost"],
                 reported_cost_basis="provider_estimate" if group["cost"] is not None else None,
                 fetched_ms=opts.now_ms if opts.now_ms >= 0 else 0))
@@ -998,17 +1059,17 @@ class _Reader:
 def _identities(attrs: Mapping[str, Any]) -> tuple[list[str], str | None]:
     """(team-map lookup candidates, the raw identity to pseudonymize) from the user attributes.
 
-    Candidates are every user value as reported plus lower-cased emails; the principal is the
-    first present value in :data:`_USER_KEYS` order, emails lower-cased. Nothing here is stored.
+    Candidates are every user value as reported (the team map is matched exactly, then
+    case-insensitively); the principal is the first present value in :data:`_USER_KEYS` order,
+    as reported (§5.1). Nothing here is stored.
     """
     candidates: list[str] = []
     principal: str | None = None
     for key in _USER_KEYS:
-        value = attrs.get(key)
-        normalized = normalize_identity(value)
+        normalized = normalize_identity(attrs.get(key))
         if normalized is None:
             continue
-        candidates.extend(dict.fromkeys((str(value).strip(), normalized)))
+        candidates.append(normalized)
         if principal is None:
             principal = normalized
     return candidates, principal

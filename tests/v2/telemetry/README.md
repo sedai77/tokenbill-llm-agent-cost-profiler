@@ -18,7 +18,8 @@ Coverage: `uv run --python 3.12 --extra dev coverage run -m pytest tests/v2/tele
 | `test_bedrock.py` | `cacheDetails` split with residual → unknown; `global.` → scope global, geo/in-region → regional, inference-profile ARNs; InvokeModel bodies via `anthropic.messages` (iterations, tier, speed, geo); `identity.arn` → team map (role form) → `p_`, raw ARN dropped; `requestMetadata` allowlist and lanes; error codes; Converse and Anthropic streams; OpenAI models on Bedrock; unknown models unpriced; sniffing |
 | `test_anthropic_responses.py` | response fields (message-id request ids, TTL split, diagnostics, applied edits, attribution); batch results carry `service_tier="batch"` and unbilled result types are skipped; a Vertex `request_meta` supplies `model_raw` and `endpoint_scope`; iterations and the refusal rule; error responses → failed attempts; split-entry de-duplication; quarantines; sniffing |
 | `test_conformance.py` | `core.testing.assert_adapter_conforms` for all four adapters on all six fixtures, in install and central-ingest mode; protocol surface, registry (`get_adapter`, `sniff_adapter`), each fixture claimed by exactly one TELEM sniffer; lazy convention loading in a fresh process; byte-identical output across processes and `PYTHONHASHSEED`; every fixture into `MemoryStore` (idempotent, no nulled names/principals); a GenAI span and a recorded response merge by message id; the checked-in fixtures equal the builder's output |
-| `test_fuzz.py` | hypothesis fuzz per parser: random bytes, random JSON, structured OTLP noise (logs, spans, metrics with hostile `AnyValue`s and timestamps) and mutated fixture records, lenient and strict; only `TokenbillError` escapes, output serializes, no canary |
+| `test_fuzz.py` | hypothesis fuzz per parser: random bytes, random JSON, structured OTLP noise (logs, spans, metrics with hostile `AnyValue`s and timestamps) and mutated fixture records; a lenient read never raises (§5.1), a strict read raises only `TokenbillError`; output serializes, no canary |
+| `test_regressions.py` | review fixes: principal of the identity as reported (+ case-insensitive team map); Bedrock/Vertex model ids name the channel; one session per lane; `seq` follows each request's first attempt; huge durations clamped (a lenient read never aborts); boundary values in every fixture number; undated spans quarantined; nested model spans counted once; hourly team metric rows; path/email labels refused |
 | `test_gate.py` | `@pytest.mark.gate` (merge gate 1): fixtures priced by the real `RateCard([load_builtin()])` equal `FakePricer` on its rows and provider estimates never change a price; all fixtures ingest into the real `SqliteStore` idempotently |
 | `CONTRACT-CHANGE-TELEM-1.md` | `AppendedItem` has no place for the beta `claude_code.tool` span's `result_tokens` |
 
@@ -113,12 +114,19 @@ asserts the canary never reaches an output.
 
 ## Design notes
 
-* **No double counting.** Metrics become `UsageAggregate(source_kind="otel.metric")` only; per-user
-  metric series are summed per `(bucket, channel, model, product, speed, team)` so no identity
-  survives; cumulative series keep their latest point. Raw-body events are never decoded.
+* **No double counting.** Metrics become `UsageAggregate(source_kind="otel.metric")` only: one row
+  per UTC hour (of each point's end) × `(channel, model, product, speed, team)`, so every user's
+  series (each process exports on its own interval) is summed into the team row and no row is one
+  person's series; cumulative series keep their latest point. Raw-body events are never decoded. A
+  GenAI / OpenInference model-call span that wraps another model-call span of the same trace (a
+  framework span around an instrumented SDK call) is skipped, only the innermost span is a request
+  (`stats["nested_model_spans"]`).
 * **Identity.** Raw identities (`user.*`, `identity.arn`, `request_meta.attribution.principal`) are
-  looked up in `opts.team_map` (the admin's map outranks caller-supplied team metadata), then
-  pseudonymized under `opts.principal_key` (emails lower-cased first) and dropped.
+  looked up in `opts.team_map` (exactly, then case-insensitively; the admin's map outranks
+  caller-supplied team metadata), then pseudonymized **as reported** under `opts.principal_key`
+  (SPEC §5.1 `pseudonym(key, "p", raw)`, the same string the ADMIN adapters hash, so one person has
+  one `p_` across OTel, Bedrock and Analytics) and dropped. Labels that look like filesystem paths
+  or emails (e.g. a self-hosted model served from `/home/<user>/…`) are refused everywhere.
   `SourceInfo.principal_key_id` is set only when a `p_`/`c_` value was emitted; `name_key_id` is
   always set (`SourceInfo.name_hmac` is an `h_` value).
 * **Lanes.** Claude Code: `session.id` + `query_source`, exact per `agent_id` when spans exist.
@@ -137,6 +145,13 @@ asserts the canary never reaches an output.
 * **Timestamps.** Anthropic and Converse response objects carry none; without `request_meta.ts_ms`
   (or `ts`, or for boto3 Converse responses the `ResponseMetadata.HTTPHeaders.date`) such records are
   quarantined (`missing:request_meta.ts_ms`) rather than dated by the ingest clock.
+* **Channels from model ids.** Without an explicit channel (Claude Code OTel with an unknown
+  billing path, GenAI/OpenInference spans of a generic provider, Anthropic responses without
+  `request_meta.channel`) a Bedrock profile id or a Vertex `@` id names the channel, so it is never
+  priced on the Claude API. For Claude Code the billing path and TTL hint still come only from the
+  options (§5.9).
+* **Timestamps of spans.** A span without `startTimeUnixNano` is quarantined
+  (`missing:startTimeUnixNano`), never dated 1970-01-01.
 * **Channels and billing paths** are table-driven (`CHANNEL_BY_BILLING_PATH`,
   `BILLING_PATH_BY_CHANNEL`, `SCOPE_PREFIX_BY_CHANNEL`, `TTL_HINT_BY_BILLING_PATH`, provider tables)
   so additive values (e.g. the Copilot addendum, R-E4/R-E15) need data, not code.

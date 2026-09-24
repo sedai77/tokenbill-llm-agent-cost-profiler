@@ -56,6 +56,7 @@ from tokenbill.core.conventions import (
 from tokenbill.core.errors import ContractViolation, SourceError, TokenbillError, UsageError
 from tokenbill.core.ids import is_opaque_ref, pseudonym, stable_id
 from tokenbill.core.jsonl import ZSTD_MESSAGE, iter_lines, parse_json_line
+from tokenbill.core.models import ModelId
 from tokenbill.core.money import decimal_to_nano
 from tokenbill.core.records import (
     BILLING_PATHS,
@@ -107,6 +108,7 @@ __all__ = [
     "canonical_usage_json",
     "clean_label",
     "member",
+    "model_channel",
     "name_or_hash",
     "normalize_bedrock_converse",
     "normalize_identity",
@@ -445,6 +447,8 @@ _LABEL_RE = re.compile(r"[A-Za-z0-9_.:/@+=-]{1,64}\Z")
 _ENUM_RE = re.compile(r"[A-Za-z0-9_.:-]{1,64}\Z")
 _ATTR_RE = re.compile(r"[A-Za-z0-9_.:+=, -]{1,64}\Z")
 _DIGITS_RE = re.compile(r"\s*[+-]?\d{1,30}\s*\Z")
+#: ``user@host.tld``; Vertex version suffixes (``@20260101``, ``@latest``) carry no dot.
+_EMAILISH_RE = re.compile(r"[^@]@[^@]*\.[A-Za-z]")
 
 
 def parse_iso_ms(value: object) -> int | None:
@@ -514,11 +518,18 @@ def usd_to_nano(value: object) -> int | None:
 
 def clean_label(value: object, *, enum: bool = False) -> str | None:
     """A short provider label (ids, enum values, model names) or None when it is not one: at most
-    64 characters from a safe alphabet. Never used for free text."""
+    64 characters from a safe alphabet. Never used for free text. A label that looks like a
+    filesystem path (``/…``, ``~/…``, ``./…``; e.g. a self-hosted model served from
+    ``/home/<user>/models/…``) or an email address is refused: paths and emails never appear in a
+    record (§5.1)."""
     if not isinstance(value, str):
         return None
     value = value.strip()
-    return value if (_ENUM_RE if enum else _LABEL_RE).match(value) else None
+    if not (_ENUM_RE if enum else _LABEL_RE).match(value):
+        return None
+    if value.startswith(("/", "~", "./", "../")) or _EMAILISH_RE.search(value):
+        return None
+    return value
 
 
 def clean_attr(value: object) -> str | None:
@@ -600,14 +611,37 @@ def cache_scope(channel: str, account: str | None) -> str:
 
 
 def team_for(opts: IngestOptions, candidates: Iterable[str | None]) -> str | None:
-    """The team of the first raw actor found in ``opts.team_map`` (the raw value is never kept)."""
+    """The team of the first raw actor found in ``opts.team_map`` (the raw value is never kept).
+
+    Each candidate is looked up exactly, then case-insensitively (``casefold``), so an admin's
+    ``Alice@Example.com`` entry maps ``alice@example.com`` too."""
     if not opts.team_map:
         return None
     mapping = dict(opts.team_map)
+    folded: dict[str, str] = {}
+    for key, team in opts.team_map:
+        if isinstance(key, str):
+            folded.setdefault(key.casefold(), team)
     for raw in candidates:
-        if raw and raw in mapping:
+        if not raw or not isinstance(raw, str):
+            continue
+        if raw in mapping:
             return mapping[raw]
+        team = folded.get(raw.casefold())
+        if team is not None:
+            return team
     return None
+
+
+def model_channel(channel: str, model: ModelId, *,
+                  replaceable: Collection[str] = ("anthropic_api", "unknown")) -> str:
+    """*channel*, or the model id's channel hint (``bedrock`` / ``vertex``: a Bedrock profile id
+    or a Vertex ``@`` id) when *channel* is only a default in *replaceable*. A Bedrock or Vertex
+    model id reported without an explicit channel is never priced on the Claude API."""
+    hint = model.channel_hint
+    if hint and channel != hint and channel in replaceable:
+        return hint
+    return channel
 
 
 def check_identity_mode(opts: IngestOptions) -> None:
@@ -643,12 +677,14 @@ def member(value: object, allowed: Collection[str]) -> bool:
 
 
 def normalize_identity(value: object) -> str | None:
-    """A raw central identity prepared for team lookup and pseudonymization: stripped, emails
-    lower-cased (so one person has one ``p_`` across sources); None when empty or over-long."""
+    """A raw central identity prepared for team lookup and pseudonymization: surrounding
+    whitespace stripped, otherwise **as reported** (SPEC §5.1: ``pseudonym(principal_key, "p",
+    raw)``; the ADMIN adapters pseudonymize the same raw strings, so one person has one ``p_``
+    across sources). None when empty or over-long. Team-map lookups fold case separately
+    (:func:`team_for`)."""
     if not isinstance(value, str) or not value.strip() or len(value) > 512:
         return None
-    value = value.strip()
-    return value.lower() if "@" in value else value
+    return value.strip()
 
 
 def name_or_hash(opts: IngestOptions, value: object,
@@ -888,7 +924,9 @@ def assemble(drafts: Iterable[Draft], shells: Mapping[str, LaneShell], opts: Ing
                 first_attr[d.session_key] = (key, d.attribution)
             window = span.setdefault(d.session_key, [d.ts_ms, d.ts_ms])
             window[0] = min(window[0], d.ts_ms)
-            window[1] = max(window[1], d.ts_ms, d.end_ms)
+            # ts + a (reported) duration can pass the 2**53 range of Session.ended_ms: clamp,
+            # so one record's odd duration never aborts the whole file.
+            window[1] = min(MAX_TOKENS, max(window[1], d.ts_ms, d.end_ms))
     requests.sort(key=lambda r: (r.session_key, r.lane_key, r.seq))
     lanes_by_session: dict[str, list[LaneShell]] = {}
     for shell in shells.values():

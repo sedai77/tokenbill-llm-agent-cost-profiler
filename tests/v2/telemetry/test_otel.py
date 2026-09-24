@@ -128,7 +128,7 @@ def test_user_email_is_pseudonymized_and_dropped(cc: IngestResult) -> None:
     text = h.blob(cc)
     assert h.CANARY_EMAIL not in text and h.CANARY_EMAIL.lower() not in text
     assert "example.com" not in text and "8d0c5a6e" not in text and "5f3c9e0d2b7a" not in text
-    assert {r.attribution.principal for r in cc.requests} == {h.p_of(h.CANARY_EMAIL.lower())}
+    assert {r.attribution.principal for r in cc.requests} == {h.p_of(h.CANARY_EMAIL)}
     assert cc.source.principal_key_id == key_id(h.ORG_KEY)
     assert h.CANARY not in text
 
@@ -330,7 +330,7 @@ def test_metrics_only_file_and_cumulative_temporality(tmp_path: Path) -> None:
     assert agg.usage.uncached_input == 250 and agg.usage.output == 7  # latest cumulative point
     assert agg.reported_cost_nano == 500_000_000
     assert dict(agg.dims)["team"] == "mobile" and (agg.bucket_start_ms, agg.bucket_end_ms) == (
-        h.T0, h.T0 + 120_000)
+        h.T0, h.T0 + 3_600_000)  # the UTC hour of the points' end
     assert result.stats["bad_metric_points"] == 3
     assert [q.reason for q in result.quarantined] == ["missing:timeUnixNano", "missing:sum"]
     assert result.capabilities == frozenset({"aggregates"})

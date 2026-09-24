@@ -96,6 +96,8 @@ SETTINGS = settings(max_examples=120, deadline=None,
 
 
 def _check(adapter: Any, lines: list[bytes]) -> None:
+    """Strict mode may refuse a file (``TokenbillError`` only); lenient mode never raises on a
+    malformed record (SPEC §5.1): it quarantines it and still returns a result."""
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "fuzz.jsonl"
         path.write_bytes(b"\n".join(lines) + b"\n")
@@ -103,6 +105,8 @@ def _check(adapter: Any, lines: list[bytes]) -> None:
             try:
                 result = adapter.read(path, h.central(lenient=lenient))
             except TokenbillError:
+                if lenient:
+                    raise
                 continue
             text = json.dumps(to_json(result), sort_keys=True)
             assert h.CANARY not in text
