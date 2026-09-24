@@ -8,9 +8,11 @@ discounts, commitments or provisioned throughput"; these exports do.
   for the CSV export. Only Bedrock rows (``line_item_product_code`` ∈ :data:`CUR_PRODUCT_CODES`, or
   ``anthropic`` in ``line_item_usage_type``) are read; tax rows are skipped. Per row:
   ``CostLine(source_kind="aws.cur2", channel="bedrock", date_utc=line_item_usage_start_date[:10],
-  workspace_id=h_(line_item_usage_account_id), sku=line_item_usage_type, amount=
+  workspace_id=h_(line_item_usage_account_id), sku=line_item_usage_type,
+  description=line_item_line_item_description (provider text; else the usage type), amount=
   line_item_net_unblended_cost or line_item_unblended_cost, list_amount=line_item_unblended_cost,
-  principal=p_(line_item_iam_principal))`` summed per (date, account, usage type, principal, line
+  principal=p_(line_item_iam_principal), cost_type=None for usage line items else the line item
+  type (Credit, Discount, Refund, …))`` summed per (date, account, usage type, principal, line
   type); usage rows also give a per-day token ``UsageAggregate`` from ``line_item_usage_amount``
   × the ``pricing_unit`` (``1K tokens`` / ``1M tokens``; see :func:`token_unit`) with dims
   ``channel``, ``workspace_id``, the principal's ``team`` (``opts.team_map`` on the raw ARN or its
@@ -321,6 +323,7 @@ class AwsCurAdapter:
         listed = money_scaled(unblended, "line_item_unblended_cost", cents=False) if unblended \
             else None
         sku = label(usage_type, "line_item_usage_type", max_len=256)
+        desc = description(row.get("line_item_line_item_description"))  # provider text
         rule = catalog.map_sku(self.source_kind, usage_type)
         if rule is not None and rule.bucket not in _RULE_BUCKETS:
             rule = None
@@ -366,7 +369,8 @@ class AwsCurAdapter:
                 unmapped[1] += tokens
         ctx.add_cost(source_kind=self.source_kind, date_utc=day, channel=self.channel,
                      amount=amount, listed=listed, workspace_id=account,
-                     description=sku or "", model=model, cost_type=line_type or None,
+                     description=desc or sku or "", model=model,
+                     cost_type=None if line_type in CUR_TOKEN_LINE_TYPES else line_type,
                      token_type=rule.bucket if rule else None, sku=sku,
                      service_tier=rule.service_tier if rule else None,
                      endpoint_scope=rule.endpoint_scope if rule else None, principal=principal)

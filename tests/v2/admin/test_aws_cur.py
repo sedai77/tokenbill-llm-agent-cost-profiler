@@ -84,7 +84,8 @@ def test_fixture_cost_lines_and_aggregates() -> None:
     for line in result.cost_lines:
         assert line.source_kind == "aws.cur2" and line.channel == "bedrock"
         assert line.workspace_id in (h("111122223333"), h("444455556666"))
-        assert line.sku and line.description == line.sku
+        assert line.sku and line.description                 # provider line description
+        assert CANARY not in line.description
         assert line.model is None and line.token_type is None  # every rule unverified
     for agg in result.aggregates:
         assert agg.source_kind == "aws.cur2"
@@ -105,7 +106,7 @@ def test_gz_equals_csv() -> None:
 
 def test_net_versus_unblended_and_credit_lines() -> None:
     result = read("aws-cur", fixture(CSV))
-    usage = [c for c in result.cost_lines if c.cost_type == "Usage"]
+    usage = [c for c in result.cost_lines if c.cost_type is None]      # usage line items
     assert all(c.amount_nano <= c.list_amount_nano for c in usage)
     assert sum(c.amount_nano for c in usage) < sum(c.list_amount_nano for c in usage)
     discounted = [c for c in usage if c.sku.startswith("USE1-MP:")]
@@ -168,6 +169,22 @@ def test_verified_rules_map_buckets_and_units(tmp_path: Path, monkeypatch) -> No
     assert tt["USE1-MP:USE1_OutputTokenCount-Units"] == "output"
     assert {c.endpoint_scope for c in result.cost_lines} == {"regional", "global"}
     assert result.stats.get("unit_rule_conflicts", 0) == 3   # "1K tokens" rows vs 1M rule unit
+
+
+def test_descriptions_and_line_item_types(tmp_path: Path) -> None:
+    rows = [_row(line_item_line_item_description="Claude Opus 5 input tokens"),
+            _row(line_item_line_item_type="Credit", line_item_net_unblended_cost="-1",
+                 line_item_unblended_cost="-1", line_item_usage_amount="0",
+                 line_item_line_item_description=""),
+            _row(line_item_line_item_type="DiscountedUsage",
+                 line_item_usage_start_date="2026-09-02T00:00:00Z")]
+    cols = [*COLUMNS, "line_item_line_item_description"]
+    result = read("aws-cur", _write(tmp_path / "cur.csv", rows, cols))
+    got = sorted((c.date_utc, c.cost_type or "", c.description) for c in result.cost_lines)
+    assert got == [("2026-09-01", "", "Claude Opus 5 input tokens"),
+                   ("2026-09-01", "Credit", "USE1-MP:USE1_InputTokenCount-Units"),
+                   ("2026-09-02", "", "USE1-MP:USE1_InputTokenCount-Units")]
+    assert len(result.aggregates) == 2                      # credit rows carry no tokens
 
 
 def test_only_bedrock_rows_and_anthropic_usage_types(tmp_path: Path) -> None:

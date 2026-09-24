@@ -57,8 +57,10 @@ tests/v2/admin/test_fuzz.py` (60 examples per property by default; 2,500 ran cle
   are counted in `stats["results_skipped_other_kinds"]`); cache writes are `cache_write_other` with
   TTL 1800 s; `batch: true` → tier `batch`, `default` → `standard`. Cost lines keep `line_item` as
   the description; model/token type are never guessed from it.
-- **CUR 2.0.** Bedrock rows only; `Tax` rows skipped; `line_item_line_item_type` becomes
-  `cost_type` (`Usage`, `Credit`, …); tokens only from usage-type line items. Tokens per unit come
+- **CUR 2.0.** Bedrock rows only; `Tax` rows skipped; `cost_type` is None for usage line items
+  and the line item type otherwise (`Credit`, `Discount`, `Refund`, …); the description is the
+  provider's `line_item_line_item_description` (else the usage type); tokens only from usage line
+  items. Tokens per unit come
   from `pricing_unit` when it names tokens (`tokens`, `1K tokens`, `Thousand tokens`, `1M tokens`,
   `Million tokens`, `1,000 tokens`…), else from a verified SKU rule's `unit_tokens`, else none
   (`stats["rows_unit_unknown"]`, cost still kept). Principals → `p_` (identity modes
@@ -108,9 +110,9 @@ test); the Enterprise `list_amount` equals Enterprise usage at list and `amount`
 a code-execution line; OpenAI costs equal the usage buckets at the gpt-5.6-sol promotional rates
 (each aggregate below the 272K long-context band). CUR/GCP amounts are self-consistent (net =
 0.9 × unblended; GCP credits 5% of cost) but not tied to rates: their SKU rules are unverified. The content canary is planted in
-person/content fields (e-mails, terminal types, actor names, IAM session names, GCP project names
-and non-allowlisted labels, CUR line descriptions); provider descriptions that adapters copy are
-never planted.
+person/content fields (e-mails, terminal types, actor names, IAM session names, CUR tags, GCP
+project names and non-allowlisted labels); provider descriptions that adapters copy (cost-report
+and CUR line descriptions, SKU descriptions) are never planted.
 
 | file(s) | shape source (retrieved 2026-09-23) |
 |---|---|

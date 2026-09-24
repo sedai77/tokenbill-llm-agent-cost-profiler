@@ -629,6 +629,15 @@ CUR_COLUMNS = ["identity_line_item_id", "bill_billing_period_start_date",
                "line_item_line_item_description", "line_item_usage_amount", "pricing_unit",
                "line_item_currency_code", "line_item_unblended_cost",
                "line_item_net_unblended_cost", "line_item_iam_principal", "tags"]
+CUR_LABELS = {  # line_item_line_item_description (provider text; synthetic wording)
+    "InputTokenCount-Units": "Claude Opus 5 (Amazon Bedrock Edition) input tokens",
+    "OutputTokenCount-Units": "Claude Opus 5 (Amazon Bedrock Edition) output tokens",
+    "CacheReadInputTokenCount_Global-Units":
+        "Claude Opus 5 (Amazon Bedrock Edition) cache read input tokens, global",
+    "CacheWriteInputTokenCount-Units":
+        "Claude Opus 5 (Amazon Bedrock Edition) cache write input tokens",
+    "InputTokenCount_Global-Units": "Claude Opus 5 (Amazon Bedrock Edition) input tokens, global",
+}
 CUR_TEAM_MAP = {
     "arn:aws:iam::111122223333:role/PaymentsAppRole": "payments",
     "arn:aws:iam::444455556666:role/SearchRankerRole": "search",
@@ -662,11 +671,13 @@ def build_cur() -> tuple[str, dict]:
                 amount_units = Decimal(toks) / size
                 unblended = (amount_units * rate).quantize(Decimal("0.000000001"))
                 net = (unblended * Decimal("0.9")).quantize(Decimal("0.000000001"))
-                tags = {"iamPrincipal/team": "ml-research"} if "DataSci" in principal else {}
+                tags = ({"iamPrincipal/team": "ml-research", "user:note": CANARY}
+                        if "DataSci" in principal else {})
                 rows.append([f"li-{day}-{hour}-{i}", "2026-09-01T00:00:00Z",
                              f"{day}T{hour:02d}:00:00Z", f"{day}T{hour + 1:02d}:00:00Z", acct,
                              "Usage", "AmazonBedrockFoundationModels", ut, "InvokeModel",
-                             f"Claude usage {CANARY}", format(amount_units, "f"), unit, "USD",
+                             CUR_LABELS[ut.split("_", 1)[1]], format(amount_units, "f"), unit,
+                             "USD",
                              format(unblended, "f"), format(net, "f"), principal,
                              json.dumps(tags, sort_keys=True) if tags else ""])
                 amount_nano += nano(net)
