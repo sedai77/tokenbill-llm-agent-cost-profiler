@@ -491,13 +491,44 @@ def test_catalog_answers_that_are_not_copilot_fixes_are_ignored(
         assert f.fix.text.endswith(NO_COPILOT_SETTING)
 
 
-def test_copilot_fixes_and_missing_fixes_are_kept(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_copilot_fixes_are_kept(monkeypatch: pytest.MonkeyPatch) -> None:
     stub = Calls(dataclasses.replace(COPILOT_FIX, text="other"))
     monkeypatch.setattr(catalog, "fix_for", stub, raising=False)
     own = build_finding(**fields(fix=COPILOT_FIX))
     assert own.fix == COPILOT_FIX
+    assert stub.args == []                  # never consulted for a Copilot fix
+
+
+def test_a_missing_fix_gets_the_catalog_copilot_fix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """On Copilot lanes the fix text comes from ``fix_for`` (addendum §10.4), also when the
+    generic detector emitted no fix for the Claude case."""
+    stub = Calls(COPILOT_FIX)
+    monkeypatch.setattr(catalog, "fix_for", stub, raising=False)
+    got = build_finding(**pool_fields(fix=None))
+    assert got.fix == COPILOT_FIX
+    assert stub.args == [("cache.miss-by-cause", "model-switch", "copilot")]
+    fields_without_fix = pool_fields()
+    fields_without_fix.pop("fix", None)
+    assert build_finding(**fields_without_fix).fix == COPILOT_FIX
+    # idempotent: rebuilding keeps the substituted fix without a second lookup
+    stub.args.clear()
+    again = build_finding(**{fld.name: getattr(got, fld.name)
+                             for fld in dataclasses.fields(got)})
+    assert again.fix == COPILOT_FIX and stub.args == []
+    # Claude scopes never consult the catalog for a missing fix
+    claude = build_finding(**fields(scope=make_scope(team="p", lane_kind="main"), headroom=None,
+                                    cost_observed=exact(1, LIST),
+                                    recoverable=estimated(1, LIST), fix=None))
+    assert claude.fix is None and stub.args == []
+
+
+@pytest.mark.parametrize("answer", [None, CLAUDE_FIX, "not a fix"])
+def test_a_missing_fix_stays_none_without_a_catalog_fix(monkeypatch: pytest.MonkeyPatch,
+                                                        answer: Any) -> None:
+    monkeypatch.setattr(catalog, "fix_for", Calls(answer), raising=False)
     assert build_finding(**pool_fields(fix=None)).fix is None
-    assert stub.args == []                  # never consulted for these
+    monkeypatch.delattr(catalog, "fix_for", raising=False)
+    assert build_finding(**pool_fields(fix=None)).fix is None
 
 
 def test_claude_findings_keep_their_fix(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -530,8 +561,9 @@ def test_every_catalog_copilot_fix_passes_build_finding() -> None:
             if fix is None:
                 continue
             assert fix.target == "github-copilot" and _no_claude_keys(fix)
-            f = build_finding(**pool_fields(detector_id=det.id, kind=kind, fix=CLAUDE_FIX))
-            assert f.fix == fix
+            for emitted in (CLAUDE_FIX, None):
+                f = build_finding(**pool_fields(detector_id=det.id, kind=kind, fix=emitted))
+                assert f.fix == fix
 
 
 # ---------------------------------------------------------------------------------------------
@@ -573,11 +605,20 @@ def test_min_usd_gate_on_copilot_findings_uses_headroom_too() -> None:
                         ctx())
     assert min_usd_gate(_finding(recoverable=estimated(3_000_000_000, LIST), headroom=None),
                         ctx())
-    # unpriced recoverable, priced headroom: headroom decides; neither: cost_observed decides
-    assert not min_usd_gate(_finding(recoverable=unpriced("x"), headroom=estimated(5, LE)),
-                            ctx())
+    # an unpriced recoverable beside a priced headroom: a headroom at or above min_usd passes;
+    # below it the maximum is unknown (never zero, R2), so cost_observed decides
     assert min_usd_gate(_finding(recoverable=unpriced("x"),
                                  headroom=estimated(1_000_000_000, LE)), ctx())
+    assert min_usd_gate(_finding(recoverable=unpriced("x"), headroom=estimated(5, LE)),
+                        ctx())                                   # cost 2 USD-equivalent
+    assert not min_usd_gate(_finding(recoverable=unpriced("x"), headroom=estimated(5, LE),
+                                     cost_observed=exact(10, LE)), ctx())
+    assert not min_usd_gate(_finding(recoverable=unpriced("x"), headroom=unpriced("y", LE),
+                                     cost_observed=unpriced("z", LE)), ctx())
+    # both priced and below: fails whatever the cost
+    assert not min_usd_gate(_finding(recoverable=estimated(5, LIST),
+                                     headroom=estimated(5, LE)), ctx())
+    assert min_usd_gate(_finding(recoverable=unpriced("x"), headroom=None), ctx())
     assert min_usd_gate(_finding(recoverable=None, headroom=None), ctx())
     assert not min_usd_gate(_finding(recoverable=None, headroom=None,
                                      cost_observed=exact(10, LE)), ctx())

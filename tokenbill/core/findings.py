@@ -205,7 +205,8 @@ def build_finding(**fields: object) -> Finding:
       a ``github-copilot`` fix; otherwise its text is kept with ``" (no Copilot setting known)"``
       appended and its config patch, target and applicability gates are dropped (the gates
       qualify the dropped patch), so no Claude Code key reaches a Copilot fix (DC14). A None fix
-      stays None.
+      gets the catalog's Copilot fix when one exists (on Copilot lanes fix text comes from
+      ``fix_for``, addendum §10.4), else stays None.
     """
     data = dict(fields)
     for name in ("lever_ids", "evidence", "references"):
@@ -274,12 +275,14 @@ def _catalog_fix(detector_id: str, kind: str) -> Fix | None:
     return None
 
 
-def _copilot_fix(fix: Fix, detector_id: str, kind: str) -> Fix:
-    """S-2 fix substitution for a Copilot scope (idempotent)."""
-    if fix.target == COPILOT_FIX_TARGET:
+def _copilot_fix(fix: Fix | None, detector_id: str, kind: str) -> Fix | None:
+    """S-2 fix substitution for a Copilot scope (idempotent): the catalog's Copilot fix when
+    one exists (also for a detector that emitted none: on Copilot lanes the fix comes from
+    ``fix_for``, addendum §10.4), else the stripped fix, else None."""
+    if fix is not None and fix.target == COPILOT_FIX_TARGET:
         return fix
     replacement = _catalog_fix(detector_id, kind)
-    if replacement is not None:
+    if replacement is not None or fix is None:
         return replacement
     text = fix.text if isinstance(fix.text, str) else ""
     if not text.endswith(NO_COPILOT_SETTING):
@@ -295,7 +298,7 @@ def _normalize_copilot(data: dict[str, object], scope: Scope, detector_id: str,
             for fig in (data.get(name) for name in _MONEY_FIELDS)):
         _pool_labels(data)
     fix = data.get("fix")
-    if isinstance(fix, Fix):
+    if fix is None or isinstance(fix, Fix):   # anything else is left for Finding validation
         data["fix"] = _copilot_fix(fix, detector_id, kind)
 
 
@@ -413,25 +416,29 @@ def min_usd_nano(ctx: AnalysisContext) -> int:
         raise UsageError("threshold min_usd: out of range") from None
 
 
-def _point(fig: Figure | None) -> int | None:
-    return fig.nano if fig is not None else None
-
-
 def min_usd_gate(finding: Finding, ctx: AnalysisContext) -> bool:
     """True when *finding* reaches the ``min_usd`` threshold (S-3, SPEC §10.1).
 
     The compared point is the recoverable point; on a Copilot scope (``product=copilot`` or
     ``billing_class=pool``) the larger of the recoverable and ``headroom`` points (credits and
-    dollars are compared only as numbers of nano for this gate, never added). When none of those
-    is present and priced, the ``cost_observed`` point is compared (triage / info kinds). An
-    unpriced value never passes (unknown is never zero, R2).
+    dollars are compared only as numbers of nano for this gate, never added). A priced compared
+    point at or above ``min_usd`` passes. Otherwise, when no compared figure is present or one of
+    them is unpriced (so their maximum is unknown, never zero: R2), the ``cost_observed`` point
+    decides (triage / info kinds, as DETECT-CACHE's own gate does); when every compared figure
+    is priced and below, the finding fails. An unpriced ``cost_observed`` never passes.
     """
-    points = [_point(finding.recoverable)]
+    figs = [finding.recoverable]
     if _is_copilot_scope(finding.scope):
-        points.append(_point(finding.headroom))
-    known = [p for p in points if p is not None]
-    value = max(known) if known else _point(finding.cost_observed)
-    return value is not None and value >= min_usd_nano(ctx)
+        figs.append(finding.headroom)
+    present = [fig for fig in figs if fig is not None]
+    limit = min_usd_nano(ctx)
+    known = [fig.nano for fig in present if fig.nano is not None]
+    if known and max(known) >= limit:
+        return True
+    if present and len(known) == len(present):
+        return False
+    cost = finding.cost_observed.nano
+    return cost is not None and cost >= limit
 
 
 _RESET_EVENTS = frozenset({LaneEventKind.COMPACTION, LaneEventKind.CLEAR,
