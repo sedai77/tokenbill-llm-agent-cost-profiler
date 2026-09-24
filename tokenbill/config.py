@@ -298,9 +298,7 @@ def _field_value(name: str, value: object, layer: str, base: Path | None,
         if isinstance(value, (str, Path)) and layer != "environment":
             value = [value]
         return tuple(_resolve_path(p, base) for p in _str_list(value, label, layer, sep=sep))
-    if name in _PATH_FIELDS:
-        if value is None:
-            return None
+    if name in _PATH_FIELDS:  # None (unset) is handled by the callers
         return _resolve_path(_text(value, label, layer), base)
     raise _bad(label[:64], layer, "is not a known key")  # pragma: no cover - callers check names
 
