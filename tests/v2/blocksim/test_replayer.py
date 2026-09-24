@@ -298,3 +298,12 @@ def test_read_agreement() -> None:
                           [volatile_lane()]) is None
     res = replay([ln], "breakpoints=every_15")
     assert any("read agreement 1.000" in a for a in res.assumptions)
+
+
+def test_drop_unread_survives_the_index_shift_of_tool_superset() -> None:
+    t1, t2, sysb = tool("dt1", 500), tool("dt2", 500), system("dsys", 1000)
+    r0 = req("DS", 0, 0, [t1, sysb, blk("da")], usage(w5=2500))
+    r1 = req("DS", 1, 30, [t1, t2, sysb, blk("da"), blk("db")], usage(w5=4000))
+    res = replay([lane([r0, r1])], "repair=block:drop_unread;repair=block:tool_superset")
+    # observed 6500·W5; r0 (3000 with the superset) sends uncached, r1 writes 4000
+    assert res.saving.nano == 6500 * W5 - (3000 * U + 4000 * W5)

@@ -861,13 +861,14 @@ def _static_node(ch: _Chains, rec: _Rec) -> int | None:
 
 
 class _Entry:
-    __slots__ = ("bp_index", "expires", "overflow", "reads", "tokens", "ttl_ms", "visible",
-                 "writer", "writers")
+    __slots__ = ("bp_index", "bp_ord", "expires", "overflow", "reads", "tokens", "ttl_ms",
+                 "visible", "writer", "writers")
 
-    def __init__(self, writer: _Rec, bp_index: int, visible: int, expires: int, ttl_ms: int,
-                 tokens: int) -> None:
+    def __init__(self, writer: _Rec, bp_index: int, bp_ord: int, visible: int, expires: int,
+                 ttl_ms: int, tokens: int) -> None:
         self.writer = writer
         self.bp_index = bp_index
+        self.bp_ord = bp_ord                 # position among the writer's breakpoints
         self.visible = visible
         self.expires = expires
         self.ttl_ms = ttl_ms
@@ -911,7 +912,7 @@ def _placement_bps(ch: _Chains, rec: _Rec, placement: str, *, add_end: bool,
         bps = list(rec.bps)
         if drop:
             rid = rec.req.request_id
-            bps = [bp for bp in bps if (rid, bp[1]) not in drop]
+            bps = [bp for i, bp in enumerate(bps) if (rid, i) not in drop]
         if add_end and not bps and not rec.auto:
             bps = [(rec.last, rec.n - 1, rec.end_ttl or _DEFAULT_TTL_S)]
         return bps
@@ -1025,7 +1026,7 @@ def _simulate(ch: _Chains, placement: str = "observed", *, add_end: bool = False
         boundary = reads
         last_ttl = None
         min_cache = rec.min_cache
-        for bnode, bidx, ttl in bps:
+        for ordinal, (bnode, bidx, ttl) in enumerate(bps):
             if bidx <= hit_idx:
                 continue
             tok = tokens_at(bnode)
@@ -1054,7 +1055,7 @@ def _simulate(ch: _Chains, placement: str = "observed", *, add_end: bool = False
                 continue
             if e is not None and e.reads == 0:
                 sim.unread.append(e)
-            ne = _Entry(rec, bidx, rec.vis, rec.tbase + ttl_ms, ttl_ms, tok)
+            ne = _Entry(rec, bidx, ordinal, rec.vis, rec.tbase + ttl_ms, ttl_ms, tok)
             entries[bnode] = ne
             pred.written.append((bidx, max(seg, 0), ne))
         pred.u = total - reads - pred.w5 - pred.w1 - pred.wo
@@ -1063,8 +1064,9 @@ def _simulate(ch: _Chains, placement: str = "observed", *, add_end: bool = False
 
 
 def _drop_set(ch: _Chains, sim: _Sim) -> frozenset[tuple[str, int]]:
-    """Observed breakpoints to drop under ``block:drop_unread``: single-writer entries never read,
-    except the tail write of a multi-request lane."""
+    """Observed breakpoints to drop under ``block:drop_unread``, as ``(request id, ordinal among
+    the request's observed breakpoints)`` (stable under the index shifts of tool repairs):
+    single-writer entries never read, except the tail write of a multi-request lane."""
     out = set()
     for e in sim.unread:
         w = e.writer
@@ -1072,7 +1074,7 @@ def _drop_set(ch: _Chains, sim: _Sim) -> frozenset[tuple[str, int]]:
             continue
         if w.lane_n > 1 and w.lane_i == w.lane_n - 1:
             continue
-        out.add((w.req.request_id, e.bp_index))
+        out.add((w.req.request_id, e.bp_ord))
     return frozenset(out)
 
 
