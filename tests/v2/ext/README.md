@@ -27,7 +27,7 @@ shipped table (the Copilot extension as declared by F-CORE-C, C-26).
 | `conftest.py`, `support.py` | the `install` fixture, call-log reset; the `fake`, `bare` and `ghost` extension specs, ledger stand-ins (`PlainLedger` without `source_stats`, `StatsLedger` with it), builders for contexts, run results and ingest results |
 | `fake_ext/` | the test-only extension (addendum §3.8): `hooks.py` (one hook per `ExtensionSpec` field, recording its calls, plus deliberately wrong variants), `commands.py` (command module), `broken.py` (raises `RuntimeError` on import), `fake_rates.json` (rate-file resource) |
 
-## Interpretations recorded here (the module docstring states them for the wave-2 callers)
+## Interpretations recorded here (the module docstring states them for the wave-2 callers; `CONTRACT-CHANGE-F-EXT-1.md` lists them for the wave-2 briefs)
 
 - `notes` is keyword-only on every function that can resolve a module (brief: CA-39's positional
   `notes` becomes a keyword); `persist`, `retain`, `purge` and `capabilities_present` accept it for a
