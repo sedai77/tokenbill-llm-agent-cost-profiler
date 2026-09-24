@@ -71,7 +71,9 @@ __all__ = [
     "IMAGE_TOKEN_CAP_STANDARD",
     "VOLATILE_CLASSES",
     "FingerprintCache",
+    "WiredBlock",
     "est_tokens_for",
+    "fingerprint_blocks",
     "fingerprint_request",
     "image_dimensions",
     "image_tokens",
@@ -81,6 +83,8 @@ __all__ = [
     "plain",
     "replace_lookback",
     "request_breakpoints",
+    "scan_request",
+    "snapshot_blocks",
     "tokenizer_family",
     "tools_tier_hash",
     "volatile_spans",
@@ -172,9 +176,16 @@ def plain(obj: Any, _depth: int = 0) -> Any:
     free-form rendering enters a hash; anything else becomes ``{"type": <class name>}``. Bytes
     become ``{"type": "bytes", "n_bytes": len}``.
     """
+    t = type(obj)
+    if t is str or t is int or t is bool or t is float or obj is None:
+        return obj
     if _depth > 200:
         return None
-    if obj is None or isinstance(obj, (bool, int, float, str)):
+    if t is dict:
+        return {k if type(k) is str else str(k): plain(v, _depth + 1) for k, v in obj.items()}
+    if t is list or t is tuple:
+        return [plain(v, _depth + 1) for v in obj]
+    if isinstance(obj, (bool, int, float, str)):
         return obj
     if isinstance(obj, Mapping):
         return {str(k): plain(v, _depth + 1) for k, v in obj.items()}
@@ -214,6 +225,14 @@ class _Raw:
     obj: Any            # the block as sent (a mapping, possibly with cache_control keys)
 
 
+def _get(obj: Any, key: str) -> Any:
+    if type(obj) is dict:
+        return obj.get(key)
+    if isinstance(obj, Mapping):
+        return obj.get(key)
+    return getattr(obj, key, None)
+
+
 def _walk(tools: Sequence[Any] | None, system: Any, messages: Sequence[Any] | None) -> list[_Raw]:
     out: list[_Raw] = []
     for tool in tools or ():
@@ -227,21 +246,21 @@ def _walk(tools: Sequence[Any] | None, system: Any, messages: Sequence[Any] | No
                 block = {"type": "text", "text": block}
             out.append(_Raw("system", "system_text", None, block))
     for msg in messages or ():
-        if not isinstance(msg, Mapping):
+        if type(msg) is not dict and not isinstance(msg, Mapping):
             out.append(_Raw("messages", "other", None, msg))
             continue
         role = msg.get("role")
-        role = role if isinstance(role, str) and len(role) <= 32 else None
+        role = role if type(role) is str and len(role) <= 32 else None
         content = msg.get("content")
-        if isinstance(content, str):
+        if type(content) is str:
             out.append(_Raw("messages", "text", role, {"type": "text", "text": content}))
-        elif isinstance(content, (list, tuple)):
+        elif type(content) is list or isinstance(content, (list, tuple)):
             for block in content:
-                if isinstance(block, str):
+                if type(block) is str:
                     out.append(_Raw("messages", "text", role, {"type": "text", "text": block}))
                     continue
-                btype = block.get("type") if isinstance(block, Mapping) else None
-                kind = btype if isinstance(btype, str) and btype in BLOCK_TYPES else "other"
+                btype = _get(block, "type")
+                kind = btype if type(btype) is str and btype in BLOCK_TYPES else "other"
                 out.append(_Raw("messages", kind, role, block))
     return out
 
@@ -266,22 +285,26 @@ def lookback_positions(blocks: Sequence[BlockRef] | Sequence[str]) -> list[int]:
 
 def _first_ttl(obj: Any, _depth: int = 0) -> str | None:
     """The TTL of the first ``cache_control`` mapping anywhere in *obj* (None when absent)."""
+    t = type(obj)
     if _depth > 64:
         return None
-    if isinstance(obj, Mapping):
+    if t is dict or (t is not list and t is not str and isinstance(obj, Mapping)):
         cc = obj.get("cache_control")
-        if isinstance(cc, Mapping):
+        if cc is not None and (type(cc) is dict or isinstance(cc, Mapping)):
             return _ttl(cc)
         for v in obj.values():
-            if isinstance(v, (Mapping, list, tuple)):
+            tv = type(v)
+            if tv is dict or tv is list or (tv is not str and isinstance(v, (Mapping, tuple))):
                 found = _first_ttl(v, _depth + 1)
                 if found is not None:
                     return found
-    elif isinstance(obj, (list, tuple)):
+    elif t is list or t is tuple:
         for v in obj:
-            found = _first_ttl(v, _depth + 1)
-            if found is not None:
-                return found
+            tv = type(v)
+            if tv is dict or tv is list or (tv is not str and isinstance(v, (Mapping, tuple))):
+                found = _first_ttl(v, _depth + 1)
+                if found is not None:
+                    return found
     return None
 
 
@@ -305,17 +328,25 @@ def _strip(obj: Any, markers: list[str], _depth: int = 0) -> Any:
     return obj
 
 
-def request_breakpoints(*, tools: Sequence[Any] | None, system: Any,
-                        messages: Sequence[Any] | None) -> tuple[tuple[Breakpoint, ...], int]:
-    """Content-free ``(breakpoints, block count)`` of a payload: the block index and TTL of every
-    ``cache_control`` marker, without hashing anything (usable in content tier ``none``)."""
+def scan_request(*, tools: Sequence[Any] | None, system: Any, messages: Sequence[Any] | None
+                 ) -> tuple[tuple[Breakpoint, ...], tuple[str, ...]]:
+    """Content-free ``(breakpoints, block kinds)`` of a payload in wire order — the block index
+    and TTL of every ``cache_control`` marker — without serializing or hashing anything."""
     raws = _walk(tools, system, messages)
     bps = []
     for i, raw in enumerate(raws):
         ttl = _first_ttl(raw.obj)
         if ttl is not None:
             bps.append(Breakpoint(block_index=i, ttl=ttl))
-    return tuple(bps), len(raws)
+    return tuple(bps), tuple(r.kind for r in raws)
+
+
+def request_breakpoints(*, tools: Sequence[Any] | None, system: Any,
+                        messages: Sequence[Any] | None) -> tuple[tuple[Breakpoint, ...], int]:
+    """Content-free ``(breakpoints, block count)`` of a payload: the block index and TTL of every
+    ``cache_control`` marker, without hashing anything (usable in content tier ``none``)."""
+    bps, kinds = scan_request(tools=tools, system=system, messages=messages)
+    return bps, len(kinds)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -437,8 +468,13 @@ def _hmac(key: bytes, data: bytes) -> str:
     return hmac.new(key, data, hashlib.sha256).hexdigest()[:_HASH_CHARS]
 
 
+#: Prebuilt encoder of the wire rendering (``json.dumps`` with non-default options would build a
+#: new encoder per call, which dominates the cost of small blocks).
+_WIRE = json.JSONEncoder(ensure_ascii=False, separators=(",", ":"))
+
+
 def _wire(obj: Any) -> str:
-    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+    return _WIRE.encode(obj)
 
 
 def _sorted_wire(obj: Any) -> str:
@@ -515,9 +551,9 @@ class FingerprintCache:
         return len(self._items)
 
 
-def _block_ref(raw: _Raw, stripped: Any, wire: str, tag: bytes, key: bytes, family: str,
+def _block_ref(w: WiredBlock, stripped: Any, tag: bytes, key: bytes, family: str,
                pos: int) -> BlockRef:
-    wire_b = wire.encode("utf-8", "surrogatepass")
+    wire_b = w.wire.encode("utf-8", "surrogatepass")
     strings: list[str] = []
     _strings(stripped, strings)
     classes = sorted({cls for s in strings for cls, _a, _b in volatile_spans(s)})
@@ -526,20 +562,20 @@ def _block_ref(raw: _Raw, stripped: Any, wire: str, tag: bytes, key: bytes, fami
         key, tag + _wire(_normalized(stripped)).encode("utf-8", "surrogatepass"))
     n_bytes = len(wire_b)
     px: tuple[int, int] | None = None
-    if raw.kind == "image" and isinstance(stripped, Mapping):
+    if w.kind == "image" and isinstance(stripped, Mapping):
         px = _image_px(stripped)
         est = image_tokens(px[0], px[1], family) if px is not None else None
     else:
-        est = est_tokens_for(raw.kind, n_bytes, family)
-    deferred = (raw.tier == "tools" and isinstance(stripped, Mapping)
+        est = est_tokens_for(w.kind, n_bytes, family)
+    deferred = (w.tier == "tools" and isinstance(stripped, Mapping)
                 and stripped.get("defer_loading") is True)
     return BlockRef(
         h=h,
         h_sorted=_hmac(key, tag + _sorted_wire(stripped).encode("utf-8", "surrogatepass")),
         h_norm=h_norm,
-        tier=raw.tier,
-        kind=raw.kind,
-        role=raw.role,
+        tier=w.tier,
+        kind=w.kind,
+        role=w.role,
         n_bytes=n_bytes,
         est_tokens=est,
         image_px=px,
@@ -547,6 +583,87 @@ def _block_ref(raw: _Raw, stripped: Any, wire: str, tag: bytes, key: bytes, fami
         lookback_pos=pos,
         deferred=deferred,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class WiredBlock:
+    """One block of a payload snapshot: its tier, kind and role, the wire text with every
+    ``cache_control`` removed, and the TTL of the removed marker (None without one). Holds
+    content (in memory only); :func:`fingerprint_blocks` turns it into a content-free
+    :class:`BlockRef`."""
+
+    tier: str
+    kind: str
+    role: str | None
+    wire: str
+    marker: str | None
+
+
+def snapshot_blocks(*, tools: Sequence[Any] | None, system: Any,
+                    messages: Sequence[Any] | None) -> tuple[WiredBlock, ...]:
+    """Serialize every block of a payload to its wire text now (C-speed ``json.dumps``; SDK objects
+    through :func:`plain`), so a later mutation of the caller's objects cannot change what is
+    fingerprinted: the recorder's pre-send snapshot."""
+    out = []
+    for raw in _walk(tools, system, messages):
+        obj = raw.obj
+        try:
+            wire = _wire(obj)
+        except (TypeError, ValueError, RecursionError):
+            obj = plain(obj)
+            wire = _wire(obj)
+        marker = None
+        if _CC_MARK in wire:
+            markers: list[str] = []
+            wire = _wire(_strip(obj, markers))
+            marker = markers[0] if markers else None
+        out.append(WiredBlock(raw.tier, raw.kind, raw.role, wire, marker))
+    return tuple(out)
+
+
+def _check_fp_args(key: Any, tier: Any) -> tuple[bytes, ContentTier]:
+    try:
+        tier = ContentTier(tier)
+    except ValueError:
+        raise UsageError("unknown content tier") from None
+    if tier is ContentTier.NONE:
+        raise UsageError("block fingerprints need content tier fingerprint or full (D22)")
+    if not isinstance(key, (bytes, bytearray)) or not key:
+        raise UsageError("fingerprints need a non-empty key")
+    return bytes(key), tier
+
+
+def fingerprint_blocks(blocks: Sequence[WiredBlock], *, key: bytes, tier: ContentTier,
+                       tokenizer_family: str = "claude-4.7+",
+                       cache: FingerprintCache | None = None,
+                       ) -> tuple[ContentFingerprint, tuple[Breakpoint, ...], dict[str, str]]:
+    """:func:`fingerprint_request` over a :func:`snapshot_blocks` snapshot."""
+    key, tier = _check_fp_args(key, tier)
+    kid = key_id(key)
+    positions = lookback_positions([w.kind for w in blocks])
+    refs: list[BlockRef] = []
+    bps: list[Breakpoint] = []
+    content: dict[str, str] = {}
+    for idx, (w, pos) in enumerate(zip(blocks, positions, strict=True)):
+        if w.marker is not None:
+            bps.append(Breakpoint(block_index=idx, ttl=w.marker))
+        tag = f"{w.tier}\x1f{w.role or ''}\x1f".encode()
+        ck = (kid, tokenizer_family, tag, w.wire, pos, w.kind)
+        hit = cache.get(ck) if cache is not None else None
+        if hit is None:
+            ref = _block_ref(w, json.loads(w.wire), tag, key, tokenizer_family, pos)
+            if cache is not None:
+                cache.put(ck, (ref, w.wire))
+        else:
+            ref = hit[0]
+        refs.append(ref)
+        if tier is ContentTier.FULL:
+            content[ref.h] = w.wire
+    n_tools = sum(1 for w in blocks if w.tier == "tools")
+    n_system = sum(1 for w in blocks if w.tier == "system")
+    fp = ContentFingerprint(key_id=kid, blocks=tuple(refs),
+                            tier_end=(n_tools, n_tools + n_system, len(refs)))
+    return fp, tuple(bps), content
 
 
 def fingerprint_request(*, tools: Sequence[Mapping], system: str | Sequence[Mapping] | None,
@@ -562,52 +679,9 @@ def fingerprint_request(*, tools: Sequence[Mapping], system: str | Sequence[Mapp
     Breakpoints are the removed ``cache_control`` markers (block index, TTL, not assumed).
     *cache* (optional) memoizes blocks across requests of one producer.
     """
-    try:
-        tier = ContentTier(tier)
-    except ValueError:
-        raise UsageError("unknown content tier") from None
-    if tier is ContentTier.NONE:
-        raise UsageError("block fingerprints need content tier fingerprint or full (D22)")
-    if not isinstance(key, (bytes, bytearray)) or not key:
-        raise UsageError("fingerprints need a non-empty key")
-    key = bytes(key)
-    kid = key_id(key)
-    raws = _walk(tools, system, messages)
-    positions = lookback_positions([r.kind for r in raws])
-    blocks: list[BlockRef] = []
-    bps: list[Breakpoint] = []
-    content: dict[str, str] = {}
-    for idx, (raw, pos) in enumerate(zip(raws, positions, strict=True)):
-        obj = raw.obj
-        try:
-            wire = _wire(obj)
-        except (TypeError, ValueError, RecursionError):
-            obj = plain(obj)
-            wire = _wire(obj)
-        stripped: Any = obj
-        if _CC_MARK in wire:
-            markers: list[str] = []
-            stripped = _strip(obj, markers)
-            if markers:
-                bps.append(Breakpoint(block_index=idx, ttl=markers[0]))
-            wire = _wire(stripped)
-        tag = f"{raw.tier}\x1f{raw.role or ''}\x1f".encode()
-        ck = (kid, tokenizer_family, tag, wire, pos, raw.kind)
-        hit = cache.get(ck) if cache is not None else None
-        if hit is None:
-            ref = _block_ref(raw, stripped, wire, tag, key, tokenizer_family, pos)
-            if cache is not None:
-                cache.put(ck, (ref, wire))
-        else:
-            ref = hit[0]
-        blocks.append(ref)
-        if tier is ContentTier.FULL:
-            content[ref.h] = wire
-    n_tools = sum(1 for r in raws if r.tier == "tools")
-    n_system = sum(1 for r in raws if r.tier == "system")
-    fp = ContentFingerprint(key_id=kid, blocks=tuple(blocks),
-                            tier_end=(n_tools, n_tools + n_system, len(blocks)))
-    return fp, tuple(bps), content
+    _check_fp_args(key, tier)
+    return fingerprint_blocks(snapshot_blocks(tools=tools, system=system, messages=messages),
+                              key=key, tier=tier, tokenizer_family=tokenizer_family, cache=cache)
 
 
 # ---------------------------------------------------------------------------------------------

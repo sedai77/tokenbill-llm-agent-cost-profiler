@@ -289,6 +289,14 @@ def sample(profile: str = "usage") -> Sample:
 # ---------------------------------------------------------------------------------------------
 
 
+def next_message_id(messages: Any) -> str:
+    """``msg_fake_<n>``: numbered per fake client (the plain and beta namespaces of one client
+    share the counter), so ids never repeat within a recording."""
+    counter = messages.counter
+    counter[0] += 1
+    return f"msg_fake_{counter[0]}"
+
+
 class FakeUsage:
     def __init__(self, **fields: Any) -> None:
         for name, value in fields.items():
@@ -400,7 +408,9 @@ class FakeStreamManager:
 
 class FakeMessages:
     def __init__(self, http: FakeHttp | None, statuses: list[int] | None = None,
-                 response: FakeMessage | None = None, error: BaseException | None = None) -> None:
+                 response: FakeMessage | None = None, error: BaseException | None = None,
+                 counter: list[int] | None = None) -> None:
+        self.counter = counter if counter is not None else [0]
         self.http = http
         self.statuses = statuses or [200]
         self.response = response or FakeMessage()
@@ -413,8 +423,13 @@ class FakeMessages:
         if self.error is not None:
             raise self.error
 
+    def _next_id(self) -> None:
+        """Every response gets a fresh message id (the API never repeats one)."""
+        self.response.id = next_message_id(self)
+
     def create(self, **kwargs: Any) -> Any:
         self.requests.append(kwargs)
+        self._next_id()
         self.http_send()
         if kwargs.get("stream"):
             return RawEvents(self.response)
@@ -422,6 +437,7 @@ class FakeMessages:
 
     def stream(self, **kwargs: Any) -> FakeStreamManager:
         self.requests.append(kwargs)
+        self._next_id()
         return FakeStreamManager(self, FakeStream(self.response))
 
 
@@ -462,8 +478,9 @@ class FakeClient:
         http = FakeHttp() if hooks else None
         if hooks:
             self._client = http
-        self.messages = FakeMessages(http, statuses, response, error)
-        self.beta = FakeBeta(FakeMessages(http, statuses, response, error))
+        counter = [0]
+        self.messages = FakeMessages(http, statuses, response, error, counter)
+        self.beta = FakeBeta(FakeMessages(http, statuses, response, error, counter))
 
 
 class FakeAsyncStream:
@@ -491,7 +508,9 @@ class FakeAsyncStreamManager:
 
 class FakeAsyncMessages:
     def __init__(self, http: FakeHttp | None, statuses: list[int] | None = None,
-                 response: FakeMessage | None = None, error: BaseException | None = None) -> None:
+                 response: FakeMessage | None = None, error: BaseException | None = None,
+                 counter: list[int] | None = None) -> None:
+        self.counter = counter if counter is not None else [0]
         self.http = http
         self.statuses = statuses or [200]
         self.response = response or FakeMessage()
@@ -506,11 +525,13 @@ class FakeAsyncMessages:
 
     async def create(self, **kwargs: Any) -> FakeMessage:
         self.requests.append(kwargs)
+        self.response.id = next_message_id(self)
         await self.http_send()
         return self.response
 
     def stream(self, **kwargs: Any) -> FakeAsyncStreamManager:
         self.requests.append(kwargs)
+        self.response.id = next_message_id(self)
         return FakeAsyncStreamManager(self, FakeAsyncStream(self.response))
 
 
@@ -520,5 +541,6 @@ class FakeAsyncClient:
         http = FakeHttp(is_async=True) if hooks else None
         if hooks:
             self._client = http
-        self.messages = FakeAsyncMessages(http, statuses, None, error)
-        self.beta = FakeBeta(FakeAsyncMessages(http, statuses, None, error))
+        counter = [0]
+        self.messages = FakeAsyncMessages(http, statuses, None, error, counter)
+        self.beta = FakeBeta(FakeAsyncMessages(http, statuses, None, error, counter))

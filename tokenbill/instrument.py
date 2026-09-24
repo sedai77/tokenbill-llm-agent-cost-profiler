@@ -73,9 +73,10 @@ from typing import Any
 
 from tokenbill.adapters.fingerprint import (
     FingerprintCache,
-    fingerprint_request,
+    fingerprint_blocks,
     plain,
-    request_breakpoints,
+    scan_request,
+    snapshot_blocks,
     tokenizer_family,
 )
 from tokenbill.adapters.trace_v2 import TraceV2Writer, sanitize_raw_usage
@@ -596,7 +597,7 @@ class _Call:
     ts_start_ms: int
     mono: float
     params: RequestParams
-    payload: tuple[Any, Any, Any] | None      # (tools, system, messages): fingerprint tiers only
+    payload: tuple[Any, Any, Any] | None      # pre-send (tools, system, messages) copy: fp tiers
     appended: tuple[AppendedItem, ...]
     attempts: list[_Att] = dc_field(default_factory=list)
 
@@ -979,13 +980,15 @@ class _V2Recorder:
             tools, system, messages = (kwargs.get("tools"), kwargs.get("system"),
                                        kwargs.get("messages"))
             if self.tier is ContentTier.NONE:
-                bps, _n = request_breakpoints(tools=tools, system=system, messages=messages)
                 payload = None
+                bps, kinds = scan_request(tools=tools, system=system, messages=messages)
             else:
+                # a cheap deep copy before sending (the caller may mutate its objects later); the
+                # worker serializes and hashes it off the caller's thread
                 payload = (plain(tools or []), plain(system), plain(messages or []))
+                _bps, kinds = scan_request(tools=[], system=None, messages=payload[2])
                 bps = ()
-            has_images = any(_obj_get(b, "type") == "image" for _r, b in
-                             _message_blocks(messages))
+            has_images = "image" in kinds
             params = _request_params(kwargs, stream=stream, key=self.key, breakpoints=bps,
                                      has_images=has_images)
             with self._lock:
@@ -1171,11 +1174,11 @@ class _V2Recorder:
         params = call.params
         fingerprint = None
         if call.payload is not None and self.key is not None:
-            tools, system, messages = call.payload
             model = normalize_model(params.model_requested).model
-            fingerprint, bps, content = fingerprint_request(
-                tools=tools, system=system, messages=messages, key=self.key, tier=self.tier,
-                tokenizer_family=tokenizer_family(model), cache=self._cache)
+            tools, system, messages = call.payload
+            fingerprint, bps, content = fingerprint_blocks(
+                snapshot_blocks(tools=tools, system=system, messages=messages), key=self.key,
+                tier=self.tier, tokenizer_family=tokenizer_family(model), cache=self._cache)
             params = dataclasses.replace(params, breakpoints=bps)
             for h in sorted(content):
                 if h not in self._content_written:

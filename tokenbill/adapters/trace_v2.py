@@ -482,7 +482,11 @@ class _Reader:
     def feed(self, line_no: int, raw: bytes) -> object | QuarantineItem:
         """Decode one line: a record object or a :class:`QuarantineItem` (strict: raises)."""
         try:
-            return self._decode(raw)
+            try:
+                return self._decode(raw)
+            except (TypeError, ValueError, KeyError, AttributeError, IndexError, RecursionError,
+                    OverflowError):  # defensive: a shape no specific check anticipated
+                raise _Bad("bad_type:record") from None
         except _Bad as bad:
             if not self.lenient:
                 raise SourceError(f"{self.name}: line {line_no}: {bad.reason}") from None
@@ -516,7 +520,7 @@ class _Reader:
         rec = d.get("rec")
         if d.get("schema") != SCHEMA:
             raise _Bad("missing:schema" if "schema" not in d else "bad_type:schema")
-        if rec not in _RECS:
+        if not isinstance(rec, str) or rec not in _RECS:
             raise _Bad("missing:rec" if rec is None else "bad_type:rec")
         if self.n_floats != floats or _BIG_OR_NEGATIVE.search(raw):
             bad = _find_bad_number(d, "record", False)
@@ -829,7 +833,7 @@ class _Reader:
         tokens = d.get("tokens")
         if not isinstance(code, str) or not _DQ_CODE_RE.match(code):
             raise _Bad("bad_type:code")
-        if sev not in _SEVERITIES:
+        if not isinstance(sev, str) or sev not in _SEVERITIES:
             raise _Bad("bad_type:severity")
         if type(count) is not int or count < 0:
             raise _Bad("bad_type:count")
