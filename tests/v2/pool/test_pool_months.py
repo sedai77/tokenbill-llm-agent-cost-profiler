@@ -81,6 +81,12 @@ def test_p1_closed_month_and_invoice() -> None:
     # the discount stays unclassified without the reconciler's gross_is_list decision
     [pm] = _months(cost, aggs, today="2026-11-10")
     assert (pm.pool_draw_nano, pm.discount_unclassified_nano) == (None, 2_680_000 * C)
+    # direct rows with a discount draw on the pool: said, never silently added to consumption
+    drawn, drawn_aggs = rows(1_000, date="2026-10-06", unattributed=True, discount=1_000,
+                             model="Copilot Code Review")
+    [pm] = _months(cost + drawn, aggs + drawn_aggs, today="2026-11-10")
+    assert (pm.direct_draws_pool, pm.consumed_report_nano) == ("yes", 3_100_000 * C)
+    assert any(n.startswith("direct-org rows draw on the pool") for n in pm.notes)
 
 
 def test_p9_open_month_forecast() -> None:

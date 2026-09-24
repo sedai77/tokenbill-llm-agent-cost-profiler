@@ -1514,6 +1514,9 @@ def _entity_month(entity: str, month: str, cm: _Common, pe: PlanEvidence | None,
             notes.append(f"capped cost center: cap {_dec_str(pool_c)} credits, policy {policy}")
             if seats and _dec_str(allowance) != _dec_str(pool_c):
                 notes.append(f"cap differs from the seat allowance {_dec_str(allowance)} credits")
+        if cm.direct_draws == "yes":
+            notes.append("direct-org rows draw on the pool (their discounts); consumption counts "
+                         "pooled rows only, so the regime may understate pool use")
         if cm.estimate:
             notes.append("consumed_estimate_nano: provider estimate (ai_credits_used) for days not "
                          "yet in the report; never added to report sums")
