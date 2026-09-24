@@ -471,3 +471,29 @@ def test_property_totals(i: int, r: int, w5: int, w1: int, extra: int, o: int) -
         assert notes == ["dq.ttl_split_exceeds_total"]
     else:
         assert notes == []
+
+
+# ---------------------------------------------------------------------------------------------
+# content canary (SPEC §8.8): nothing from content-bearing fields reaches outputs or errors
+# ---------------------------------------------------------------------------------------------
+
+
+def test_canary_never_reaches_outputs_or_errors() -> None:
+    from tokenbill.core.builders import CANARY, assert_no_canary, plant_canary
+    from tokenbill.core.records import to_json
+
+    raw = plant_canary({
+        **usage(i=5, total=10, w5=10, o=3),
+        "content": [{"type": "text", "text": "hello"}],
+        "iterations": [{**it("message", i=5, total=10, w5=10, o=3),
+                        "summary": "private summary"}],
+    })
+    inferences, notes = infs(raw)
+    assert_no_canary(repr(inferences), repr(notes),
+                     *(repr(to_json(inf)) for inf in inferences))
+    with pytest.raises(conv.BadUsageError) as exc:
+        conv.normalize("anthropic.messages", {"input_tokens": f"12 {CANARY}"})
+    assert_no_canary(str(exc.value), repr(exc.value.args))
+    with pytest.raises(conv.BadUsageError) as exc:
+        infs({"iterations": [{"type": "message", "output_tokens": [CANARY]}]})
+    assert_no_canary(str(exc.value))
