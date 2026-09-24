@@ -31,7 +31,6 @@ are never split by tools-tier hash (the v0.1 ``tool-churn`` demo stays one lane)
 
 from __future__ import annotations
 
-import functools
 import hashlib
 import json
 import re
@@ -46,9 +45,9 @@ from tokenbill.adapters.fingerprint import (
     FingerprintCache,
     fingerprint_request,
     request_breakpoints,
+    tokenizer_family,
 )
 from tokenbill.common import TraceError
-from tokenbill.core import facts as core_facts
 from tokenbill.core.errors import SourceError, UsageError
 from tokenbill.core.ids import is_opaque_ref, key_id, pseudonym, request_id_for, stable_id
 from tokenbill.core.jsonl import iter_lines
@@ -91,7 +90,6 @@ CAPABILITIES = frozenset({"usage_sequence", "timing", "params", "blocks"})
 PRIORITY = 50
 _CHANNEL = "anthropic_api"
 _DEFAULT_BILLING_PATH = "api_key"
-_DEFAULT_FAMILY = "claude-4.7+"
 _FIELD_RE = re.compile(r"field '([A-Za-z_.]+)")
 _MISSING_RE = re.compile(r"missing field '([A-Za-z_.]+)'")
 _TOKEN_RE = re.compile(r"[A-Za-z0-9_.:-]{1,64}\Z")
@@ -141,18 +139,6 @@ def _has_1h(value: Any, _depth: int = 0) -> bool:
     if isinstance(value, (list, tuple)):
         return any(_has_1h(v, _depth + 1) for v in value)
     return False
-
-
-@functools.lru_cache(maxsize=256)
-def _tokenizer_family(model: str) -> str:
-    """The tokenizer family of *model*'s latest ``anthropic_api`` rate row (default 4.7+)."""
-    if not model:
-        return _DEFAULT_FAMILY
-    try:
-        rows = core_facts.load().rows_for(model)
-    except Exception:  # pragma: no cover - facts.json is packaged with core
-        return _DEFAULT_FAMILY
-    return rows[-1].tokenizer_family if rows else _DEFAULT_FAMILY
 
 
 def _identity(opts: IngestOptions) -> tuple[str | None, str | None]:
@@ -272,7 +258,7 @@ def _request(call: Call, line_no: int, ts_ms: int, session_key: str, lane_key: s
     else:
         fingerprint, markers, _content = fingerprint_request(
             tools=call.tools, system=call.system, messages=call.messages, key=ctx.key,
-            tier=ctx.tier, tokenizer_family=_tokenizer_family(model), cache=ctx.cache)
+            tier=ctx.tier, tokenizer_family=tokenizer_family(model), cache=ctx.cache)
         n_blocks = len(fingerprint.blocks)
     bps: list[Breakpoint] = list(markers)
     if call.cache_breakpoints > len(bps) and n_blocks:

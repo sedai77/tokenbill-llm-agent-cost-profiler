@@ -33,15 +33,16 @@ of consecutive ``tool_use`` (and of ``tool_result``) blocks into one position
 The content map (block hash → wire text) is returned only in the ``full`` tier.
 
 :func:`infer_lanes` groups requests of a source without a lane identity into lanes (SPEC §5.8,
-ruling R-E27): a request joins the lane whose last request shares the longest block-hash prefix with
-it (a radix index over ``h``), requiring the same model and tools-tier hash; otherwise it opens a
-new lane.
+ruling R-E27): a request joins the lane whose last request shares the longest block-hash prefix
+with it (a radix index), requiring the same model and tools-tier hash; otherwise it opens a new
+lane.
 """
 
 from __future__ import annotations
 
 import base64
 import binascii
+import functools
 import hashlib
 import hmac
 import json
@@ -53,6 +54,7 @@ from typing import Any
 
 from tokenbill.breakers import VOLATILE_PATTERNS
 from tokenbill.common import canonical_json
+from tokenbill.core import facts as core_facts
 from tokenbill.core.errors import UsageError
 from tokenbill.core.ids import key_id, stable_id
 from tokenbill.core.records import (
@@ -79,6 +81,7 @@ __all__ = [
     "plain",
     "replace_lookback",
     "request_breakpoints",
+    "tokenizer_family",
     "tools_tier_hash",
     "volatile_spans",
 ]
@@ -318,6 +321,17 @@ def request_breakpoints(*, tools: Sequence[Any] | None, system: Any,
 # ---------------------------------------------------------------------------------------------
 # token estimates and images
 # ---------------------------------------------------------------------------------------------
+
+
+@functools.lru_cache(maxsize=256)
+def tokenizer_family(model: str) -> str:
+    """The tokenizer family of *model*'s latest ``anthropic_api`` row in ``core/facts.json``
+    (``claude-4.7+`` when the model has no row)."""
+    if not model:
+        return _HIGHRES_FAMILY
+    rows = core_facts.load().rows_for(model)
+    return rows[-1].tokenizer_family if rows else _HIGHRES_FAMILY
+
 
 
 def est_tokens_for(kind: str, n_bytes: int, tokenizer_family: str = _HIGHRES_FAMILY) -> int:
@@ -602,10 +616,12 @@ def fingerprint_request(*, tools: Sequence[Mapping], system: str | Sequence[Mapp
 
 
 def tools_tier_hash(fp: ContentFingerprint | None) -> str | None:
-    """SHA-256 (hex, 24) of the ``h`` sequence of the tools tier, or None without a fingerprint."""
+    """SHA-256 (hex, 24) of the tools tier as a multiset of ``h_sorted`` (else ``h``) values, or
+    None without a fingerprint. Order- and key-order-insensitive, so tool churn does not split a
+    lane (CONTRACT-CHANGE-BLOCK-1 §4); a different tool set does."""
     if fp is None:
         return None
-    hs = "\x1f".join(b.h for b in fp.blocks[: fp.tier_end[0]])
+    hs = "\x1f".join(sorted(b.h_sorted or b.h for b in fp.blocks[: fp.tier_end[0]]))
     return hashlib.sha256(hs.encode()).hexdigest()[:24]
 
 
@@ -666,10 +682,12 @@ def infer_lanes(requests: Iterable[Request]) -> dict[str, str]:
     """``request_id → lane_key`` for requests of sources without a lane identity (SPEC §5.8).
 
     Per run (``session_key``), in ``(ts, seq, request_id)`` order: a fingerprinted request joins
-    the lane whose last request shares the longest block-hash prefix beyond the tools tier with it
-    (radix index over ``h``), among lanes with the same model and tools-tier hash; ties go to the
-    most recently extended lane. No shared block (or no candidate) opens a new lane. Requests
-    without a fingerprint join the latest unfingerprinted lane of the same model. Lane keys are
+    the lane whose last request shares the longest block-hash prefix with it — a radix index over
+    the system blocks' ``h_norm`` (a volatile timestamp does not split a lane) followed by the
+    message blocks' ``h`` — among lanes with the same model and :func:`tools_tier_hash`; ties go
+    to the most recently extended lane. A request that shares no message block with any such lane
+    opens a new lane (a different conversation behind the same system prompt). Requests without a
+    fingerprint join the latest unfingerprinted lane of the same model. Lane keys are
     ``stable_id("ln", session_key, "inferred", <first request id>)``.
     """
     out: dict[str, str] = {}
@@ -694,9 +712,11 @@ def infer_lanes(requests: Iterable[Request]) -> dict[str, str]:
                 continue
             group = (r.model, tools_tier_hash(fp))
             trie = tries.setdefault(group, _Trie())
-            path = [b.h for b in fp.blocks[fp.tier_end[0]:]]
+            te0, te1 = fp.tier_end[0], fp.tier_end[1]
+            path = [b.h_norm or b.h for b in fp.blocks[te0:te1]]
+            path += [b.h for b in fp.blocks[te1:]]
             depth, lanes = trie.deepest(path)
-            if depth > 0 and lanes:
+            if depth > te1 - te0 and lanes:
                 lane = max(lanes, key=lambda k: (recency[k], k))
                 trie.remove(tails[lane], lane)
             else:
