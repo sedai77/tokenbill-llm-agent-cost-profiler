@@ -583,3 +583,32 @@ def test_a_span_exported_twice_is_one_request(tmp_path: Path) -> None:
     line = h.spans([h.span("chat", "0000000000000001", h.T0, h.T0 + 5, attrs)])
     result = read(h.write_lines(tmp_path / "s.jsonl", [line, line]))
     assert len(result.requests) == 1 and result.stats["duplicate_records"] == 1
+
+
+def test_nested_agents_and_named_attributes(tmp_path: Path) -> None:
+    llm = {"openinference.span.kind": "LLM", "llm.provider": "anthropic",
+           "llm.model_name": "claude-sonnet-5", "llm.token_count.prompt": 100,
+           "llm.token_count.completion": 5}
+    path = h.write_lines(tmp_path / "s.jsonl", [h.spans([
+        h.span("outer", "00000000000000a1", h.T0, h.T0 + 100, {"openinference.span.kind": "AGENT"}),
+        h.span("hop", "00000000000000a2", h.T0, h.T0 + 100, {"openinference.span.kind": "CHAIN"},
+               parent="00000000000000a1"),
+        h.span("inner", "00000000000000a3", h.T0, h.T0 + 100, {"openinference.span.kind": "AGENT"},
+               parent="00000000000000a2"),
+        h.span("llm", "00000000000000a4", h.T0 + 1, h.T0 + 50, llm, parent="00000000000000a3"),
+        h.span("llm", "00000000000000a5", h.T0 + 2, h.T0 + 50, llm, parent="00000000000000a1"),
+        h.span("llm", "00000000000000a6", h.T0 + 3, h.T0 + 50, llm, parent="00000000000000ff"),
+    ])])
+    result = read(path)
+    lane_map = lanes(result)
+    by_start = sorted(result.requests, key=lambda r: r.ts_start_ms)
+    inner, outer, orphan = (lane_map[r.lane_key] for r in by_start)
+    assert inner.kind is LaneKind.SUBAGENT and inner.parent_lane_key == outer.lane_key
+    assert outer.kind is LaneKind.API_RUN and outer.parent_lane_key is None
+    assert not orphan.lane_exact  # its parent span is not in the file
+    named = h.write_lines(tmp_path / "o.jsonl", [h.logs([api_request(
+        h.T0, "r1", **{"skill.name": "pdf-report", "mcp_server.name": "vault",
+                       "plugin.name": "acme-tools", "agent.name": "Explore"})])])
+    a = read(named, name_allowlist=frozenset({"Explore"})).requests[0].attribution
+    assert a.agent_type == "Explore"
+    assert all(v.startswith("h_") for v in (a.skill, a.mcp_server, a.plugin))
