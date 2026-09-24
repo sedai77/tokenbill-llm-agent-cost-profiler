@@ -535,6 +535,7 @@ def _fmt_fig(fig: Figure | None) -> str:
         return "not projected for this cohort (see the findings)"
     if fig.nano is None:
         reason = sanitize(fig.note.split(";")[0].removeprefix("unpriced:").strip(), 160)
+        reason = reason.replace(";", ",")
         return f"unpriced ({reason})" if reason else "unpriced"
     text = fmt_usd(fig.nano) + "/month"
     if fig.low_nano is not None and fig.high_nano is not None:
@@ -546,9 +547,9 @@ def _fmt_fig(fig: Figure | None) -> str:
         labels.append("upper bound")
     text += ", " + ", ".join(labels)
     if crosses_zero(fig):
-        text += "; the range crosses zero (the lever may cost more than it saves)"
+        text += " (the range crosses zero: the lever may cost more than it saves)"
     if fig.basis is Basis.LIST_EQUIVALENT:
-        text += "; list-equivalent allowance headroom, not invoice dollars"
+        text += " (list-equivalent allowance headroom, not invoice dollars)"
     return text
 
 
@@ -765,13 +766,18 @@ def _readme(target: str, inp: _PackInput, entries: Sequence[PolicyEntry],
     if excluded:
         lines += ["## Trade-off levers (not in this pack)", "",
                   f"{_TRADEOFF_TEXT[0].upper()}{_TRADEOFF_TEXT[1:]}.", "", "```"]
+        by_lever: dict[str, list[_Proposal]] = {}
         for p in excluded:
-            lines.append(f"// trade-off lever {p.lever_id}: run `tokenbill ab` or `tokenbill "
+            by_lever.setdefault(p.lever_id, []).append(p)
+        for lever_id, props in by_lever.items():
+            lines.append(f"// trade-off lever {lever_id}: run `tokenbill ab` or `tokenbill "
                          "measure plan` first, then re-run with --include-tradeoffs")
-            lines.append(f"// \"{p.key}\": {sanitize(canonical_json(p.value), 400)}")
+            for p in props:
+                lines.append(f"// \"{p.key}\": {sanitize(canonical_json(p.value), 400)}")
         lines += ["```", ""]
-        for p in excluded:
-            lines.append(f"- `{p.key}` ({p.lever_id}): projected {_fmt_fig(p.projection)}")
+        for lever_id, props in by_lever.items():
+            lines.append(f"- `{lever_id}` ({', '.join(f'`{p.key}`' for p in props)}): projected "
+                         f"{_fmt_fig(props[0].projection)}")
         lines.append("")
     if any(e.key == "hooks.SessionStart" for e in entries):
         lines += ["## SessionStart hook", "",
@@ -811,7 +817,9 @@ def _entry_lines(e: PolicyEntry, cohort: str, current: Mapping[str, object]) -> 
         if e.lever_id in _CHECKED_LEVERS:
             lines.append(f"- post-rollout check: `tokenbill policy check-effect --lever "
                          f"{e.lever_id} --cohort {sanitize(cohort, 128)} --since <rollout date>`")
-    lines.append(f"- note: {sanitize(e.note, 800)}")
+    rest = e.note.split("; ", 1)[1] if "; " in e.note else ""
+    if rest:
+        lines.append(f"- note: {sanitize(rest, 800)}")
     lines.append("")
     return lines
 

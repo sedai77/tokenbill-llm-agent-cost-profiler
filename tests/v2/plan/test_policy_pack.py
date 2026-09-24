@@ -561,3 +561,16 @@ def test_canary_never_reaches_a_pack(tmp_path) -> None:
                          pack.rollback_patch_json, *(t for _, t in pack.hooks))
         for path in render_pack(pack, tmp_path):
             assert_no_canary(path.read_bytes())
+
+
+def test_ranges_crossing_zero_are_labeled_in_the_readme() -> None:
+    fig = Figure(nano=500, evidence=Evidence.ESTIMATED, basis=Basis.LIST, low_nano=-200,
+                 high_nano=1_000, calibration=Calibration.UNCALIBRATED, upper_bound=True,
+                 note="x")
+    lever = LeverResult(lever_id="cc.max_effort", lever_class="trajectory",
+                        params="effort=medium,scale=0.5", basis=Basis.LIST, standalone=fig,
+                        shapley=fig, projected_monthly=fig, needs_eval=True, upper_bound=True,
+                        group="billed:g1", finding_ids=())
+    (pack,) = _packs(plan_of(lever), include_tradeoffs=True)
+    assert "the range crosses zero: the lever may cost more than it saves" in pack.readme_md
+    assert "upper bound" in pack.readme_md and "needs eval: yes" in pack.readme_md
