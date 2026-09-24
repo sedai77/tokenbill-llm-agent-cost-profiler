@@ -1831,7 +1831,8 @@ def _rule_checks(pricer: Pricer, ctx: PricingContext, ts: int) -> None:
     sub_ctx = dataclasses.replace(ctx, billing_path="subscription")
     allow = pricer.price_usage(_CASE1, sub_ctx, ts_ms=ts)
     _check(allow.figure.basis is Basis.LIST_EQUIVALENT and not allow.figure.is_billed_eligible
-           and allow.figure.nano == full.figure.nano, "subscription path is list-equivalent")
+           and (pricer.basis is not Basis.LIST or allow.figure.nano == full.figure.nano),
+           "subscription path is list-equivalent at list rates")
     none = pricer.price_usage(_CASE1, dataclasses.replace(ctx, model=""), ts_ms=ts)
     _check(none.figure.nano is None and none.unpriced_reason and none.exact_nano == 0
            and none.estimated is None and none.lines == (), "empty model is unpriced")
