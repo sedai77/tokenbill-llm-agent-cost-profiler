@@ -5,8 +5,12 @@ A *convention* turns one provider usage object into disjoint canonical
 Claude API, Claude Platform on AWS, Foundry, Vertex rawPredict, Bedrock InvokeModel, Claude Code
 transcripts, headless streams and recorded Anthropic responses) and a **disabled**
 ``codex.rollout``; every other convention is registered by
-``tokenbill.adapters.conventions_ext`` (TELEM), which :func:`normalize` / :func:`get_convention`
-import lazily the first time an unknown id is requested.
+``tokenbill.adapters.conventions_ext`` (TELEM) and the Copilot convention modules, which
+:func:`normalize` / :func:`get_convention` import lazily the first time an unknown id is requested
+(``core.registry.CONVENTION_MODULES``). A module that is not installed is skipped with one
+``dq.convention_module_unavailable`` note (its module name as the detail), surfaced by
+:func:`load_notes` (ruling R-E18, CORE-AMENDMENTS S-5); a module that exists but fails to import
+propagates its error.
 
 :func:`anthropic_inferences` applies the ``usage.iterations`` rule (one :class:`Inference` per
 iteration, top-level usage not priced) with the invariant checks and the refusal table of D10.
@@ -38,6 +42,7 @@ from tokenbill.core.records import (
     UsageBuckets,
     UsageSource,
 )
+from tokenbill.core.types import DataQualityNote
 
 __all__ = [
     "ANTHROPIC_MESSAGES",
@@ -45,10 +50,12 @@ __all__ = [
     "REFUSAL_AMBIGUOUS",
     "REFUSAL_MID_STREAM",
     "REFUSAL_PRE_OUTPUT",
+    "DQ_CONVENTION_MODULE_UNAVAILABLE",
     "BadUsageError",
     "Convention",
     "anthropic_inferences",
     "get_convention",
+    "load_notes",
     "normalize",
     "normalize_anthropic_messages",
     "register_convention",
@@ -58,6 +65,8 @@ __all__ = [
 
 ANTHROPIC_MESSAGES = "anthropic.messages"
 CODEX_ROLLOUT = "codex.rollout"
+#: Data-quality code for a ``CONVENTION_MODULES`` entry that is not installed (S-5).
+DQ_CONVENTION_MODULE_UNAVAILABLE = "dq.convention_module_unavailable"
 
 #: Billing-rule ids of the refusal table (D10, §3.11).
 REFUSAL_PRE_OUTPUT = "anthropic.refusal.pre_output"
@@ -92,6 +101,8 @@ NormalizeFn = Callable[[Mapping[str, object]], tuple[UsageBuckets, list[str]]]
 _LOCK = threading.Lock()
 _REGISTRY: dict[str, tuple[Convention, NormalizeFn]] = {}
 _EXTENSIONS_LOADED = False
+#: Notes of the last extension load (one per skipped module); see :func:`load_notes`.
+_LOAD_NOTES: tuple[DataQualityNote, ...] = ()
 
 
 def register_convention(conv: Convention, fn: NormalizeFn) -> None:
@@ -116,13 +127,17 @@ def register_convention(conv: Convention, fn: NormalizeFn) -> None:
 
 
 def _load_extensions() -> None:
-    """Import ``core.registry.CONVENTION_MODULES`` once (they register their conventions)."""
-    global _EXTENSIONS_LOADED
+    """Import ``core.registry.CONVENTION_MODULES`` once (they register their conventions); each
+    entry independently, so a missing one never blocks the others. A skipped entry is recorded
+    as a ``dq.convention_module_unavailable`` note (:func:`load_notes`)."""
+    global _EXTENSIONS_LOADED, _LOAD_NOTES
     if _EXTENSIONS_LOADED:
         return
     _EXTENSIONS_LOADED = True
     from tokenbill.core.registry import CONVENTION_MODULES
 
+    notes: list[DataQualityNote] = []
+    _LOAD_NOTES = ()
     for module in CONVENTION_MODULES:
         try:
             importlib.import_module(module)
@@ -131,6 +146,18 @@ def _load_extensions() -> None:
             # packages) is tolerated; a broken module propagates its error.
             if exc.name is None or not (module == exc.name or module.startswith(exc.name + ".")):
                 raise
+            notes.append(DataQualityNote(code=DQ_CONVENTION_MODULE_UNAVAILABLE, severity="warn",
+                                         count=1, detail=module))
+            _LOAD_NOTES = tuple(notes)
+
+
+def load_notes() -> tuple[DataQualityNote, ...]:
+    """The ``dq.convention_module_unavailable`` notes of the extension load (one per skipped
+    ``CONVENTION_MODULES`` entry, detail = the module name, in registry order; ruling R-E18).
+
+    Empty until an unknown convention id first triggered the load (no convention module was
+    needed before that). Reading the notes imports nothing."""
+    return _LOAD_NOTES
 
 
 def _lookup(convention_id: str) -> tuple[Convention, NormalizeFn]:
