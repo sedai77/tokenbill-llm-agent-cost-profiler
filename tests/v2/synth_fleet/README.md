@@ -13,8 +13,9 @@ Package: `tokenbill/synth/{fleet,truth,writers}.py` — the deterministic synthe
 | `test_properties.py` | hypothesis: warm lanes only pay the 1h write premium; cold lanes flip every transition; closed forms add over disjoint lanes; neutral policies change nothing; generator argument fuzz raises only `UsageError` |
 | `test_determinism.py` | `generate(seed=7, out_dir=…)` in two processes (different `PYTHONHASHSEED`): identical file bytes, canonical records and truth |
 | `test_scale.py` | scale mode: exact count, re-iterable, deterministic, lanes assemble; PR budget 10⁵ requests ≤ 15 s, RSS ≤ 300 MB; `perf`: 10⁶ requests ≤ 60 s with bounded RSS (measured ≈ 33 s, ≈ 50 MB) |
-| `test_gate_files_through_adapters.py` | **gate** (`importorskip` CC, TELEM, TRACE, ADMIN adapters): every written family read by the real adapter reproduces the canonical token totals per team; cost-report and CUR invoice totals equal the canonical cost lines |
-| `test_gate_truth_vs_oracle.py` | **gate** (`importorskip("tokenbill.synth.oracle")`): each replay-based plant truth equals `ReferenceReplay` on the plant's lanes within 1 nano |
+| `test_gate_files_through_adapters.py` | **gate** (`importorskip` CC, TELEM, TRACE, ADMIN adapters): every written family read by the real adapter reproduces the canonical token totals per team; cost-report and CUR invoice totals equal the canonical cost lines; where the SPEC fixes the mapping the records themselves agree: Claude Code request ids, session/lane keys, start times, input usage and appended items (§5.3), headless step times/keys and OUTPUT_RESIDUAL requests (§5.12), OTLP times/usage/principal/team (§5.9), trace@2 fingerprints/attribution/params, and every usage-report / analytics aggregate, outcome, cost-report and CUR line with workspace, dims and finality (§5.11, §5.13) |
+| `test_gate_truth_vs_oracle.py` | **gate**: each replay-based plant truth equals `synth.oracle.ReferenceReplay` (`importorskip` SYNTH-ORACLE) **and** `sim.usage_replay.UsageReplayer` (`importorskip` REPLAY, the engine DETECT/PLAN use) on the plant's lanes within 1 nano — 13 plants incl. `ops.regional-premium` |
+| `test_review_regressions.py` | review fixes: workspace ids in clear and allowlisted for the adapters; `FleetWorld.ingest_options()` (clock = today, team map); Claude Code session keys per §5.3 #11 (CI runs too); subagent appended items serialised exactly; CANARY in every transcript content field; every headless message timed; one unknown-model call; same-tier plants from `core.catalog.successor`; `out_dir` and scale-world writer errors are `UsageError`; scale mode grows its population |
 
 Contract notes: `CONTRACT-CHANGE-SYNTH-FLEET-1.md` (advisory, TRACE §4.2: `lookback_pos` in trace@2
 `blocks` records is position-dependent).
@@ -31,8 +32,10 @@ Keys `FLEET_ORG_KEY`, `FLEET_NAME_KEY`, `FLEET_FP_KEY` are public demo constants
 
 - `world = generate(seed=7, out_dir=tmp)`; `world.lanes(team=None)` assembles lanes;
   `world.ingest_result()` is one `IngestResult` for a store built with `org_key=FLEET_ORG_KEY`,
-  `name_key_id=key_id(FLEET_NAME_KEY)`; `fleet_ingest_options(**kw)` reads the written files with the
-  same keys. `world.truth.plant(id)`, `.plants_for(team=, detector_id=, kind=)`, `PlantTruth.within(figure,
+  `name_key_id=key_id(FLEET_NAME_KEY)`; `world.ingest_options(**kw)` reads the written files with the
+  same keys, `now_ms` = today and the fleet's team map (`fleet_ingest_options(**kw)` is the clock-less
+  base). Both allowlist the fleet's provider workspace ids (`FLEET_WORKSPACES`), which canonical records
+  carry in clear (SPEC §3.2), so the Admin adapters emit them verbatim instead of `h_` pseudonyms. `world.truth.plant(id)`, `.plants_for(team=, detector_id=, kind=)`, `PlantTruth.within(figure,
   value[, low=, high=])` check a recovery against its tolerance; `world.truth.team_map` maps raw actors
   (analytics emails and API-key names, CUR IAM ARNs, device refs) to teams.
 - Plant ids: `platform.no-cache`, `payments.ttl-1h`, `search.size-tax`, `search.compaction-window`,
@@ -54,8 +57,11 @@ Keys `FLEET_ORG_KEY`, `FLEET_NAME_KEY`, `FLEET_FP_KEY` are public demo constants
 - **Priority tier**: the data team's Opus 4.8 main traffic on the first two days has
   `service_tier="priority"`: present in the usage report, absent from the cost report
   (`priority_excluded_from_cost_report`).
-- **Unpriced model**: two calls on `claude-sonnet-5-5` (announced, not priced) on a provisional day;
-  the synthetic invoice prices them like Sonnet 5.
+- **Unpriced model**: one call (SPEC §18) on `claude-sonnet-5-5` (announced, not priced) on a
+  provisional day; the synthetic invoice prices it like Sonnet 5.
+- **Session keys** follow the adapters: `stable_id("ses", "claude-code", sessionId)` for every Claude
+  Code session including claude-code-action runs (source kind `claude-code-headless`, SPEC §5.3 #11),
+  `stable_id("ses", "otlp", session.id)`, `stable_id("ses", "trace@2", run)`.
 - The placeholder call's provider-billed output is its `output_upper`; the ambiguous refusal (declined
   output 6) is billed by the provider; the pre-output refusal is not.
 - `restore_caching` truth writes in the 5m bucket (`τπ` defaults to 300 s); the compaction-window truth
@@ -71,7 +77,8 @@ Keys `FLEET_ORG_KEY`, `FLEET_NAME_KEY`, `FLEET_FP_KEY` are public demo constants
 - Context edits replace cleared tool results by an 8-token placeholder in place (block positions do not
   move, so a block's `lookback_pos` is a function of its hash in the trace@2 delta encoding).
 - Scale mode (`scale_requests=N`) yields canonical requests/events/sessions only: no truth, no files, no
-  provider-side records.
+  provider-side records; every epoch (one pass over the team table) adds a new set of developers.
+  The writers refuse a scale world (`UsageError`); an unwritable `out_dir` is a `UsageError`.
 
 ## Facts: verified and unverified
 
@@ -87,8 +94,9 @@ Prices, multipliers, modifiers, successors and SKU patterns come from `core/fact
 **Unverified** (synthetic shapes; the corresponding VERIFY items of SPEC §19.8):
 - CUR 2.0 CSV column set, `pricing_unit` value `"1M tokens"`, Bedrock usage types (#17; every
   `core.catalog.SKU_RULES` row is `verified: false`, so canonical CUR records follow the unmapped path);
-- claude-code-action execution-file container and SDK message keys (#16); `timestamp` fields on SDK
-  messages are an addition so timing is available;
+- claude-code-action execution-file container and SDK message keys (#16); `timestamp` fields on every
+  user/assistant/result SDK message are an addition so timing is available (SPEC §5.12 #2 reads a
+  stream as timed only when all of them carry one);
 - Claude Code OTel event attribute names and encodings (`cost_usd` as `doubleValue`) (#8);
 - the Claude Code transcript format (internal, version dependent), `origin.kind`, `quotaLimits`
   semantics (#15);

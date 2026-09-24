@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from tokenbill.core.builders import CANARY
+from tokenbill.core.errors import UsageError
 from tokenbill.core.ids import key_id, stable_id
 from tokenbill.core.jsonl import write_jsonl
 from tokenbill.core.records import (
@@ -105,6 +106,16 @@ def _text(seed: str, n_bytes: int) -> str:
     return body + tail
 
 
+def _require_hints(world: Any) -> Any:
+    """The writer hints of a world built by ``fleet.generate`` without ``scale_requests`` (scale
+    worlds carry no provider pages or session hints, so nothing can be written for them)."""
+    hints = getattr(world, "hints", None)
+    if hints is None or getattr(hints, "pages", None) is None:
+        raise UsageError("source files can only be written for a world generated without "
+                         "scale_requests")
+    return hints
+
+
 def _lanes_by_session(world: Any, sessions: Iterable[str]) -> dict[str, list[Lane]]:
     wanted = set(sessions)
     reqs = [q for q in world.requests if q.session_key in wanted]
@@ -151,7 +162,7 @@ def write_cc_transcripts(world: Any, out_dir: Path,
     """A ``projects/<slug>/<sessionId>.jsonl`` tree (plus ``subagents/agent-<id>.jsonl`` and
     ``.meta.json``) for *session_keys* (default: the infra transcript sample). Keys are
     ``claude-code/projects/...``."""
-    hints = world.hints
+    hints = _require_hints(world)
     sessions = tuple(session_keys) if session_keys is not None else hints.transcript_sessions
     files: dict[str, Path] = {}
     for sk, lanes in sorted(_lanes_by_session(world, sessions).items()):
@@ -221,7 +232,7 @@ def _transcript_lines(lane: Lane, native: str, dev: Any, agent: str,
         for c_ts, attrs in compactions:
             if (reqs[i - 1].ts_start_ms if i else -1) < c_ts <= ts:
                 emit({"type": "system", "subtype": "compact_boundary",
-                      "content": "Conversation compacted", "level": "info",
+                      "content": f"Conversation compacted {CANARY}", "level": "info",
                       "compactMetadata": {"trigger": attrs["trigger"],
                                           "preTokens": attrs["pre_tokens"],
                                           "postTokens": attrs["post_tokens"],
@@ -245,7 +256,8 @@ def _transcript_lines(lane: Lane, native: str, dev: Any, agent: str,
             emit({"type": "user", "message": {"role": "user", "content": [
                 {"type": "tool_result", "tool_use_id": answer,
                  "content": _text(f"result {req.request_id}", n_bytes), "is_error": False}]},
-                "toolUseResult": {"stdout": _text(f"stdout {i}", 120), "stderr": "",
+                "toolUseResult": {"stdout": _text(f"stdout {i}", 120),
+                                  "stderr": _text(f"stderr {i}", 60),
                                   "filePath": f"{dev.cwd}/src/module_{i}.py"}}, ts, f"t{i}")
         if ts in fallbacks:
             fb = fallbacks[ts]
@@ -338,7 +350,7 @@ def write_headless_streams(world: Any, out_dir: Path,
     the exact totals. Keys are ``claude-code-headless/<run>/claude-execution-output.json``."""
     from tokenbill.synth.truth import Coster
 
-    hints = world.hints
+    hints = _require_hints(world)
     coster = Coster()
     sessions = tuple(session_keys) if session_keys is not None else hints.headless_sessions
     files: dict[str, Path] = {}
@@ -394,7 +406,7 @@ def write_headless_streams(world: Any, out_dir: Path,
             "duration_ms": end - reqs[0].ts_start_ms, "duration_api_ms": sum(
                 q.final_attempt.duration_ms or 0 for q in reqs),
             "num_turns": len(reqs), "result": f"Review posted {CANARY}", "session_id": native,
-            "total_cost_usd": usd,
+            "timestamp": _iso(end), "total_cost_usd": usd,
             "usage": {"input_tokens": totals[0], "cache_creation_input_tokens": totals[2],
                       "cache_read_input_tokens": totals[1], "output_tokens": totals[3],
                       "server_tool_use": {"web_search_requests": 0},
@@ -433,7 +445,7 @@ def write_otlp(world: Any, out_dir: Path, team: str = "core") -> dict[str, Path]
     ``otlp/<team>-claude-code-logs.jsonl``."""
     from tokenbill.synth.truth import Coster
 
-    hints = world.hints
+    hints = _require_hints(world)
     coster = Coster()
     sessions = sorted(sk for sk, t in hints.session_team.items() if t == team)
     lines = []
@@ -500,7 +512,7 @@ def write_trace_v2_fingerprint(world: Any, out_dir: Path, team: str = "agents"
     fingerprints (SPEC §4.2); canonical JSON, owner-only. Key: ``trace2/<team>-recorder.jsonl``."""
     from tokenbill.synth.fleet import FLEET_FP_KEY, FLEET_NAME_KEY, FLEET_ORG_KEY
 
-    hints = world.hints
+    hints = _require_hints(world)
     sessions = sorted(sk for sk, t in hints.session_team.items() if t == team)
     by_session = _lanes_by_session(world, sessions)
     shells = {s.session_key: s for s in world.sessions if s.session_key in by_session}
@@ -591,7 +603,7 @@ def write_admin_pages(world: Any, out_dir: Path) -> dict[str, Path]:
     page per day)."""
     from tokenbill.synth.fleet import _date_add
 
-    pages = world.hints.pages
+    pages = _require_hints(world).pages
     days = [_date_add(world.window_start, d) for d in range(world.days)]
     files: dict[str, Path] = {}
     usage_by_day: dict[str, list[dict[str, Any]]] = {d: [] for d in days}
@@ -643,7 +655,7 @@ def write_admin_pages(world: Any, out_dir: Path) -> dict[str, Path]:
 def write_cur_csv(world: Any, out_dir: Path) -> dict[str, Path]:
     """The Bedrock team's AWS CUR 2.0 export as CSV (one row per day, usage type and IAM
     principal; unblended cost at list, net unblended 10% below). Key: ``cur/bedrock-cur2.csv``."""
-    rows: Sequence[Mapping[str, str]] = world.hints.pages.cur_rows
+    rows: Sequence[Mapping[str, str]] = _require_hints(world).pages.cur_rows
     buf = io.StringIO()
     if rows:
         writer = csv.DictWriter(buf, fieldnames=list(rows[0]), lineterminator="\n")

@@ -1,9 +1,10 @@
 """Merge gate 1 (SPEC §9.8, §18): each replay-based plant truth — computed by SYNTH-FLEET's closed
 forms, independently of REPLAY — equals ``synth.oracle.ReferenceReplay`` on the plant's lanes
-within 1 nano. Skips until SYNTH-ORACLE is merged.
+within 1 nano (skips until SYNTH-ORACLE is merged). The same figures are checked against REPLAY's
+``UsageReplayer`` — the engine the detectors and the plan use — so a plant the detectors must
+recover is known to be recoverable (skips until REPLAY is merged).
 
-Policies the oracle does not implement (``regional=global``; ``repair=shared_ci_prefix``, which
-carries no truth figure) are covered by exact rate arithmetic in ``test_closed_forms.py``."""
+``repair=shared_ci_prefix`` carries no truth figure (presence-only plant) and is not checked."""
 
 from __future__ import annotations
 
@@ -28,6 +29,7 @@ CHECKED = (
     "data.same-tier.workflow_agent.claude-opus-5",
     "data.default-model",
     "data.default-effort",
+    "ops.regional-premium",
     "ci-bots.batch-eligible",
     "agents.keepalive",
 )
@@ -36,20 +38,32 @@ CHECKED = (
 def test_every_replay_based_plant_is_checked(world: FleetWorld) -> None:
     with_policy = {p.plant_id for p in world.truth.plants
                    if p.policy is not None and p.recoverable_nano is not None}
-    assert with_policy - set(CHECKED) == {"ops.regional-premium"}
+    assert with_policy == set(CHECKED)
+
+
+def _replay(engine: object, world: FleetWorld, lanes: list[Lane], plant_id: str) -> int:
+    plant = world.truth.plant(plant_id)
+    keys = set(plant.lane_keys)
+    selected = [lane for lane in lanes if lane.lane_key in keys]
+    assert plant.policy is not None and plant.recoverable_nano is not None
+    result = engine.replay(  # type: ignore[attr-defined]
+        selected, parse_policy(plant.policy), mode="documented", pricer=FakePricer(),
+        rules=RulesTable(), calibration=None)
+    assert result.saving.nano is not None
+    return result.saving.nano - plant.recoverable_nano
 
 
 @pytest.mark.parametrize("plant_id", CHECKED)
 def test_plant_truth_equals_reference_replay(world: FleetWorld, lanes: list[Lane],
                                              plant_id: str) -> None:
     oracle = pytest.importorskip("tokenbill.synth.oracle")
-    plant = world.truth.plant(plant_id)
-    keys = set(plant.lane_keys)
-    selected = [lane for lane in lanes if lane.lane_key in keys]
-    assert plant.policy is not None and plant.recoverable_nano is not None
-    result = oracle.ReferenceReplay().replay(
-        selected, parse_policy(plant.policy), mode="documented", pricer=FakePricer(),
-        rules=RulesTable(), calibration=None)
-    assert result.saving.nano is not None
-    assert abs(result.saving.nano - plant.recoverable_nano) <= 1, (
-        plant_id, result.saving.nano, plant.recoverable_nano)
+    diff = _replay(oracle.ReferenceReplay(), world, lanes, plant_id)
+    assert abs(diff) <= 1, (plant_id, diff)
+
+
+@pytest.mark.parametrize("plant_id", CHECKED)
+def test_plant_truth_equals_usage_replayer(world: FleetWorld, lanes: list[Lane],
+                                           plant_id: str) -> None:
+    replay = pytest.importorskip("tokenbill.sim.usage_replay")
+    diff = _replay(replay.UsageReplayer(), world, lanes, plant_id)
+    assert abs(diff) <= 1, (plant_id, diff)

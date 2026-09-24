@@ -24,6 +24,7 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
+from tokenbill.core.catalog import successor
 from tokenbill.core.errors import ContractViolation, UsageError
 from tokenbill.core.labels import Basis
 from tokenbill.core.protocols import Pricer
@@ -1094,11 +1095,11 @@ def build_truth(world: Any, lanes: Sequence[Lane], provider: Any,
         tolerances={"cost_observed": "0", "recoverable": "0.05"},
         note="trade-off, needs eval; same tokenizer family (no band)"))
     for kind_name, kind_lanes in (("main", lanes_dm), ("workflow_agent", lanes_dw)):
-        for model, succ in (("claude-opus-5", "claude-opus-5-5"),
-                            ("claude-fable-5", "claude-fable-5-1")):
-            sel = [ln for ln in kind_lanes if ln.requests[0].model == model]
-            if not sel:
+        for model in sorted({ln.requests[0].model or "" for ln in kind_lanes}):
+            succ = successor(model)     # the catalog's same-tier, same-tokenizer successor
+            if succ is None:
                 continue
+            sel = [ln for ln in kind_lanes if ln.requests[0].model == model]
             saving = model_remap_saving(sel, c, succ)
             plants.append(_plant(
                 f"data.same-tier.{kind_name}.{model}", "data", "model.routing",

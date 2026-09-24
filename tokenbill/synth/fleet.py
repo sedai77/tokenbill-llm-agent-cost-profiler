@@ -38,14 +38,15 @@ import random
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
+from os import PathLike
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tokenbill.common import rng as _rng
 from tokenbill.core.builders import CANARY
 from tokenbill.core.errors import UsageError
 from tokenbill.core.ids import hmac_hex, key_id, pseudonym, request_id_for, stable_id
-from tokenbill.core.lanes import _ttl_observed, group_lanes
+from tokenbill.core.lanes import group_lanes
 from tokenbill.core.records import (
     AppendedItem,
     Attempt,
@@ -73,11 +74,15 @@ from tokenbill.core.records import (
 )
 from tokenbill.core.types import IngestOptions, IngestResult, SourceInfo
 
+if TYPE_CHECKING:   # synth.truth imports this module lazily; the annotation needs no import
+    from tokenbill.synth.truth import FleetTruth
+
 __all__ = [
     "COMPACTION_POST_TOKENS",
     "FLEET_FP_KEY",
     "FLEET_NAME_KEY",
     "FLEET_ORG_KEY",
+    "FLEET_WORKSPACES",
     "TEAMS",
     "WINDOW_START",
     "DevInfo",
@@ -236,7 +241,7 @@ class FleetWorld:
     cost_lines: tuple[CostLine, ...]
     outcomes: tuple[OutcomeAggregate, ...]
     source_files: dict[str, Path]
-    truth: Any                    # tokenbill.synth.truth.FleetTruth
+    truth: FleetTruth
     today: str
     seed: int = 7
     days: int = 28
@@ -285,14 +290,28 @@ class FleetWorld:
                             outcomes=list(self.outcomes), quarantined=[], notes=[],
                             stats={"requests": len(self.requests)}, capabilities=caps)
 
+    def ingest_options(self, **kw: Any) -> IngestOptions:
+        """:func:`fleet_ingest_options` with this world's clock (``now_ms`` = UTC midnight of
+        :attr:`today`, so provider-side finality matches the canonical records) and team map.
+        Keyword arguments override."""
+        base: dict[str, Any] = {"now_ms": _date_ms(self.today)}
+        if self.truth is not None and self.truth.team_map:
+            base["team_map"] = self.truth.team_map
+        base.update(kw)
+        return fleet_ingest_options(**base)
+
 
 def fleet_ingest_options(**kw: Any) -> IngestOptions:
     """``IngestOptions`` for reading the written source files consistently with the canonical
-    records: name key :data:`FLEET_NAME_KEY`, org key :data:`FLEET_ORG_KEY` (central ingest),
-    ``now_ms`` = today. Keyword arguments override."""
+    records: name key :data:`FLEET_NAME_KEY`, org key :data:`FLEET_ORG_KEY` (central ingest) and
+    the fleet's provider workspace ids allowlisted in clear (canonical records carry them
+    verbatim, SPEC §3.2; adapters would otherwise emit ``h_`` pseudonyms of them). ``now_ms`` is
+    not set here (the default 0 means "no clock"): pass it, or use :meth:`FleetWorld.ingest_options`
+    which sets it to ``today``. Keyword arguments override."""
     base: dict[str, Any] = dict(
         name_key=FLEET_NAME_KEY, name_key_id=key_id(FLEET_NAME_KEY), principal_key=FLEET_ORG_KEY,
-        principal_key_id=key_id(FLEET_ORG_KEY), identity_mode="central-ingest")
+        principal_key_id=key_id(FLEET_ORG_KEY), identity_mode="central-ingest",
+        name_allowlist=FLEET_WORKSPACES)
     base.update(kw)
     return IngestOptions(**base)
 
@@ -336,6 +355,21 @@ def _uuid(*parts: object) -> str:
 
 def _workspace(team: str) -> str:
     return "wrkspc_01" + _b62("workspace", team, n=22)
+
+
+#: The provider workspace id of every team (synthetic ``wrkspc_01…`` ids; not personal data).
+FLEET_WORKSPACES: frozenset[str] = frozenset(_workspace(t.name) for t in TEAMS)
+
+
+def _ttl_observed(requests: Iterable[Request]) -> str:
+    """A lane shell's observed TTL by the ``core.lanes.group_lanes`` rule (billed 5m and/or 1h
+    writes); ``group_lanes`` recomputes it when the lanes are assembled."""
+    saw_5m = saw_1h = False
+    for req in requests:
+        for inf in req.billable_inferences:
+            saw_5m = saw_5m or inf.usage.cache_write_5m > 0
+            saw_1h = saw_1h or inf.usage.cache_write_1h > 0
+    return "mixed" if saw_5m and saw_1h else "1h" if saw_1h else "5m" if saw_5m else "unknown"
 
 
 def _even4(n: int) -> int:
@@ -418,6 +452,7 @@ class _Builder:
         self._params: dict[tuple, RequestParams] = {}
         self._lanes: list[Lane] = []
         self._session: tuple[str, str, DevInfo, str, int, int] | None = None
+        self.ref_suffix = ""    # scale mode: one virtual population per epoch
 
     # ---------- shared pieces ----------
 
@@ -431,7 +466,7 @@ class _Builder:
 
     def dev(self, team: str, index: int) -> DevInfo:
         """Developer *index* of *team* (created on first use, registered in the team map)."""
-        ref = f"{team}-{index:02d}"
+        ref = f"{team}-{index:02d}{self.ref_suffix}"
         info = self.hints.devs.get(ref)
         if info is None:
             cwd = f"/home/{ref}/src/{team}-service {CANARY}"
@@ -494,9 +529,12 @@ class _Builder:
 
     # ---------- sessions and lanes ----------
 
-    def open_session(self, team: str, dev: DevInfo, native: str, source_kind: str) -> str:
-        """Start a session (its key is ``stable_id("ses", source_kind, native id)``)."""
-        session_key = stable_id("ses", source_kind, native)
+    def open_session(self, team: str, dev: DevInfo, native: str, source_kind: str,
+                     key_kind: str | None = None) -> str:
+        """Start a session. Its key is ``stable_id("ses", key_kind or source_kind, native id)``
+        — the adapters' rule, e.g. ``"claude-code"`` for every Claude Code session including
+        headless runs (SPEC §5.3 #11)."""
+        session_key = stable_id("ses", key_kind or source_kind, native)
         self.hints.session_native[session_key] = native
         self.hints.session_dev[session_key] = dev.ref
         self.hints.session_team[session_key] = team
@@ -707,6 +745,7 @@ def _subagent(b: _Builder, r: random.Random, session_key: str, parent_key: str, 
                          model=model, speed=speed,
                          stop_reason="end_turn" if i == count - 1 else "tool_use",
                          duration_ms=r.randint(2_000, 20_000)))
+    _attach_subagent_appended(b.rng("appended", lane_key), rows)
     meta = _event(lane_key, rows[0].ts_ms, LaneEventKind.SESSION_META, agent_type=agent_type,
                   spawn_depth=1, model_alias=model.split("-")[1])
     b.add_lane(spec, lane_key, rows, parent=parent_key, events=[meta])
@@ -950,6 +989,20 @@ def _attach_appended(r: random.Random, rows: Sequence[_Row]) -> None:
                                          n_bytes=r.randint(200, 6_000)),)
 
 
+def _attach_subagent_appended(r: random.Random, rows: Sequence[_Row]) -> None:
+    """Appended items of a subagent lane (sizes only): the task prompt handed over by the parent,
+    then the tool result answering the previous request's tool call (the transcript writer
+    serialises exactly these sizes)."""
+    tools = ("Read", "Bash", "Grep", "Edit", "Glob")
+    for i, row in enumerate(rows):
+        if i == 0:
+            row.appended = (AppendedItem(kind="user_text", name=None,
+                                         n_bytes=r.randint(200, 2_000)),)
+        else:
+            row.appended = (AppendedItem(kind="tool_result", name=tools[r.randrange(len(tools))],
+                                         n_bytes=r.randint(200, 6_000)),)
+
+
 def _plant_placeholder(r: random.Random, rows: list[_Row]) -> None:
     """One MESSAGE_START_ONLY call: logged output 3 (a lower bound), true output in
     ``output_upper``; the next request answers its tool call."""
@@ -1058,7 +1111,8 @@ def _plant_refusal(b: _Builder, dev: DevInfo, *, day: int, declined_output: int)
 
 
 def _plant_unpriced_model(b: _Builder, dev: DevInfo, *, day: int) -> None:
-    """Two calls on an announced, unpriced model (coverage < 1), on a provisional day."""
+    """One call on an announced, unpriced model (coverage < 1, SPEC §18), on a provisional
+    day."""
     r = b.rng("infra-unpriced", dev.ref, day)
     start = _session_start(r, b, day, (17, 19))
     sk = b.open_session("infra", dev, _uuid("infra-unpriced", b.seed, dev.ref, day),
@@ -1067,10 +1121,7 @@ def _plant_unpriced_model(b: _Builder, dev: DevInfo, *, day: int) -> None:
     spec = _cc_spec(b, "infra", dev, LaneKind.MAIN, effort="medium")
     rows = [
         _Row(ts_ms=start, usage=UsageBuckets(uncached_input=5, cache_write_5m=4_200, output=180),
-             model=_UNPRICED_MODEL, human=True, stop_reason="tool_use"),
-        _Row(ts_ms=start + 45_000, usage=UsageBuckets(uncached_input=3, cache_read=4_200,
-                                                      cache_write_5m=900, output=120),
-             model=_UNPRICED_MODEL, stop_reason="end_turn"),
+             model=_UNPRICED_MODEL, human=True, stop_reason="end_turn"),
     ]
     _attach_appended(r, rows)
     b.add_lane(spec, lane_key, rows, events=_human_events(lane_key, rows))
@@ -1197,7 +1248,8 @@ def _gen_ci(b: _Builder, devs: Sequence[int]) -> None:
 
 def _ci_run(b: _Builder, r: random.Random, bot: DevInfo, repo: str, repo_raw: str,
             workflow: str, start: int, key: tuple) -> None:
-    sk = b.open_session("ci-bots", bot, _uuid("ci-bots", b.seed, *key), "claude-code-headless")
+    sk = b.open_session("ci-bots", bot, _uuid("ci-bots", b.seed, *key), "claude-code-headless",
+                        key_kind="claude-code")
     b.hints.ci_runs[sk] = (repo_raw, workflow)
     lane_key = b.lane_key(sk, "main")
     spec = _LaneSpec(team="ci-bots", dev=bot, kind=LaneKind.MAIN, channel="anthropic_api",
@@ -1515,7 +1567,7 @@ def _provisional(date: str, today: str) -> bool:
 
 
 def _provider_records(lanes: Sequence[Lane], hints: FleetHints, *, days: int, today: str,
-                      coster: Any) -> ProviderRecords:
+                      coster: Any, seed: int = 7) -> ProviderRecords:
     """The reference provider records of the fleet (SPEC §18): usage and cost reports for billed
     first-party traffic (cost at 85% of list, the Priority-tier bucket absent from the cost
     report, seat-allowance usage absent from both), Claude Code Analytics per user-day aggregated
@@ -1683,7 +1735,7 @@ def _provider_records(lanes: Sequence[Lane], hints: FleetHints, *, days: int, to
     by_date: dict[str, list[tuple[str, int, dict[str, Any]]]] = {}
     for (date, ref), slot in sorted(analytics.items()):
         dev = hints.devs[ref]
-        r = _rng(0, "analytics", ref, date)
+        r = _rng(seed, "analytics", ref, date)
         human = dev.team != "ci-bots"
         actor = ({"type": "user_actor", "email_address": dev.email} if human else
                  {"type": "api_actor", "api_key_name": f"{ref}-key"})
@@ -1806,6 +1858,8 @@ def generate(seed: int = 7, *, devs: int = 61, days: int = 28, out_dir: Path | N
     exactly that many canonical requests lazily (no truth, no files, no provider-side records).
     """
     _check_args(seed, devs, days)
+    if out_dir is not None and not isinstance(out_dir, (str, PathLike)):
+        raise UsageError("out_dir must be a path")
     sizes = team_sizes(devs)
     last = _date_add(WINDOW_START, days - 1)
     today = _date_add(last, 25)
@@ -1829,7 +1883,8 @@ def generate(seed: int = 7, *, devs: int = 61, days: int = 28, out_dir: Path | N
     sessions = tuple(sorted(b.sessions, key=lambda s: s.session_key))
     lanes = group_lanes(requests, events, sessions)
     coster = _truth.Coster()
-    provider = _provider_records(lanes, b.hints, days=days, today=today, coster=coster)
+    provider = _provider_records(lanes, b.hints, days=days, today=today, coster=coster,
+                                 seed=seed)
     b.hints.pages = provider.pages
     world = FleetWorld(sessions=sessions, requests=requests, events=events,
                        aggregates=provider.aggregates, cost_lines=provider.cost_lines,
@@ -1840,7 +1895,11 @@ def generate(seed: int = 7, *, devs: int = 61, days: int = 28, out_dir: Path | N
     if out_dir is not None:
         from tokenbill.synth import writers as _writers
 
-        files = _writers.write_all(world, Path(out_dir))
+        try:
+            files = _writers.write_all(world, Path(out_dir))
+        except OSError as exc:   # unwritable / not a directory: a usage error, content-free
+            raise UsageError(f"cannot write the fleet source files to out_dir "
+                             f"({type(exc).__name__})") from None
         world = dataclasses.replace(
             world, source_files=files,
             truth=_truth.with_sources(fleet_truth, world, lanes, files))
@@ -1916,6 +1975,7 @@ def _scale_iter(seed: int, sizes: Mapping[str, int], days: int, limit: int, what
     epoch = 0
     while produced < limit:
         b = _StreamBuilder(seed + 1_000_003 * epoch, days, sink)
+        b.ref_suffix = f"-e{epoch}" if epoch else ""   # new developers every epoch
         _prepare(b)
         for team in TEAMS:
             gen = _GENERATORS[team.name]
