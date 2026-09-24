@@ -215,5 +215,9 @@ def test_rebaseline_needs_a_move_and_enough_requests() -> None:
                    "rebaseline") == []
     lots = ctx(thresholds={"min_usd": "0", "model.routing.min_requests": "10"})
     assert one(Routing().detect(_migration(per_day=3), lots), "rebaseline")
-    allowance = _migration()
-    assert Basis.LIST is one(Routing().detect(allowance, ctx()), "rebaseline").cost_observed.basis
+    seat = [lane(ln.lane_key, [(r.ts_start_ms / 1000 - 1_790_121_600, 0, 10_000, 0, 5,
+                                r.serving_inference.usage.output) for r in ln.requests],
+                 model=ln.requests[0].model, billing_path="subscription")
+            for ln in _migration()]
+    f = one(Routing().detect(seat, ctx()), "rebaseline")
+    assert f.cost_observed.basis is Basis.LIST_EQUIVALENT and f.title.startswith("Allowance")

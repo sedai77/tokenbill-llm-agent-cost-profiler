@@ -188,14 +188,6 @@ class Money:
             self.high -= other.low
         self.ranged = self.ranged or other.ranged
 
-    def scaled(self, factor: Fraction) -> Money:
-        """This amount × *factor* (≥ 0), each bound rounded half-even once."""
-        out = Money(ranged=self.ranged)
-        out.point = round_fraction(self.point * factor)
-        out.low = round_fraction(self.low * factor)
-        out.high = round_fraction(self.high * factor)
-        return out
-
     def billed(self, basis: Basis) -> Figure:
         """Billed arithmetic: EXACT, or ESTIMATED with its range when a line is a range."""
         if not self.ranged:

@@ -41,7 +41,8 @@ Coverage: `uv run --python 3.12 --extra dev coverage run -m pytest tests/v2/dete
 
 The gate tests run against the modules merged into `v0.2` at d91a5e2 (`sim.usage_replay`,
 `synth.fleet`); all green. On the synthetic fleet (26,104 requests) the ten detectors take ≈ 3 s
-including every replay.
+including every replay; on `synth.fleet.generate(scale_requests=100_000)` ≈ 12 s (linear: ≈ 2 min
+per 10⁶ requests, single process, 0.2 GB peak RSS).
 
 ## Fixtures and provenance
 

@@ -3,7 +3,6 @@ unless ``ctx.break_glass``) and idle loops."""
 
 from __future__ import annotations
 
-import dataclasses
 import json
 
 from tokenbill.core.labels import Basis, Evidence
@@ -99,4 +98,3 @@ def test_unpriced_requests_count_zero_and_are_disclosed() -> None:
     f = one(Runaway().detect(_small() + [loop, odd], ctx()), "runaway-session")
     assert f.cost_observed.nano == 59_970_000_000
     assert "had no priced rate" in f.summary
-    assert dataclasses.is_dataclass(f)

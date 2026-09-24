@@ -10,7 +10,7 @@ from tokenbill.core.labels import Basis, Evidence
 from tokenbill.core.records import LaneKind
 from tokenbill.detect.premium import PremiumModifiers, StickyEscalation, residency_required
 
-from .helpers import DAY_MS, OPUS5, OPUS55, attribution, ctx, evidence, lane, one
+from .helpers import OPUS5, OPUS55, attribution, ctx, evidence, lane, one
 
 # SPEC §6.9 case 1: uncached 1,000; read 100,000; 5m write 2,000; 1h write 3,000; output 500
 CASE1 = (0, 100_000, 2_000, 3_000, 1_000, 500)
@@ -156,4 +156,3 @@ def test_sticky_main_lanes_only() -> None:
                       attr=attribution(principal=None), per_request={0: {"speed": "fast"}})
                  for d in range(7)]
     assert StickyEscalation().detect(anonymous, ctx(thresholds={"min_usd": "0"})) == []
-    assert DAY_MS == 86_400_000
