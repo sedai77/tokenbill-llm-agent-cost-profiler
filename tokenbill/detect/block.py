@@ -292,7 +292,6 @@ class _Cohort:
                 "lookback-overflow", rec, "messages", last_bp, "lookback", expected, True))
 
     def _unread(self) -> None:
-        seen: set[tuple[str, int]] = set()
         for e in self.sim.unread:
             w = e.writer
             if e.writers > 1 or e.overflow or w.inf.usage.cache_write <= 0:
@@ -306,10 +305,6 @@ class _Cohort:
                     continue                               # the successor diverged: a breaker
                 if succ.t > e.expires:
                     continue                               # idle past the TTL: usage level
-            key = (w.req.request_id, e.bp_index)
-            if key in seen:
-                continue
-            seen.add(key)
             pred = self.sim.preds[w.req.request_id]
             seg = next((s for idx, s, ent in pred.written if ent is e), 0)
             self.events["write-never-read"].append(_Event(

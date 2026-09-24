@@ -23,13 +23,15 @@ current.
 
 from __future__ import annotations
 
+import json
 import random
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any
 
 from tests.v2.blocksim.fp import fingerprint, payload_request
 from tokenbill.core.builders import make_lane
-from tokenbill.core.records import Lane, LaneKind, UsageBuckets
+from tokenbill.core.records import Lane, LaneKind, UsageBuckets, from_json, to_json
 
 #: 2026-09-23 00:00 UTC.
 T0 = 1_790_121_600_000
@@ -192,3 +194,28 @@ EXPERIMENTS: dict[str, Callable[[], list[Lane]]] = {
 
 def build_all() -> dict[str, list[Lane]]:
     return {name: fn() for name, fn in EXPERIMENTS.items()}
+
+
+#: Where the JSON fixtures live (``tests/v2/fixtures/blocksim``).
+FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "blocksim"
+FIXTURE_SCHEMA = "tokenbill/blocksim-fixture@1"
+
+
+def dump(name: str, lanes: Sequence[Lane]) -> str:
+    """JSONL text of one experiment: a header line, then one ``core.records.to_json`` lane per
+    line (canonical: sorted keys, no whitespace)."""
+    header = {"schema": FIXTURE_SCHEMA, "experiment": name, "lanes": len(lanes),
+              "doc": (EXPERIMENTS[name].__doc__ or "").strip()}
+    lines = [json.dumps(header, sort_keys=True, separators=(",", ":"))]
+    lines.extend(json.dumps(to_json(lane), sort_keys=True, separators=(",", ":"))
+                 for lane in lanes)
+    return "\n".join(lines) + "\n"
+
+
+def load(name: str, directory: Path = FIXTURE_DIR) -> list[Lane]:
+    """The lanes of one checked-in experiment fixture."""
+    text = (directory / f"{name}.jsonl").read_text(encoding="utf-8")
+    header, *rows = text.splitlines()
+    meta = json.loads(header)
+    assert meta["schema"] == FIXTURE_SCHEMA and meta["experiment"] == name
+    return [from_json(Lane, json.loads(row)) for row in rows]

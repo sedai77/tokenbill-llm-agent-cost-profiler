@@ -385,7 +385,8 @@ def first_divergence(prev: Request, cur: Request, *, rules: CacheRules | None = 
         return (_tier_of(salt_at, cf.tier_end), salt_at, "param")
     if k >= m:
         return None
-    tier = _tier_of(k, cf.tier_end)
+    # a block added to or removed from a tier shifts the next tier: classify the earlier tier
+    tier = min(_tier_of(k, pf.tier_end), _tier_of(k, cf.tier_end), key=_TIERS.index)
     if tier == "tools":
         cause = _classify_tools(pblocks[:pf.tier_end[0]], cblocks[:cf.tier_end[0]])
     elif tier == "system":
