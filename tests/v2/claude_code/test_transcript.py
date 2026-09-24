@@ -976,3 +976,27 @@ def test_session_attribution_carries_the_configured_billing_path(tmp_path: Path)
     r = read(tmp_path, t, billing_path="subscription")
     assert r.sessions[0].attribution.billing_path == "subscription"
     assert read(tmp_path, t).sessions[0].attribution.billing_path is None
+
+
+def test_rewritten_history_reopens_each_message_once(tmp_path: Path) -> None:
+    """Every message re-written later with fresh uuids (beyond the recent-request scan, so the
+    id → request map is used): still one request per message, at its first position and start."""
+    from tokenbill.adapters.claude_code import _RECENT_SCAN
+
+    n = _RECENT_SCAN + 144
+    t = tx()
+    t.human("go")
+    starts = {}
+    for i in range(n):
+        starts[f"msg_w{i:04d}"] = t.t
+        t.call(f"msg_w{i:04d}", OPUS, inp=10, outputs=(3, 25), stop="tool_use")
+        t.tool_result(f"toolu_w{i:04d}", "ok")
+    for i in range(n):
+        t.assistant_line(f"msg_w{i:04d}", OPUS, bf.usage(10, out=30), None, stop="end_turn")
+        t.human("x", origin=False)
+    r = read(tmp_path, t)
+    reqs = by_message(r)
+    assert len(r.requests) == len(reqs) == n
+    assert [q.attempts[0].provider_message_id for q in r.requests] == sorted(reqs)
+    assert all(q.attempts[0].inferences[0].usage.output == 30 for q in r.requests)
+    assert all(reqs[m].ts_start_ms == ts for m, ts in starts.items())

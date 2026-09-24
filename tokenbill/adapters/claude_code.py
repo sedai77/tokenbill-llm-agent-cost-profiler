@@ -134,6 +134,8 @@ UUID_WINDOW = 2000
 REQUEST_ID_WINDOW = 4096
 #: Closed message groups remembered per file (a later line of the same id re-opens it).
 CLOSED_WINDOW = 16
+#: Latest requests scanned for a re-opened message before an id → index map is built.
+_RECENT_SCAN = 256
 #: ``cleanupPeriodDays`` default (CC-SETTINGS) and the warning margin (§5.3.12).
 RETENTION_DEFAULT_DAYS = 30
 RETENTION_MARGIN_DAYS = 3
@@ -790,16 +792,15 @@ class _Run:
         else:
             acc[:] = map(operator.add, acc, c)
 
-    def emit_request(self, req: Request, *, replace: bool = False) -> None:
-        """Append *req*; with *replace* (a re-opened message group) an earlier request with the
-        same id in this run is replaced in place (it is among the recent ones)."""
-        if replace:
-            rid = req.request_id
-            for i in range(len(self.requests) - 1, -1, -1):
-                if self.requests[i].request_id == rid:
-                    self.requests[i] = req
-                    return
-        self.requests.append(req)
+    def emit_request(self, req: Request, *, at: int | None = None) -> int:
+        """Append *req* and return its index; with *at* (a re-opened message whose request this
+        run already holds) replace the request at that index instead."""
+        requests = self.requests
+        if at is not None:
+            requests[at] = req
+            return at
+        requests.append(req)
+        return len(requests) - 1
 
     def count_secrets(self, text: str) -> None:
         """Count likely secrets by type (``dq.secrets_observed``; values never kept). A cheap
@@ -883,7 +884,7 @@ class _Group:
     __slots__ = ("appended", "best", "content_bytes", "error_status", "first_ts", "is_error",
                  "lane", "last_ts", "mid", "mismatch", "n_lines", "offset", "out", "overage",
                  "reopened", "rq", "sig", "stop", "tool_ids", "ts_start", "best_counts",
-                 "attr", "params")
+                 "attr", "params", "at")
 
     def __init__(self, mid: str, lane: _LaneRef, offset: int, ts: int | None,
                  appended: tuple[AppendedItem, ...], ts_start: int | None) -> None:
@@ -910,6 +911,7 @@ class _Group:
         self.best_counts: tuple[int, ...] | None = None
         self.attr: Attribution | None = None      # kept from the first finalization (re-open)
         self.params: RequestParams | None = None
+        self.at: int | None = None                # index of the request a re-open replaces
 
 
 @dataclass(frozen=True)
@@ -972,8 +974,11 @@ class _FileParser:
                 RecursionError) as exc:
             raise ContextError(f"{path.name}: collector context unusable "
                                f"({type(exc).__name__})") from None
-        #: message ids this parser emitted a request for in this read
+        #: message ids this parser emitted a request for in this read; the id → request index map
+        #: is built only when a message re-opens beyond the closed window (a rare path)
         self.emitted: set[str] = set()
+        self._index: dict[str, int] | None = None
+        self._first_request = len(run.requests)
         self._lane_cache: dict[tuple[str, str, LaneKind], _LaneRef] = {}
         self._lane_fast: dict[tuple, _LaneRef] = {}
         self._source_refs: dict[Fidelity, SourceRef] = {}
@@ -1229,12 +1234,15 @@ class _FileParser:
         group = self.open.get(mid)
         if group is None:
             meta = self.closed.pop(mid, None)
+            at = None
             if meta is None and mid in self.emitted:
                 # a late line of a message emitted earlier in this read but no longer in the
                 # closed window: re-open it from its emitted request (one request per id)
-                meta = self._closed_meta_from_request(mid)
+                at = self._find_request(mid)
+                meta = _closed_meta(self.run.requests[at]) if at is not None else None
             if meta is not None:
                 group = self._reopen(mid, ref, meta)
+                group.at = at
             else:
                 group = _Group(mid, ref, offset, ts, tuple(st.pending),
                                st.trigger if st.trigger is not None else ts)
@@ -1314,27 +1322,23 @@ class _FileParser:
         g.best = None
         return g
 
-    def _closed_meta_from_request(self, mid: str) -> tuple | None:
-        """The closed-group meta of message *mid* rebuilt from the request this parser emitted
-        for it (a rare path: the id fell out of :data:`CLOSED_WINDOW`)."""
-        rid = request_id_for("anthropic", mid, self.run.source_id, "")
-        requests = self.run.requests
-        for i in range(len(requests) - 1, -1, -1):
-            req = requests[i]
-            if req.request_id != rid:
-                continue
-            att = req.attempts[0]
-            out = -1
-            if att.raw_usage_json is not None:
-                raw = parse_line(att.raw_usage_json.encode())
-                if raw is not None and _int(raw.get("output_tokens")) is not None:
-                    out = raw["output_tokens"]
-            if out < 0:
-                out = max(inf.usage.output for inf in att.inferences)
-            last = att.ts_start_ms + (att.duration_ms or 0)
-            return (req.seq, att.ts_start_ms, last, att.ts_start_ms, out, att.stop_reason,
-                    req.appended, req.attribution, req.params)
-        return None
+    def _find_request(self, mid: str) -> int | None:
+        """Index in ``run.requests`` of the request this parser emitted for message *mid*: a short
+        scan back over the latest requests (a re-opened message is usually recent), else an id →
+        index map built once (a message re-opened far away), so no input makes this quadratic."""
+        index = self._index
+        if index is None:
+            requests = self.run.requests
+            stop = max(self._first_request, len(requests) - _RECENT_SCAN) - 1
+            for i in range(len(requests) - 1, stop, -1):
+                if requests[i].attempts[0].provider_message_id == mid:
+                    return i
+            index = self._index = {}
+            for i in range(self._first_request, len(requests)):
+                pmid = requests[i].attempts[0].provider_message_id
+                if pmid is not None:
+                    index[pmid] = i
+        return index.get(mid)
 
     def remember_tool(self, tid: str, name: object) -> None:
         names = self.tool_names
@@ -1792,8 +1796,13 @@ class _FileParser:
         req = Request(request_id=request_id, session_key=ref.session_key, lane_key=ref.lane_key,
                       seq=g.offset, attribution=attr, params=params, attempts=(attempt,),
                       appended=g.appended, source=self.source_ref(g.offset))
-        run.emit_request(req, replace=g.reopened)
+        at = g.at
+        if at is None and g.reopened and g.mid in self.emitted:
+            at = self._find_request(g.mid)     # re-emitted in this read: replace, never duplicate
+        at = run.emit_request(req, at=at)
         self.emitted.add(g.mid)
+        if self._index is not None:
+            self._index[g.mid] = at
         span = run.session_ts.get(ref.session_key)
         hi = g.last_ts if g.last_ts is not None and g.last_ts > g.ts_start else g.ts_start
         if span is None:
@@ -1880,6 +1889,21 @@ class _FileParser:
                        for k, m in self.closed.items()],
             "meta_emitted": self.meta_emitted,
         }
+
+
+def _closed_meta(req: Request) -> tuple:
+    """The closed-group meta (see ``_FileParser.remember_closed``) of an emitted request."""
+    att = req.attempts[0]
+    out = -1
+    if att.raw_usage_json is not None:
+        raw = parse_line(att.raw_usage_json.encode())
+        if raw is not None and _int(raw.get("output_tokens")) is not None:
+            out = raw["output_tokens"]
+    if out < 0:
+        out = max(inf.usage.output for inf in att.inferences)
+    last = att.ts_start_ms + (att.duration_ms or 0)
+    return (req.seq, att.ts_start_ms, last, att.ts_start_ms, out, att.stop_reason, req.appended,
+            req.attribution, req.params)
 
 
 def _refuse_constant(tok: str) -> Any:
