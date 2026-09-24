@@ -193,6 +193,7 @@ class _Channel:
     aggs: list[UsageAggregate] = field(default_factory=list)
     cc_aggs: list[UsageAggregate] = field(default_factory=list)
     remainders_nano: int = 0
+    remainder_usd: Decimal = Decimal(0)
 
     @property
     def excludes_priority(self) -> bool:
@@ -298,12 +299,15 @@ def _remainders(channels: Mapping[str, _Channel],
         if isinstance(usd, bool) or not isinstance(usd, (Decimal, int, str)):
             raise UsageError("reconcile: rounding_remainders must map adapter names to USD")
         try:
-            nano = decimal_to_nano(Decimal(usd))
+            value = Decimal(usd)
+            decimal_to_nano(value)
         except (InvalidOperation, ValueError):
             raise UsageError("reconcile: rounding_remainders must be finite decimals") from None
         for ch in channels.values():
             if ch.invoice_kind == kind:
-                ch.remainders_nano += nano
+                ch.remainder_usd = RATIO_CTX.add(ch.remainder_usd, value)
+    for ch in channels.values():
+        ch.remainders_nano = decimal_to_nano(ch.remainder_usd)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -728,6 +732,8 @@ def _assemble(channels: Mapping[str, _Channel], ledgers: Mapping[str, _Ledger],
                             allowance_nano=out.allowance, provisional_dates=prov_dates,
                             remainders_nano=ch.remainders_nano) if classify_it else None
         if cls is not None:
+            if ch.remainder_usd:  # a sub-nano remainder is still listed (0 nano)
+                cls.codes.setdefault("cents_rounding", 0)
             for code, nano in cls.codes.items():
                 outcome.residuals[code] = outcome.residuals.get(code, 0) + nano
             outcome.unexplained += cls.unexplained
