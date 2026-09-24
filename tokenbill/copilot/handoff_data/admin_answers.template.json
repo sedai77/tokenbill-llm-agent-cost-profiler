@@ -1,0 +1,37 @@
+{
+  "schema": "tokenbill/copilot-admin-answers@1",
+  "_help": "Answer only what you know. Leave \"unknown\" (or null) wherever you are not sure: unknown answers are ignored, never guessed. No free text: each value is one of the listed choices, a whole number, a date YYYY-MM-DD, or true / false. Entities are \"enterprise\", \"org:<organization login>\" or \"cc:<cost center name>\". Keys starting with _help are ignored.",
+
+  "_help_plan": "Per entity: the plan the Licensing page shows: business, enterprise, mixed (both), or unknown.",
+  "plan": {"enterprise": "unknown"},
+
+  "_help_pool_seats": "Per entity: how many Business and how many Enterprise seats (whole numbers), or unknown.",
+  "pool_seats": {"enterprise": {"business": "unknown", "enterprise": "unknown"}},
+
+  "_help_billing_mode": "Per entity: metered (monthly usage-based bill), volume (volume or enterprise agreement), azure (billed through an Azure subscription), or unknown.",
+  "billing_mode": {"enterprise": "unknown"},
+
+  "_help_renewal_date": "Per entity: the next subscription renewal date YYYY-MM-DD (volume and Azure contracts), or unknown.",
+  "renewal_date": {"enterprise": "unknown"},
+
+  "_help_capped_policy": "Per cost center with an AI-credit cap (key \"cc:<name>\"): block or continue when the cap is reached, or unknown. Example: {\"cc:Platform\": \"block\"}.",
+  "capped_policy": {},
+
+  "_help_compliance": "Compliance program of the enterprise: none, data_residency, fedramp, or unknown.",
+  "compliance": "unknown",
+
+  "_help_promo_eligible": "true if your seats received the promotional included-credit allowance, false if not, or unknown.",
+  "promo_eligible": "unknown",
+
+  "_help_paid_usage_policy": "Policy for paid usage beyond the included credits: enabled, disabled, or unknown.",
+  "paid_usage_policy": "unknown",
+
+  "_help_org_cli_billing_policy": "Whether Copilot CLI usage billed to the organization is enabled, disabled, or unknown.",
+  "org_cli_billing_policy": "unknown",
+
+  "_help_budget_stop": "Per budget scope (an entity): true if the budget stops usage when it is reached, false if it only alerts, or unknown.",
+  "budget_stop": {"enterprise": "unknown"},
+
+  "_help_seat_policy": "Per organization (key \"org:<login>\"): assign_all or assign_selected as shown in the organization's Copilot access settings, or unknown. Example: {\"org:example\": \"assign_selected\"}.",
+  "seat_policy": {}
+}
