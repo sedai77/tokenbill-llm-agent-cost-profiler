@@ -965,6 +965,8 @@ def _counts_line(prefix: str, counts: Mapping[str, Decimal]) -> str:
 
 
 def _seat_line_claim(inp: _Inputs, entity: str) -> _Claim | None:
+    """The seat lines' claim (a claim without plans when no SKU maps to one, kept for its evidence
+    lines)."""
     split = inp.seat_lines.get(entity)
     if split is None:
         return None
@@ -978,10 +980,9 @@ def _seat_line_claim(inp: _Inputs, entity: str) -> _Claim | None:
         elif not fact.verified:
             text += f" (plan {fact.plan} assumed, unverified)"
         lines.append(text)
+    # seat lines are the seat count: they speak for every seat when every SKU maps to a plan
     claim = _count_claim("seat_lines", split.plans, split.total(), lines)
-    if claim is not None:
-        claim.exclusive = True      # seat lines are the seat count
-    return claim
+    return claim if claim is not None else _Claim("seat_lines", {}, frozenset(), False, lines)
 
 
 def _seats_api_claim(inp: _Inputs, entity: str, total: Decimal) -> _Claim | None:
@@ -1096,8 +1097,10 @@ def _detect(inp: _Inputs, census: Mapping[str, _Census]) -> list[PlanEvidence]:
         cen = census.get(entity)
         total = cen.split.total() if cen is not None else _ZERO
         q_counts, q_lines, info = inp.quota.get(entity, ({}, [], []))
+        seat_claim = _seat_line_claim(inp, entity)
+        unplaced = seat_claim.lines if seat_claim is not None and not seat_claim.plans else []
         claims = [c for c in (
-            _seat_line_claim(inp, entity),
+            seat_claim,
             _seats_api_claim(inp, entity, total),
             _org_settings_claim(inp.org_plans, cen, entity, total),
             _count_claim("report_quota", q_counts, total, q_lines),
@@ -1115,7 +1118,7 @@ def _detect(inp: _Inputs, census: Mapping[str, _Census]) -> list[PlanEvidence]:
             seats["unknown"] = _ceil_int(unknown)
         conflicts = [c.source for c in claims[1:]
                      if decider is not None and _disagrees(decider, c, seats_total)]
-        evidence = [line for c in claims for line in c.lines] + info
+        evidence = unplaced + [line for c in claims for line in c.lines] + info
         if decider is not None and placed > total and cen is not None:
             evidence.append(f"seat count raised from {_dec_str(total)} to {_dec_str(placed)} "
                             f"by {decider.source}")
@@ -1457,8 +1460,8 @@ def _resolve_seats(pe: PlanEvidence | None, cen: _Census | None) -> tuple[dict[s
     """Seat-months per plan (``unknown`` for seats no evidence placed) and the seat source."""
     if pe is not None and any(n > _MAX_COUNT for _, n in pe.seats):
         raise UsageError("pool_months: plan evidence seat count out of range")
-    if cen is not None and cen.source == "seat_lines":
-        return dict(cen.split.plans), "seat_lines"
+    if cen is not None and cen.source == "seat_lines" and (pe is None or pe.source == "seat_lines"):
+        return dict(cen.split.plans), "seat_lines"      # exact seat-months of the seat lines
     known = {p: Decimal(n) for p, n in (pe.seats if pe is not None else ()) if p in _KNOWN_PLANS
              and n > 0}
     if cen is not None:
@@ -1541,6 +1544,8 @@ def _common(entity: str, month: str, cells: Sequence[Cell], today: _dt.date, lag
                    if e == entity and d[:7] == month and d not in report_days)
     lag_passed = last <= _days_before(today, lag)
     finality = "closed" if lag_passed and days_prov == 0 else "open"
+    if finality == "closed":
+        days_final = last.day   # past the report lag with no provisional day: every day is final
     fc = None
     if finality == "open" and not month_grain:
         daily: dict[str, Decimal] = {}

@@ -71,7 +71,8 @@ def test_p1_closed_month_and_invoice() -> None:
         2_680_000 * C, 0, 0)
     assert (pm.overage_observed_nano, pm.direct_net_nano, pm.direct_draws_pool) == (
         4_200 * USD, 150 * USD, "no")
-    assert (pm.days_final, pm.days_provisional, pm.days_in_month, pm.finality) == (2, 0, 31,
+    # closed: the month ended past the report lag and no day is provisional → every day is final
+    assert (pm.days_final, pm.days_provisional, pm.days_in_month, pm.finality) == (31, 0, 31,
                                                                                     "closed")
     assert (pm.forecast, pm.overage_forecast, pm.regime, pm.notes) == (None, None, "overage", ())
     assert (pm.plan_source, pm.plan_scenario, pm.plan_conflict) == ("seat_lines", None, False)

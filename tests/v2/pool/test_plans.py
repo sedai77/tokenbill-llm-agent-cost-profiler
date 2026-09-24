@@ -9,7 +9,7 @@ import pytest
 
 from tokenbill.core import builders as b
 from tokenbill.core.errors import UsageError
-from tokenbill.core.pool import PLAN_CONFLICT_DQ, detect_plans
+from tokenbill.core.pool import PLAN_CONFLICT_DQ, detect_plans, pool_months
 
 from .worlds import (
     activity_seats,
@@ -328,3 +328,27 @@ def test_exact_mixed_counts_conflict_with_a_larger_partial_count() -> None:
     assert (ev.plan, ev.source, ev.conflict) == ("mixed", "seat_lines", True)
     [ev] = detect_plans(lines, api_seats(5, "business"), [], month=MONTH)
     assert ev.conflict is False
+
+
+def test_seat_lines_without_a_plan_leave_the_plan_to_lower_sources() -> None:
+    """A seat SKU that maps to no plan counts seats but places none: the seats API decides, and
+    pool months follow the evidence (no scenario pair for seats the seats API placed)."""
+    odd = b.make_seat_line("business", "10", date_utc="2026-10-01", sku="copilot_other_seat")
+    lics = api_seats(10, "enterprise")
+    [ev] = detect_plans([odd], lics, [], month=MONTH)
+    assert (ev.plan, ev.source, ev.seats, ev.conflict) == ("enterprise", "seats_api",
+                                                           (("enterprise", 10),), False)
+    assert ev.evidence == ("seat_lines: copilot_other_seat 10 (no plan)",
+                           "seats_api: enterprise 10")
+    [pm] = pool_months([], [odd], lics, [], today="2026-11-10")
+    assert (pm.plan_scenario, pm.seats, pm.seats_source, pm.plan_source, pm.pool_credits) == (
+        None, (("enterprise", "10"),), "seat_lines", "seats_api", "39000")
+    # partly mapped seat lines speak only for the mapped seats: no conflict with the seats API
+    # describing the others
+    mapped = b.make_seat_line("business", "5", date_utc="2026-10-01")
+    part = b.make_seat_line("business", "5", date_utc="2026-10-01", sku="copilot_other_seat")
+    [ev] = detect_plans([mapped, part], api_seats(5, "enterprise", seed="z"), [], month=MONTH)
+    assert (ev.source, ev.seats, ev.conflict) == ("seat_lines",
+                                                  (("business", 5), ("unknown", 5)), False)
+    [ev] = detect_plans([mapped, part], api_seats(8, "enterprise", seed="z"), [], month=MONTH)
+    assert ev.conflict is True                               # 5 Business + 8 Enterprise > 10
