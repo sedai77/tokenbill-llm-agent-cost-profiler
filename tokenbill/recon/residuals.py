@@ -179,13 +179,13 @@ def _group_claims(rows: Sequence[ReconRow], estimated: int, channel: str | None
     if estimated:
         claims["estimated_components"] = _claim(remaining, estimated)
         remaining -= claims["estimated_components"]
-    if channel in CCU_CHANNELS:
+    if channel in CCU_CHANNELS and has_inv:
         claims["ccu_single_line"] = remaining
         remaining = 0
     if any(DEFAULT_JOIN in r.key for r in rows):
         claims["default_workspace_null_id"] = remaining
         remaining = 0
-    if channel in NO_REPORTING_API_CHANNELS:
+    if channel in NO_REPORTING_API_CHANNELS and not has_inv:
         claims["no_reporting_api"] = remaining
         remaining = 0
     return claims, remaining
