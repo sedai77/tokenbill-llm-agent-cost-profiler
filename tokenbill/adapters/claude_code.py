@@ -733,23 +733,16 @@ class _Run:
         return ctx
 
     def attribution(self, **kw: Any) -> Attribution:
+        """``opts.attribution`` (every field, so fields added to the contract later carry over)
+        with the resolved principal, ``agent_product = "claude_code"`` and the per-request
+        values in *kw* (None leaves the default, except for ``billing_path``)."""
         key = tuple(kw.items())
         attr = self._attr_cache.get(key)
         if attr is None:
-            base = self.base_attr
-            fields = {
-                "principal": self.identity.principal, "team": base.team,
-                "cost_center": base.cost_center, "project": base.project, "repo": base.repo,
-                "workspace_id": base.workspace_id, "api_key_id": base.api_key_id,
-                "agent_product": "claude_code", "workload_class": base.workload_class,
-                "entrypoint": base.entrypoint, "arm": base.arm, "wave": base.wave,
-                "extra": base.extra, "skill": base.skill, "mcp_server": base.mcp_server,
-                "plugin": base.plugin, "agent_type": base.agent_type,
-                "client_version": base.client_version, "cwd_key": base.cwd_key,
-                "billing_path": base.billing_path,
-            }
+            fields: dict[str, Any] = {"principal": self.identity.principal,
+                                      "agent_product": "claude_code"}
             fields.update({k: v for k, v in kw.items() if v is not None or k == "billing_path"})
-            attr = self._attr_cache[key] = Attribution(**fields)
+            attr = self._attr_cache[key] = dataclasses.replace(self.base_attr, **fields)
         return attr
 
     def params(self, model_raw: str, effort: str | None, session_effort: str | None,

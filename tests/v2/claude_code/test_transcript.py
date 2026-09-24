@@ -175,6 +175,12 @@ def test_compaction_iteration_is_its_own_inference(tmp_path: Path) -> None:
     assert kinds == [InferenceKind.COMPACTION, InferenceKind.MESSAGE]
     assert r.requests[0].attempts[0].inferences[0].usage.uncached_input == 50_000
     assert note(r, "dq.iterations_mismatch") is None   # Σ MESSAGE elements == top level
+    pricer = FakePricer()
+    comp, message = r.requests[0].attempts[0].inferences
+    ts = r.requests[0].ts_start_ms
+    priced = [pricer.price_inference(i, ts_ms=ts) for i in (comp, message)]
+    assert all(p.figure.nano and p.figure.nano > 0 for p in priced)   # each priced on its own
+    assert priced[0].figure.nano > priced[1].figure.nano                # 50k in vs 4k in
 
 
 # --- step 5: TTL split -------------------------------------------------------------------------
