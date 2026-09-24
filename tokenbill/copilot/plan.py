@@ -1081,6 +1081,15 @@ def _project(t: _Triple, lever_class: str) -> _Triple:
     return _Triple(point, min(cands), max(cands))
 
 
+def _prior_note(lever_class: str, proj: _Triple) -> str:
+    """The realization-prior label of a projected figure (SPEC §11.2 #8)."""
+    p10, p50, p90 = _catalog.RR_PRIORS[lever_class] or (Decimal(0),) * 3
+    text = f"; x realization prior {lever_class} p10/p50/p90 = {p10}/{p50}/{p90}"
+    if proj.low < 0 < proj.high:
+        text += " (range crosses zero: the p50 is a design judgment)"
+    return text
+
+
 def _states(game: _Game, players: Sequence[_Player], ents: Mapping[str, _Ent]) -> list[_State]:
     levels = [1]
     if any(e.levels[0] != e.levels[1] or e.levels[2] != e.levels[1] for e in ents.values()):
@@ -1401,8 +1410,8 @@ def _assemble(ctx: _Context, game: _Game, players: list[_Player],
             standalone=_fig(stand, Basis.LIST, note + "; standalone (never summed, R7)",
                             upper=upper),
             shapley=_fig(shap, Basis.LIST, note, upper=upper),
-            projected_monthly=_fig(proj, Basis.LIST, note + f"; x realization prior "
-                                   f"({lv.lever_class})", upper=upper),
+            projected_monthly=_fig(proj, Basis.LIST, note + _prior_note(lv.lever_class, proj),
+                                   upper=upper),
             needs_eval=needs_eval, upper_bound=upper, group=_GROUP, finding_ids=p.finding_ids))
         if headroom_game:
             hnote = note + "; pool headroom: list-equivalent credits, not invoice dollars"
@@ -1417,8 +1426,8 @@ def _assemble(ctx: _Context, game: _Game, players: list[_Player],
                 standalone=_fig(stand_h, Basis.LIST_EQUIVALENT,
                                 hnote + "; standalone (never summed, R7)", upper=upper),
                 shapley=_fig(shap_h, Basis.LIST_EQUIVALENT, hnote, upper=upper),
-                projected_monthly=_fig(proj_h, Basis.LIST_EQUIVALENT, hnote + f"; x realization "
-                                       f"prior ({lv.lever_class})", upper=upper),
+                projected_monthly=_fig(proj_h, Basis.LIST_EQUIVALENT,
+                                       hnote + _prior_note(lv.lever_class, proj_h), upper=upper),
                 needs_eval=needs_eval, upper_bound=upper, group=_HEADROOM_GROUP,
                 finding_ids=p.finding_ids))
     lever_ids = tuple(dict.fromkeys(p.lever.lever_id for p in players))

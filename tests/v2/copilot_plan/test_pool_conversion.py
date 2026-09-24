@@ -83,6 +83,7 @@ def test_p5_credit_saving_in_slack_is_all_headroom() -> None:
     # the Auto lever is a trajectory lever: projected = φ × RR (−0.2 / 0.5 / 1.0)
     proj = lever(plan, AUTO, Basis.LIST_EQUIVALENT).projected_monthly
     assert (proj.nano, proj.low_nano, proj.high_nano) == (500 * USD, -200 * USD, 1_000 * USD)
+    assert "prior trajectory p10/p50/p90 = -0.2/0.5/1.0 (range crosses zero" in proj.note
     assert plan.pool_headroom_monthly.nano == 500 * USD
     assert plan.headline_monthly.nano == 0          # headroom never enters the headline
 
