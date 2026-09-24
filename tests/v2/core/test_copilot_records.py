@@ -103,8 +103,9 @@ def test_raw_usage_enums_and_record_fields() -> None:
         r.RAW_USAGE_ENUMS["x"] = frozenset()  # type: ignore[index]
     assert r.RAW_USAGE_NUMERIC == {"totalNanoAiu", "batchSize", "costPerBatch", "tokenCount"}
     line = make_cost_line(1)
-    assert r.record_fields(r.CostLine) == frozenset(r.to_json(line))
+    assert r.record_fields(r.CostLine) == frozenset(r.to_json(_copilot_line()))
     assert {"quantity", "pseudo", "workflow"} <= r.record_fields(r.CostLine)
+    assert frozenset(r.to_json(line)) < r.record_fields(r.CostLine)  # defaults left out
     from tokenbill.core.types import PublishedAggregate
 
     assert "token" not in r.record_fields(PublishedAggregate)
@@ -112,6 +113,35 @@ def test_raw_usage_enums_and_record_fields() -> None:
         r.record_fields(line)  # type: ignore[arg-type]
     with pytest.raises(TypeError):
         r.record_fields(int)
+
+
+# ---------- appended fields: pre-Copilot documents stay byte-identical ----------
+
+WAVE1_COST_LINE_KEYS = {
+    "line_id", "source_kind", "date_utc", "channel", "workspace_id", "description", "model",
+    "cost_type", "token_type", "sku", "service_tier", "inference_geo", "endpoint_scope",
+    "amount_nano", "list_amount_nano", "currency", "finality", "principal", "fetched_ms"}
+WAVE1_PRICING_KEYS = {"provider", "channel", "model", "model_raw", "service_tier", "speed",
+                      "inference_geo", "endpoint_scope", "write_ttl_hint", "billing_path"}
+
+
+def test_appended_fields_omitted_at_default() -> None:
+    line = make_cost_line(1)
+    assert set(r.to_json(line)) == WAVE1_COST_LINE_KEYS
+    ctx = make_ctx("claude-opus-5-5")
+    doc = r.to_json(ctx)
+    assert set(doc) == WAVE1_PRICING_KEYS
+    assert json.dumps(doc, sort_keys=True) == json.dumps(
+        {k: v for k, v in r.to_json(replace(ctx, routing="auto")).items() if k != "routing"},
+        sort_keys=True)
+    assert set(r.to_json(replace(ctx, routing="auto"))) == WAVE1_PRICING_KEYS | {"routing"}
+    assert "extra" not in r.to_json(_outcome()) and "extra" in r.to_json(
+        _outcome([("prs_merged", 1)]))
+    assert r.from_json(r.PricingContext, doc) == ctx  # missing appended keys → defaults
+    full = r.to_json(replace(ctx, routing="direct", compliance=None))
+    assert "routing" not in full and "compliance" not in full
+    fields = {f.name: f for f in dataclasses.fields(r.PricingContext)}
+    assert fields["routing"].metadata[r.OMIT_DEFAULT] and not fields["model"].metadata
 
 
 # ---------- C-5 ----------

@@ -51,6 +51,7 @@ from tokenbill.core.records import (
     _pairs,
     _str,
     _tuple,
+    appended,
 )
 
 if TYPE_CHECKING:
@@ -131,12 +132,12 @@ class IngestOptions:
     renormalize: bool = False
     now_ms: int = 0                  # injected clock (determinism)
     # GitHub sources (C-12): raw actor ref → cost center, applied at ingest then discarded
-    cost_center_map: tuple[tuple[str, str], ...] = ()
+    cost_center_map: tuple[tuple[str, str], ...] = appended(())
     # extra Copilot OTel service.name values: "NAME" or "NAME=<agent_product>" (agent_product ∈
     # copilot_jetbrains | copilot_other); core.models.is_copilot_resource uses the NAME part only
-    otel_service_names: tuple[str, ...] = ()
+    otel_service_names: tuple[str, ...] = appended(())
     # opt-in feature flags ⊆ EXPERIMENTAL_FLAGS (the CLI rejects unknown flags with UsageError)
-    experimental: frozenset[str] = frozenset()
+    experimental: frozenset[str] = appended(frozenset())
 
 
 #: Experimental ingest features (``IngestOptions.experimental``): sources whose only evidence is
@@ -163,9 +164,9 @@ class IngestResult:
     # self-check; the pipeline prices it)
     naive_usage: dict[str, UsageBuckets] = field(default_factory=dict)
     # seat / activity / configuration records (C-11; persisted by extension record stores)
-    licenses: list[LicenseSnapshot] = field(default_factory=list)
-    activity: list[ActivityDay] = field(default_factory=list)
-    config: list[ConfigSnapshot] = field(default_factory=list)
+    licenses: list[LicenseSnapshot] = appended(default_factory=list)
+    activity: list[ActivityDay] = appended(default_factory=list)
+    config: list[ConfigSnapshot] = appended(default_factory=list)
 
 
 # ---------- pricing registry format (frozen contract; RATES implements load/validate) ----------
@@ -364,7 +365,7 @@ class PricedTotal:
     coverage: str                    # decimal string: priced billable tokens / all billable tokens
     # Σ LIST_EQUIVALENT lines on core.records.COPILOT_BILLING_PATHS (Copilot pooled AI credits,
     # C-15)
-    pool: Figure | None = None
+    pool: Figure | None = appended(None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -630,7 +631,7 @@ class Finding:
     needs_eval: bool = False
     references: tuple[str, ...] = ()       # research finding ids
     # Copilot scopes only (R-E20): the unconverted list-equivalent pool headroom, LIST_EQUIVALENT
-    headroom: Figure | None = None
+    headroom: Figure | None = appended(None)
 
 
 @dataclass(frozen=True)
@@ -722,7 +723,7 @@ class ActionPlan:
     observed_rr: tuple[tuple[str, str, int], ...] = ()
     # billing class ``pool`` cohorts (Copilot lanes): list-equivalent headroom, never in the
     # headline
-    pool_headroom_monthly: Figure | None = None
+    pool_headroom_monthly: Figure | None = appended(None)
 
 
 # ---------- reconciliation ----------
@@ -774,7 +775,7 @@ class ReconciliationReport:
     # excl|incl|undecidable, "gross_is_list:<entity>:<YYYY-MM>" → true|false|unknown,
     # "plan_fit:<entity>:<YYYY-MM>" → business|enterprise|unknown (diagnostic only, never a label
     # source); sorted, unique keys
-    decisions: tuple[tuple[str, str], ...] = ()
+    decisions: tuple[tuple[str, str], ...] = appended(())
 
     def __post_init__(self) -> None:
         for key, value in _pairs(self, "decisions", sort=True):
@@ -1256,7 +1257,7 @@ class ClusterDay:
     requests: int
     exact_nano: int
     allowance_nano: int
-    pool_nano: int = 0              # LIST_EQUIVALENT Copilot pooled usage (C-15)
+    pool_nano: int = appended(0)    # LIST_EQUIVALENT Copilot pooled usage (C-15)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1333,5 +1334,5 @@ class RunResult:
     receipts: tuple[str, ...] = ()           # receipt ids
     synthetic: bool = False                  # demo-data banner
     notes: tuple[str, ...] = ()
-    copilot: CopilotSummary | None = None    # GitHub Copilot summary (C-18)
+    copilot: CopilotSummary | None = appended(None)   # GitHub Copilot summary (C-18)
 

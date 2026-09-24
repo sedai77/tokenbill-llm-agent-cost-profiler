@@ -98,6 +98,8 @@ __all__ = [
     "UsageRecord",
     "UsageSource",
     "WorkloadClass",
+    "OMIT_DEFAULT",
+    "appended",
     "billing_class",
     "from_json",
     "record_fields",
@@ -106,6 +108,21 @@ __all__ = [
 ]
 
 MAX_TOKENS = 2**53
+
+#: Field metadata of fields appended to pre-existing contract types after wave 1 (GitHub Copilot,
+#: wave 1.5): ``to_json`` leaves such a field out while it holds its default, so every document of
+#: pre-Copilot data stays byte-identical (fixtures and goldens of started packages, R-E15);
+#: ``from_json`` restores the default for a missing key.
+OMIT_DEFAULT = "tokenbill.omit_default"
+
+
+def appended(default: Any = dataclasses.MISSING, *, default_factory: Any = dataclasses.MISSING
+             ) -> Any:
+    """A dataclass field appended after wave 1: ``field(default=…, metadata={OMIT_DEFAULT: True})``
+    (or with *default_factory*)."""
+    if default_factory is not dataclasses.MISSING:
+        return dataclasses.field(default_factory=default_factory, metadata={OMIT_DEFAULT: True})
+    return dataclasses.field(default=default, metadata={OMIT_DEFAULT: True})
 
 
 class TBEnum(str, Enum):
@@ -609,9 +626,9 @@ class PricingContext:
     billing_path: str = "unknown"    # BILLING_PATHS; "subscription" ⇒ basis list_equivalent (D26)
     # GitHub Copilot (C-3): model selection ("auto" = Auto model selection, ×0.9 on paid plans),
     # restrict-to-compliant-models policy (×1.1) and the session's context tier (band hypothesis B)
-    routing: str = "direct"          # "direct" | "auto" | "unknown"
-    compliance: str | None = None    # "data_residency" | "fedramp" | None
-    context_tier: str | None = None  # "default" | "long_context" | None (unknown)
+    routing: str = appended("direct")         # "direct" | "auto" | "unknown"
+    compliance: str | None = appended(None)   # "data_residency" | "fedramp" | None
+    context_tier: str | None = appended(None)  # "default" | "long_context" | None (unknown)
 
     def __post_init__(self) -> None:
         for name in ("provider", "channel", "model", "model_raw", "service_tier", "speed"):
@@ -1254,16 +1271,16 @@ class CostLine:
     fetched_ms: int = 0
     # GitHub billing rows (C-5); cost_type stays a free string (GitHub sources use
     # GITHUB_COST_TYPES)
-    quantity: str | None = None    # finite decimal string (credits, minutes, seat-months)
-    unit: str | None = None        # provider unit, e.g. "ai-credits", "minutes"
-    cost_center: str | None = None
-    team: str | None = None
-    repo: str | None = None        # "h_…" (name key)
-    workload: str | None = None    # COPILOT_WORKLOADS
-    workflow: str | None = None    # "h_…" of an agentic-workflow path (others are never stored)
-    routing: str | None = None     # "direct" | "auto" | "unknown"
-    speed: str | None = None       # "standard" | "fast"
-    pseudo: str | None = None      # COPILOT_PSEUDO: a billing label that names no priceable model
+    quantity: str | None = appended(None)     # finite decimal string (credits, minutes, seats)
+    unit: str | None = appended(None)         # provider unit, e.g. "ai-credits", "minutes"
+    cost_center: str | None = appended(None)
+    team: str | None = appended(None)
+    repo: str | None = appended(None)         # "h_…" (name key)
+    workload: str | None = appended(None)     # COPILOT_WORKLOADS
+    workflow: str | None = appended(None)     # "h_…" of an agentic-workflow path (only those)
+    routing: str | None = appended(None)      # "direct" | "auto" | "unknown"
+    speed: str | None = appended(None)        # "standard" | "fast"
+    pseudo: str | None = appended(None)       # COPILOT_PSEUDO: a label naming no priceable model
 
     def __post_init__(self) -> None:
         for name in ("line_id", "source_kind", "channel", "description", "currency"):
@@ -1307,7 +1324,7 @@ class OutcomeAggregate:
     edits_rejected: int
     source_kind: str = "anthropic.cc_analytics"   # also "github.copilot_metrics"
     # sorted (key, count) pairs, keys ⊆ OUTCOME_EXTRA_KEYS (GitHub usage-metrics PR totals, C-7)
-    extra: tuple[tuple[str, int], ...] = ()
+    extra: tuple[tuple[str, int], ...] = appended(())
 
     def __post_init__(self) -> None:
         _date(self, "date_utc")
@@ -1525,6 +1542,27 @@ def record_key(rec: LicenseSnapshot | ActivityDay | ConfigSnapshot) -> str:
 # ---------------------------------------------------------------------------------------------
 
 _FIELD_NAMES: dict[type, tuple[str, ...]] = {}
+#: Per dataclass type: appended fields (OMIT_DEFAULT) → their default, left out while at it.
+_OMIT_DEFAULTS: dict[type, dict[str, Any]] = {}
+
+
+def _default_of(f: dataclasses.Field) -> Any:
+    if f.default_factory is not dataclasses.MISSING:  # type: ignore[misc]
+        return f.default_factory()  # type: ignore[misc]
+    return f.default
+
+
+def _enc_dataclass(value: Any, names: tuple[str, ...]) -> dict[str, Any]:
+    omit = _OMIT_DEFAULTS.get(type(value))
+    if not omit:
+        return {name: _enc(getattr(value, name)) for name in names}
+    out = {}
+    for name in names:
+        v = getattr(value, name)
+        if name in omit and v == omit[name]:
+            continue
+        out[name] = _enc(v)
+    return out
 
 
 def _enc(value: Any) -> Any:
@@ -1535,7 +1573,7 @@ def _enc(value: Any) -> Any:
         return [_enc(v) for v in value]
     names = _FIELD_NAMES.get(t)
     if names is not None:
-        return {name: _enc(getattr(value, name)) for name in names}
+        return _enc_dataclass(value, names)
     if isinstance(value, Enum):
         return value.value
     if t is Decimal:
@@ -1543,11 +1581,13 @@ def _enc(value: Any) -> Any:
             raise TypeError("to_json: non-finite Decimal")
         return str(value)
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        fields = dataclasses.fields(value)
+        _OMIT_DEFAULTS[t] = {f.name: _default_of(f) for f in fields if f.metadata.get(OMIT_DEFAULT)}
         names = _FIELD_NAMES[t] = tuple(
-            f.name for f in dataclasses.fields(value)
+            f.name for f in fields
             if f.metadata.get("tokenbill.json", True)  # e.g. PublishedAggregate.token is not data
         )
-        return {name: _enc(getattr(value, name)) for name in names}
+        return _enc_dataclass(value, names)
     if t is frozenset or t is set:
         return sorted(_enc(v) for v in value)
     if isinstance(value, Mapping):
@@ -1571,6 +1611,8 @@ def to_json(obj: Any) -> dict[str, Any]:
     ``metadata={"tokenbill.json": False}`` are left out: ``PublishedAggregate.token`` is a
     construction guard, so a ``RunResult`` with published breakdowns encodes, while ``from_json``
     still refuses to rebuild a ``PublishedAggregate`` (only ``core.kanon.publish`` makes one).
+    Fields appended after wave 1 (:func:`appended`, metadata :data:`OMIT_DEFAULT`) are left out
+    while they hold their default, so documents of pre-Copilot data are byte-identical to wave 1.
     """
     if not dataclasses.is_dataclass(obj) or isinstance(obj, type):
         raise TypeError("to_json expects a dataclass instance")
@@ -1578,8 +1620,9 @@ def to_json(obj: Any) -> dict[str, Any]:
 
 
 def record_fields(cls: type) -> frozenset[str]:
-    """The JSON field names :func:`to_json` emits for instances of the dataclass *cls* (fields
-    marked ``metadata={"tokenbill.json": False}`` are left out), so codecs derive closed key sets
+    """The JSON field names :func:`to_json` may emit for instances of the dataclass *cls* (fields
+    marked ``metadata={"tokenbill.json": False}`` are left out; appended fields are included,
+    though omitted from a document while at their default), so codecs derive closed key sets
     instead of keeping hand-written lists."""
     if not (isinstance(cls, type) and dataclasses.is_dataclass(cls)):
         raise TypeError("record_fields expects a dataclass type")

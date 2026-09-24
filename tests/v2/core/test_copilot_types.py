@@ -247,6 +247,16 @@ def test_analysis_context_additions() -> None:
 def test_pool_figures() -> None:
     total = t.PricedTotal(zero(Basis.LIST), None, None, 0, 0, 0, "1")
     assert total.pool is None and names(t.PricedTotal)[-1] == "pool"
+    assert "pool" not in to_json(total)  # appended fields at their default are left out
+    assert "pool" in to_json(replace(total, pool=zero(Basis.LIST_EQUIVALENT)))
+    rr = t.RunResult("bill", (0, 1), (), t.PrivacyInfo("none", None, "install", 5, 0), None)
+    assert "copilot" not in to_json(rr) and from_json(t.RunResult, to_json(rr)) == rr
+    assert "pool_nano" not in to_json(t.ClusterDay("d", "team", "c", None, None, 1, 1, 1, 1))
+    assert "decisions" not in to_json(_report())
+    from tokenbill.core.records import OMIT_DEFAULT
+
+    flagged = {f.name for f in dataclasses.fields(t.IngestOptions) if f.metadata.get(OMIT_DEFAULT)}
+    assert flagged == {"cost_center_map", "otel_service_names", "experimental"}
     with_pool = replace(total, pool=exact(5, Basis.LIST_EQUIVALENT))
     _round_trip(with_pool)
     day = t.ClusterDay("2026-09-01", "team", "core", None, None, 3, 10, 5, 0)
