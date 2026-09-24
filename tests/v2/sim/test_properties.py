@@ -93,8 +93,11 @@ def test_random_policies_keep_every_invariant(seed: int, clauses: list[str],
             assert fig.low_nano <= fig.nano <= fig.high_nano
     per_lane = dict(res.per_lane)
     for lane in lanes:
-        assert per_lane[lane.lane_key] == sum(o[r.request_id].cost_nano or 0
-                                              for r in lane.requests)
+        points = [o[r.request_id].cost_nano for r in lane.requests]
+        if any(p is None for p in points):
+            assert lane.lane_key not in per_lane
+        else:
+            assert per_lane[lane.lane_key] == sum(points)
     assert res.keepalive_pings == sum(1 for x in o.values() for e in x.extra
                                       if e.kind.value == "keepalive")
 

@@ -93,27 +93,25 @@ BATCH_NO_CACHE_CHANNELS = frozenset({"bedrock"})
 #: Workload classes eligible for the batch predicate (§9.3.5).
 _BATCH_WORKLOADS = frozenset({WorkloadClass.CI, WorkloadClass.EVAL, WorkloadClass.SCHEDULED,
                               WorkloadClass.SERVICE})
-#: Entrypoint fragments that identify Anthropic Managed Agents (no batch tier, §19.2).
-_MANAGED_AGENT_MARKERS = ("managed_agent", "managed-agent", "managedagent")
+#: Entrypoint fragment that identifies Anthropic Managed Agents (no batch tier, §19.2).
+_MANAGED_AGENT_MARKER = "managed"
 
 _DAY_MS = 86_400_000
 _FIVE_MIN_S = 300
 _FIVE_MIN_MS = 300_000
-_REPLAY_KINDS_DROP = frozenset({InferenceKind.MESSAGE, InferenceKind.FALLBACK})
 
 # usage tuple layout (hot loops never build UsageBuckets)
 _U, _R, _W5, _W1, _WO, _WOT, _WU, _O, _OR, _WS, _WF = range(11)
 _PREF_5M = (_W5, None)
 _PREF_1H = (_W1, None)
-_PREF_UNKNOWN = (_WU, None)
 
 _POINT, _LOW, _HIGH = 0, 1, 2
 _FINAL = UsageSource.FINAL
 
 _BAND_HI = Fraction(TOKENIZER_BAND.value[1])  # type: ignore[index]
 _BAND_LO_POINT = Fraction(TOKENIZER_BAND.value[0])  # type: ignore[index]
-#: (source family, target family) → (low factor, high factor); other differing pairs use the
-#: symmetric band.
+#: (source family, target family) → (low factor, high factor) (§9.3.5); no band between other
+#: families (none is documented).
 _TOKENIZER_BANDS: Mapping[tuple[str, str], tuple[Fraction, Fraction]] = {
     ("claude-legacy", "claude-4.7+"): (_BAND_LO_POINT, _BAND_HI),
     ("claude-4.7+", "claude-legacy"): (1 / _BAND_HI, _BAND_LO_POINT),
@@ -230,23 +228,21 @@ def _rerate(t: tuple, pref: tuple[int, int | None]) -> tuple:
             t[_O], t[_OR], t[_WS], t[_WF])
 
 
-def _scale_q(q: int | None, f: Fraction, up: bool) -> int | None:
+def _scale_q(q: int | None, f: Fraction) -> int | None:
+    """``q × f`` rounded half-even (a token count)."""
     if not q:
         return q
-    v, rem = divmod(q * f.numerator, f.denominator)
-    if up and rem:
-        v += 1
-    return v
+    return _round_half_even(q * f.numerator, f.denominator)
 
 
-def _scale_t(t: tuple, f: Fraction, up: bool) -> tuple:
-    """Every token quantity of *t* × *f* (outward rounding: floor below the point, ceil above)."""
+def _scale_t(t: tuple, f: Fraction) -> tuple:
+    """Every token quantity of *t* × *f*, per bucket, rounded half-even (request counts are not
+    scaled)."""
     if f == 1:
         return t
     s = _scale_q
-    return (s(t[_U], f, up), s(t[_R], f, up), s(t[_W5], f, up), s(t[_W1], f, up),
-            s(t[_WO], f, up), t[_WOT], s(t[_WU], f, up), s(t[_O], f, up), s(t[_OR], f, up),
-            t[_WS], t[_WF])
+    return (s(t[_U], f), s(t[_R], f), s(t[_W5], f), s(t[_W1], f), s(t[_WO], f), t[_WOT],
+            s(t[_WU], f), s(t[_O], f), s(t[_OR], f), t[_WS], t[_WF])
 
 
 def _round_half_even(num: int, den: int) -> int:
@@ -263,20 +259,31 @@ def _median(values: list[int]) -> int:
     return values[mid] if len(values) % 2 else (values[mid - 1] + values[mid]) // 2
 
 
-def _attr(attrs: Iterable[tuple[str, Any]], key: str) -> Any:
-    for k, v in attrs:
-        if k == key:
-            return v
-    return None
-
-
 def _differs(a: object, b: object) -> bool:
     return a is not None and b is not None and a != b
 
 
 def _is_managed_agents(entrypoint: str | None) -> bool:
-    text = (entrypoint or "").lower()
-    return any(marker in text for marker in _MANAGED_AGENT_MARKERS)
+    """The SPEC names no Managed Agents entrypoint value: any entrypoint mentioning it counts."""
+    return _MANAGED_AGENT_MARKER in (entrypoint or "").lower()
+
+
+_HINT_TTL_S = {"5m": 300, "1h": 3600}
+
+
+def _write_ttl_s(inf: Inference) -> int | None:
+    """TTL in seconds of an inference's own writes (the shortest class), or None."""
+    u = inf.usage
+    out = []
+    if u.cache_write_5m:
+        out.append(300)
+    if u.cache_write_1h:
+        out.append(3600)
+    if u.cache_write_other and u.cache_write_other_ttl_s is not None:
+        out.append(u.cache_write_other_ttl_s)
+    if u.cache_write_unknown and inf.pricing.write_ttl_hint in _HINT_TTL_S:
+        out.append(_HINT_TTL_S[inf.pricing.write_ttl_hint])
+    return min(out) if out else None
 
 
 # ---------------------------------------------------------------------------------------------
@@ -477,11 +484,12 @@ def _blend(hit: _Priced | None, nohit: _Priced | None, rho: Fraction) -> _Priced
 
 
 def _entries(items: Iterable[tuple]) -> list[tuple]:
-    """Selector-keyed entries sorted most specific first (more selector terms), then in policy
-    order: the first entry whose selector matches a lane applies to it."""
-    out = [(-len(selector_terms(item[0])), order, item) for order, item in enumerate(items)]
-    out.sort(key=lambda e: (e[0], e[1]))
-    return [item for _n, _o, item in out]
+    """Selector-keyed entries in policy order (a parsed policy sorts them by canonical
+    selector): the first entry whose selector matches a lane applies to it."""
+    out = list(items)
+    for item in out:
+        selector_terms(item[0])   # validated by the grammar; parsed once into its cache
+    return out
 
 
 _REPAIRS = frozenset({"restore_caching", "stagger_fanout", "retry_backoff_cap",
@@ -520,6 +528,10 @@ class _Compiled:
         self.block = tuple(block)
         self.upper_bound = bool(self.cw or self.cr or self.remap or self.effort
                                 or {"stagger_fanout", "shared_ci_prefix"} & self.repairs)
+        #: only fast=off / geo=global / regional=global: exact rate arithmetic (§9.3.5)
+        self.rate_only = (bool(self.fast_off or self.geo_global or self.regional_to_global)
+                          and not (self.ttl or self.keepalive or self.cw or self.cr or self.remap
+                                   or self.effort or self.batch or self.repairs or self.block))
         self.needs_eval = bool(self.cw or self.cr or self.remap or self.effort)
 
 
@@ -537,6 +549,7 @@ class _Req:
     base_others: list[_Priced | None]
     base: _Priced | None
     pos: int = 0              # position in the lane
+    own_ttl: int | None = None  # TTL (s) of the serving inference's own writes (shortest class)
     # filled for steps (requests with a serving inference)
     step: int = -1
     reset: bool = False       # §3.15 rule 1 (reset events, edits, dropped thinking)
@@ -635,6 +648,8 @@ class _Run:
         self.book = _PriceBook(pricer)
         self.base_rows: set[str] = set()
         self.policy_rows: set[str] = set()
+        self._ctx_cache: dict[tuple, PricingContext] = {}
+        self._band_cache: dict[tuple, tuple[Fraction, Fraction] | None] = {}
         if classes == {"allowance"}:
             self.basis = Basis.LIST_EQUIVALENT
         else:
@@ -660,6 +675,7 @@ class _Run:
         # counters
         self.added_calls = 0
         self.pings = 0
+        self.rate_flips = False
         self.skipped: list[tuple[str, str]] = []
         self.summary_tokens, self.summary_source = self._summary_tokens()
         self.stagger = self._stagger_map() if "stagger_fanout" in self.c.repairs else {}
@@ -668,16 +684,12 @@ class _Run:
     # ------------------------------------------------------------------ cross-lane pre-passes
 
     def _summary_tokens(self) -> tuple[int, str]:
+        """``S_c``: the policy's ``post=`` when given, else COMPACTION_SUMMARY_TOKENS_DEFAULT. The
+        org median is never derived from the lanes of one call (that would make results depend
+        on the shard size, §9.1 #6): callers pass it as ``post=``."""
         cw = self.c.cw
         if cw is not None and cw[1] is not None:
             return cw[1], "policy"
-        if cw is None and self.c.cr is None:
-            return _SUMMARY_DEFAULT, "default"
-        posts = [v for lane in self.lanes for ev in lane.events
-                 if ev.kind is LaneEventKind.COMPACTION
-                 for v in (_attr(ev.attrs, "post_tokens"),) if type(v) is int and v > 0]
-        if posts:
-            return _median(posts), "median"
         return _SUMMARY_DEFAULT, "default"
 
     @staticmethod
@@ -729,7 +741,12 @@ class _Run:
 
     def _ci_map(self) -> dict[str, tuple[int, int]]:
         """request id → (S_ci, ms after the previous run) for the first request of every later
-        CI run in a chain (§9.3.6 shared_ci_prefix)."""
+        CI run of a chain (§9.3.6 shared_ci_prefix). Runs are CI lanes whose first request wrote
+        ≥ 0.8·T, grouped by (team, lane kind, scope, model) — the replay cohort, so sharded and
+        unsharded replays agree; a run joins the chain of the previous run when it starts within
+        its τπ (the TTL clause, else the TTL of its first request's writes, else 300 s).
+        ``S_ci`` is the static-prefix floor ``S`` when known, else ``floor(0.8·min first-call
+        W)`` over the group."""
         groups: dict[tuple, list[tuple[int, str, str, int, int]]] = {}
         for lane in self.lanes:
             first = self._first_step(lane)
@@ -744,26 +761,17 @@ class _Run:
                 continue
             tau = self._lane_ttl(lane)
             if tau is None:
-                pref = _dominant(_tup(u))
-                tau = {_W5: 300, _W1: 3600}.get(pref[0], pref[1] or 300) if pref else 300
+                tau = _write_ttl_s(inf) or _FIVE_MIN_S
             key = (lane.team or "", lane.kind.value, lane.cache_scope_key, req.model)
             groups.setdefault(key, []).append((req.ts_start_ms, lane.lane_key, req.request_id,
                                                w, tau))
         out: dict[str, tuple[int, int]] = {}
         for key in sorted(groups):
             members = sorted(groups[key])
-            chains: list[list[tuple[int, str, str, int, int]]] = []
-            for m in members:
-                if chains and m[0] - chains[-1][-1][0] <= chains[-1][-1][4] * 1000:
-                    chains[-1].append(m)
-                else:
-                    chains.append([m])
             floor_s = self.floor.get((key[2], key[3]), 0)
-            for chain in chains:
-                if len(chain) < 2:
-                    continue
-                s_ci = floor_s if floor_s > 0 else (4 * min(m[3] for m in chain)) // 5
-                for prev, m in zip(chain, chain[1:], strict=False):
+            s_ci = floor_s if floor_s > 0 else (4 * min(m[3] for m in members)) // 5
+            for prev, m in zip(members, members[1:], strict=False):
+                if m[0] - prev[0] <= m[4] * 1000:
                     out[m[2]] = (s_ci, m[0] - prev[0])
         return out
 
@@ -798,7 +806,8 @@ class _Run:
                 base = _add_priced(base, p)
             r = _Req(req=req, serving=serving, serving_ts=serving_ts, ts=req.ts_start_ms,
                      obs_t=obs_t, others=others, base_serving=base_serving,
-                     base_others=base_others, base=base, pos=len(reqs))
+                     base_others=base_others, base=base, pos=len(reqs),
+                     own_ttl=_write_ttl_s(serving) if serving is not None else None)
             reqs.append(r)
             if serving is not None:
                 r.step = len(steps)
@@ -838,6 +847,13 @@ class _Run:
                 cfg.effort = (rank, scale)
                 break
         cfg.rate_ctx = bool(cfg.remap or c.fast_off or c.geo_global or c.regional_to_global)
+        # keepalive (SDK/API agents; the TTL stays 5m, so a TTL clause does not apply)
+        if c.keepalive is not None and lane_matches(c.keepalive[0], lane):
+            reason = self._keepalive_block(lane, steps)
+            if reason is not None:
+                cfg.skipped.append(reason)
+            else:
+                cfg.ka = (c.keepalive[1], c.keepalive[2])
         # TTL
         for selector, seconds in c.ttl:
             if lane_matches(selector, lane):
@@ -845,18 +861,13 @@ class _Run:
                               if st.serving is not None and seconds not in rules.rules_for(
                                   st.serving.pricing.provider, st.serving.pricing.channel,
                                   st.serving.pricing.model).ttl_options_s})
-                if bad:
+                if cfg.ka is not None:
+                    cfg.skipped.append("ttl policy ignored on a keepalive lane (the TTL stays 5m)")
+                elif bad:
                     cfg.skipped.append(f"ttl policy not applicable on channel {bad[0]}")
                 else:
                     cfg.ttl_s = seconds
                 break
-        # keepalive
-        if c.keepalive is not None and lane_matches(c.keepalive[0], lane):
-            reason = self._keepalive_block(lane, steps)
-            if reason is not None:
-                cfg.skipped.append(reason)
-            else:
-                cfg.ka = (c.keepalive[1], c.keepalive[2])
         # context transforms (MAIN lanes)
         if lane.kind is LaneKind.MAIN and steps:
             st0 = steps[0]
@@ -913,13 +924,16 @@ class _Run:
                 return "keepalive not supported for model"
         return None
 
-    @staticmethod
-    def _batch_eligible(lane: Lane) -> bool:
+    def _batch_eligible(self, lane: Lane) -> bool:
+        """§9.3.5 predicate, evaluated after the rate transforms of step (1): ``fast=off`` makes
+        a fast request eligible."""
         if len(lane.requests) != 1:
             return False
         req = lane.requests[0]
         si = req.serving_inference
-        if si is None or si.pricing.service_tier == "batch" or si.pricing.speed == "fast":
+        if si is None or si.pricing.service_tier == "batch":
+            return False
+        if si.pricing.speed == "fast" and not self.c.fast_off:
             return False
         if req.attribution.workload_class not in _BATCH_WORKLOADS:
             return False
@@ -943,11 +957,21 @@ class _Run:
     # ------------------------------------------------------------------ transforms
 
     def _xctx(self, ctx: PricingContext, cfg: _LaneCfg, batch: bool) -> PricingContext:
+        """*ctx* under the rate transforms (remap target, speed, geo, scope, batch tier)."""
+        key = (ctx, cfg.remap, batch)
+        got = self._ctx_cache.get(key)
+        if got is None:
+            got = self._xctx_new(ctx, cfg.remap, batch)
+            if len(self._ctx_cache) < 65_536:
+                self._ctx_cache[key] = got
+        return got
+
+    def _xctx_new(self, ctx: PricingContext, remap: str | None, batch: bool) -> PricingContext:
         c = self.c
         changes: dict[str, Any] = {}
-        if cfg.remap is not None and ctx.model != cfg.remap:
-            changes["model"] = cfg.remap
-            changes["model_raw"] = cfg.remap
+        if remap is not None and ctx.model != remap:
+            changes["model"] = remap
+            changes["model_raw"] = remap
         if c.fast_off and ctx.speed != "standard":
             changes["speed"] = "standard"
         if c.geo_global and ctx.inference_geo is not None:
@@ -966,11 +990,15 @@ class _Run:
         target = cfg.remap
         if target is None or ctx.model == target or successor(ctx.model) == target:
             return None
+        key = (ctx, target, ts // _DAY_MS)
+        if key in self._band_cache:
+            return self._band_cache[key]
         new_ctx = dataclasses.replace(ctx, model=target, model_raw=target)
         src, dst = self.book.family(ctx, ts), self.book.family(new_ctx, ts)
-        if src is None or dst is None or src == dst:
-            return None
-        return _TOKENIZER_BANDS.get((src, dst), (1 / _BAND_HI, _BAND_HI))
+        band = None if src is None or dst is None else _TOKENIZER_BANDS.get((src, dst))
+        if len(self._band_cache) < 65_536:
+            self._band_cache[key] = band
+        return band
 
     def _scaled(self, t: tuple, ctx: PricingContext, cfg: _LaneCfg, ts: int, side: int) -> tuple:
         band = self._band(ctx, cfg, ts) if cfg.remap is not None else None
@@ -978,9 +1006,9 @@ class _Run:
             return t
         cfg.bounds = True
         if side == _LOW:
-            return _scale_t(t, band[0], False)
+            return _scale_t(t, band[0])
         if side == _HIGH:
-            return _scale_t(t, band[1], True)
+            return _scale_t(t, band[1])
         return t
 
     def _param_change(self, cur: _Req, prev: _Req, ignore_speed: bool) -> bool:
@@ -1045,6 +1073,17 @@ class _Run:
         point = side == _POINT
         rate_ctx = cfg.rate_ctx or cfg.batch
 
+        def tau_pi(i: int) -> int:
+            """τπ of transition *i* in seconds: the TTL clause, else the observed τ (incl. the
+            write hint), else the TTL of the request's own writes, else 300 s."""
+            if cfg.ttl_s is not None:
+                return cfg.ttl_s
+            ob = trans.get(i)
+            if ob is not None and ob.ttl_s is not None:
+                return ob.ttl_s
+            own = steps[i].own_ttl
+            return own if own is not None else _FIVE_MIN_S
+
         def alive(i: int) -> bool:
             """alive_π(i) (§9.2) in this pass."""
             st, pv = steps[i], steps[i - 1]
@@ -1053,15 +1092,10 @@ class _Run:
             if self._param_change(st, pv, c.fast_off):
                 return False
             gap = st.ts - pv.ts
-            if cfg.ka is not None:
+            if cfg.ka is not None:   # the daemon's horizon (no ±10 s band: pings are scheduled)
                 n_p = self._ka_pings(gap, cfg.ka[0], cfg.ka[1])
-                return self._decide(gap, n_p * cfg.ka[0] + _FIVE_MIN_MS, side, cfg)
-            if cfg.ttl_s is not None:
-                return self._decide(gap, cfg.ttl_s * 1000, side, cfg)
-            ob = trans.get(i)
-            if ob is None or ob.ttl_s is None:    # τ unknown: the observed outcome stands
-                return ob is not None and not ob.is_miss_event
-            return self._decide(gap, ob.ttl_s * 1000, side, cfg)
+                return gap <= n_p * cfg.ka[0] + _FIVE_MIN_MS
+            return self._decide(gap, tau_pi(i) * 1000, side, cfg)
 
         for i, st in enumerate(steps):
             serving = st.serving
@@ -1080,13 +1114,11 @@ class _Run:
             if cfg.effort is not None:
                 rank = _EFFORT_RANK.get(st.req.params.effort or "")
                 if rank is not None and rank > cfg.effort[0]:
-                    t, cut = self._effort(t, cfg.effort[1], side, cfg)
-                    if upper is not None and cut:
-                        upper = max(t[_O], upper - cut)
+                    # the placeholder upper bound (MESSAGE_START_ONLY) is left as observed: the
+                    # §9.3.5 formula transforms the billed output only
+                    t = self._effort(t, cfg.effort[1], side, cfg)
             ob = trans.get(i) if i else None
-            tau_obs = ob.ttl_s if ob is not None else None
-            pref = ttl_pref or (_pref_of_ttl(tau_obs) if tau_obs else None) or _dominant(t) \
-                or self._default_pref(st)
+            pref = self._pref(t, ob, ttl_pref, cfg)
             state = _State()
             u, r, w = t[_U], t[_R], _writes(t)
             obs_total = u + r + w
@@ -1139,49 +1171,16 @@ class _Run:
             # keepalive pings: the daemon pings whatever the next request turns out to be
             if cfg.ka is not None and i >= 1:
                 self._pings(state, steps, i, cfg, t_new, u_new, ctx_new, point)
-            # (3) cache-state transforms
+            # (3) cache-state transforms, in a fixed order: restore_caching, lane-first repairs,
+            # keepalive / TTL flips to a hit, fast_off flips, fallback_credit, TTL hit→miss,
+            # retry_backoff_cap
             flipped = False
             band_gap = 0
             pre = (u, r, w)
             if not skip3:
-                expected = min(t_new[i - 1] - u_new[i - 1], total) if i >= 1 else 0
-                if ob is not None:
-                    gap = ob.gap_ms
-                    hit_flip = False
-                    if cfg.ttl_s is not None and tau_obs is not None and cfg.ttl_s != tau_obs:
-                        if cfg.ttl_s > tau_obs:
-                            hit_flip = ob.is_miss_event and ob.cause == "ttl-expiry" and \
-                                alive(i)
-                        elif not ob.is_miss_event and gap <= tau_obs * 1000 and \
-                                not self._decide(gap, cfg.ttl_s * 1000, side, cfg):
-                            floor_s = self._scaled_int(
-                                self.floor.get((lane.cache_scope_key, st.req.model), 0),
-                                obs_ctx, cfg, st.serving_ts, side)
-                            r = min(floor_s, total - u)
-                            w = total - u - r
-                    if cfg.ka is not None and ob.is_miss_event and ob.cause == "ttl-expiry" \
-                            and alive(i):
-                        hit_flip = True
-                        pref = ttl_pref or _PREF_5M
-                    if c.fast_off and ob.is_miss_event and ob.cause == "param-change" and \
-                            ob.sub_cause == "fast-toggle" and alive(i):
-                        hit_flip = True
-                    obs_w = _writes(st.obs_t)
-                    if "fallback_credit" in c.repairs and ob.is_miss_event and \
-                            ob.cause == "model-switch" and ob.sub_cause == "refusal-fallback" \
-                            and 5 * obs_w >= 4 * ob.expected_reuse:
-                        hit_flip = True
-                    if "retry_backoff_cap" in c.repairs and self._retry_capped(st, ob):
-                        hit_flip = True
-                    if hit_flip:
-                        r = min(expected, total - u)
-                        w = total - u - r
-                        flipped = True
-                        band_gap = gap
                 if cfg.restore:
-                    pref = ttl_pref or _pref_of_ttl(self._restore_tau(st))
                     gap = st.ts - steps[i - 1].ts if i >= 1 else 0
-                    if i >= 1 and gap <= (cfg.ttl_s or self._restore_tau(st)) * 1000:
+                    if i >= 1 and self._decide(gap, tau_pi(i) * 1000, side, cfg):
                         r = min(t_new[i - 1], total)
                         flipped = True
                         band_gap = gap
@@ -1193,18 +1192,56 @@ class _Run:
                     rid = st.req.request_id
                     fan = self.stagger.get(rid)
                     if fan is not None:
-                        shared = self._scaled_int(fan[0], obs_ctx, cfg, st.serving_ts, side)
-                        r = min(w, shared)
-                        w = w - r
-                        flipped = True
+                        shared = min(w, self._scaled_int(fan[0], obs_ctx, cfg, st.serving_ts,
+                                                         side))
+                        r, w = r + shared, w - shared
+                        flipped = flipped or shared > 0
                         band_gap = fan[1]
                     ci = self.ci_prefix.get(rid)
-                    if ci is not None:
+                    if ci is not None:   # reads S_ci; never fewer than another repair credited
                         s_ci = self._scaled_int(ci[0], obs_ctx, cfg, st.serving_ts, side)
-                        r = min(s_ci, total - u)
+                        r = max(r, min(s_ci, total - u))
                         w = total - u - r
                         flipped = True
                         band_gap = ci[1]
+                if ob is not None:
+                    gap = ob.gap_ms
+                    tau_obs = ob.ttl_s if ob.ttl_s is not None else _FIVE_MIN_S
+                    ttl_s = cfg.ttl_s
+                    hit_flip = False
+                    if ttl_s is not None and ttl_s > tau_obs and ob.is_miss_event and \
+                            ob.cause == "ttl-expiry" and alive(i):
+                        hit_flip = True
+                    if cfg.ka is not None and ob.is_miss_event and ob.cause == "ttl-expiry" \
+                            and alive(i):
+                        hit_flip = True
+                    if c.fast_off and ob.is_miss_event and ob.cause == "param-change" and \
+                            ob.sub_cause == "fast-toggle" and alive(i):
+                        hit_flip = True
+                        self.rate_flips = True
+                    if "fallback_credit" in c.repairs and ob.is_miss_event and \
+                            ob.cause == "model-switch" and ob.sub_cause == "refusal-fallback" \
+                            and 5 * _writes(st.obs_t) >= 4 * ob.expected_reuse:
+                        hit_flip = True
+                    expected = min(t_new[i - 1] - u_new[i - 1], total)
+                    if hit_flip:
+                        r = min(expected, total - u)
+                        w = total - u - r
+                        flipped = True
+                        band_gap = gap
+                    if ttl_s is not None and ttl_s < tau_obs and not ob.is_miss_event and \
+                            gap <= tau_obs * 1000 and \
+                            not self._decide(gap, ttl_s * 1000, side, cfg):
+                        floor_s = self._scaled_int(
+                            self.floor.get((lane.cache_scope_key, st.req.model), 0),
+                            obs_ctx, cfg, st.serving_ts, side)
+                        r = min(floor_s, total - u)
+                        w = total - u - r
+                    if "retry_backoff_cap" in c.repairs and self._retry_capped(st, ob):
+                        r = min(expected, total - u)
+                        w = total - u - r
+                        flipped = True
+                        band_gap = gap
             total = u + r + w
             # (4) TTL re-rating, min-prefix gate, batch
             new_t = _with_split(t, u, r, w, pref)
@@ -1216,22 +1253,17 @@ class _Run:
                 if alt_t is not None:
                     alt_t = _rerate(alt_t, ttl_pref)
             obs = st.obs_t
-            if (ctx.model != obs_ctx.model or new_t[_U] != obs[_U] or new_t[_R] != obs[_R]
-                    or _writes(new_t) != _writes(obs)):
+            if new_t != obs or ctx != obs_ctx:
                 mc = book.min_cacheable(ctx, st.serving_ts)
-                new_t = self._gate(new_t, mc, pref)
+                new_t = self._gate(new_t, mc)
                 if alt_t is not None:
-                    alt_t = self._gate(alt_t, mc, pref)
+                    alt_t = self._gate(alt_t, mc)
             if cfg.batch:
                 new_t = self._batch_split(new_t, ctx, side, cfg)
                 if alt_t is not None:
                     alt_t = self._batch_split(alt_t, ctx, side, cfg)
             if alt_t is not None and alt_t == new_t:
                 alt_t = None
-            if ttl_pref is not None and state.extras:
-                state.extras = [(k, _rerate(et, ttl_pref) if k is InferenceKind.COMPACTION
-                                 else et, ectx, ets, eid)
-                                for k, et, ectx, ets, eid in state.extras]
             state.serving_t = new_t
             state.serving_ctx = ctx
             state.serving_upper = upper
@@ -1284,7 +1316,7 @@ class _Run:
                 state.changed = True
         return states
 
-    def _effort(self, t: tuple, scale: Fraction, side: int, cfg: _LaneCfg) -> tuple[tuple, int]:
+    def _effort(self, t: tuple, scale: Fraction, side: int, cfg: _LaneCfg) -> tuple:
         """§9.3.5 effort: ``O' = O − th·(1 − s)`` (reduction floored), ``th = output_reasoning``
         when known else ``floor(0.505·O)``; bounds use ``s ± 0.25`` clipped to [0, 1]."""
         cfg.bounds = True
@@ -1297,9 +1329,9 @@ class _Run:
             (out * _THINKING_SHARE.numerator) // _THINKING_SHARE.denominator
         cut = (th * (scale.denominator - scale.numerator)) // scale.denominator
         if not cut:
-            return t, 0
+            return t
         reasoning = t[_OR] - cut if t[_OR] is not None else None
-        return t[:_O] + (out - cut, reasoning) + t[_OR + 1:], cut
+        return t[:_O] + (out - cut, reasoning) + t[_OR + 1:]
 
     def _pings(self, state: _State, steps: list[_Req], i: int, cfg: _LaneCfg, t_new: list[int],
                u_new: list[int], ctx_new: list[PricingContext | None], point: bool) -> None:
@@ -1322,34 +1354,37 @@ class _Run:
                 self.pings += n_p
 
     @staticmethod
-    def _gate(t: tuple, min_cacheable: int, pref: tuple[int, int | None]) -> tuple:
+    def _gate(t: tuple, min_cacheable: int) -> tuple:
         """The min-prefix gate (§9.3.7): below the model minimum nothing is cached."""
         total = _total_input(t)
         if total < min_cacheable and (t[_R] or _writes(t)):
-            return _with_split(t, total, 0, 0, pref)
+            return _with_split(t, total, 0, 0, _PREF_5M)
         return t
+
+    @staticmethod
+    def _pref(t: tuple, ob: Transition | None, ttl_pref: tuple[int, int | None] | None,
+              cfg: _LaneCfg) -> tuple[int, int | None]:
+        """Where a changed write total goes: the TTL clause's bucket; the 5m bucket on keepalive
+        lanes; else the request's own observed write class (unknown-TTL writes stay a range, R5);
+        else the class of the observed τ (1h iff 3600 s, else 5m)."""
+        if ttl_pref is not None:
+            return ttl_pref
+        if cfg.ka is not None:
+            return _PREF_5M
+        own = _dominant(t)
+        if own is not None:
+            return own
+        return _PREF_1H if ob is not None and ob.ttl_s == 3600 else _PREF_5M
 
     def _retry_capped(self, rq: _Req, ob: Transition) -> bool:
         """§9.3.6 retry_backoff_cap applies: ≥ 2 attempts, the final one started more than
         ``τ_obs`` after the first, and it wrote ≥ 0.5·E."""
         tau = ob.ttl_s
         atts = rq.req.attempts
-        if tau is None or rq.obs_t is None or len(atts) < 2:
+        if tau is None or rq.obs_t is None or len(atts) < 2 or ob.expected_reuse <= 0:
             return False
         return (atts[-1].ts_start_ms - atts[0].ts_start_ms > tau * 1000
                 and 2 * _writes(rq.obs_t) >= ob.expected_reuse)
-
-    def _restore_tau(self, st: _Req) -> int:
-        """The default TTL (s) of the request's channel (cache-rule table), else 300."""
-        assert st.serving is not None
-        ctx = st.serving.pricing
-        options = self.rules.rules_for(ctx.provider, ctx.channel, ctx.model).ttl_options_s
-        return options[0] if options else _FIVE_MIN_S
-
-    def _default_pref(self, st: _Req) -> tuple[int, int | None]:
-        """Where new writes go when neither a policy TTL, an observed TTL nor observed writes say:
-        the channel's default TTL from the cache-rule table."""
-        return _pref_of_ttl(self._restore_tau(st))
 
     def _batch_split(self, t: tuple, ctx: PricingContext, side: int, cfg: _LaneCfg) -> tuple:
         """§9.3.5 batch: reads retained at hit band h (``floor(h·R')``), the rest become 5m
@@ -1453,6 +1488,7 @@ class _Run:
                                   for s in states]
                         results[k] = (self._combine(priced), True, states[0])
             lane_point = 0
+            lane_priced = True
             for k, rq in enumerate(reqs):
                 base = rq.base
                 got = results.get(k)
@@ -1467,6 +1503,7 @@ class _Run:
                     base_ranged = base_ranged or base[3]
                 if cost is None:
                     cost_unpriced += 1
+                    lane_priced = False
                 else:
                     cost_point += cost[0]
                     cost_low += cost[1]
@@ -1485,15 +1522,26 @@ class _Run:
                 if self.keep:
                     outcomes.append(self._outcome(rq, cost, changed,
                                                   got[2] if got is not None else None))
-            per_lane.append((lane.lane_key, lane_point))
+            if lane_priced:     # per_lane is int nano: a lane with an unpriced point is omitted
+                per_lane.append((lane.lane_key, lane_point))
         basis = self.basis
         rows = tuple(sorted(self.base_rows))
         baseline = self._figure(base_point, base_low, base_high, base_ranged, base_unpriced,
                                 rows, estimated_label=False)
         assumptions = self._assumptions(sav_excluded)
+        rate_only = self.c.rate_only and not self.rate_flips
         if self.observed:
             cost_fig = baseline
             saving = zero(basis)
+        elif rate_only and not (base_ranged or cost_ranged or base_unpriced or cost_unpriced
+                                or sav_excluded):
+            # §9.3.5: fast=off / geo=global / regional=global without a flip are exact rate
+            # arithmetic on identical tokens
+            prov = tuple(sorted(self.base_rows | self.policy_rows))
+            cost_fig = Figure(nano=cost_point, evidence=Evidence.EXACT, basis=basis,
+                              provenance=prov)
+            saving = Figure(nano=sav_point, evidence=Evidence.EXACT, basis=basis,
+                            provenance=prov)
         else:
             replay_id = stable_id("replay", self.policy_key(), self.mode)
             prov = tuple(sorted(self.base_rows | self.policy_rows | {replay_id}))
@@ -1609,8 +1657,8 @@ class _Run:
             out.append(f"keepalive: the hindsight minimum ceil((gap - 300)/{kappa}) pings per "
                        "gap is a lower bound only")
         if c.cw is not None or c.cr is not None:
-            source = {"policy": "from the policy", "median": "org median of compaction events",
-                      "default": "COMPACTION_SUMMARY_TOKENS_DEFAULT"}[self.summary_source]
+            source = "from the policy" if self.summary_source == "policy" else \
+                "COMPACTION_SUMMARY_TOKENS_DEFAULT; pass post= with the org median"
             out.append(f"summary tokens {self.summary_tokens} ({source})")
         if c.cw is not None:
             out.append(f"compaction window {c.cw[0]} tokens: ignores re-work and quality "
@@ -1618,8 +1666,9 @@ class _Run:
         if c.cr is not None:
             out.append(f"cold resume: {c.cr[0]} above {c.cr[1]} tokens (trajectory, needs_eval)")
         if c.remap:
-            out.append("model remap: price-only; tokenizer band [1.00, 1.35] between families "
-                       "(point 1.00), none for a same-tier successor (trade-off, needs_eval)")
+            out.append("model remap: price-only; tokenizer band [1.00, 1.35] from claude-legacy to "
+                       "claude-4.7+ ([1/1.35, 1.00] back), point 1.00, none for a same-tier "
+                       "successor (trade-off, needs_eval)")
         if c.effort:
             out.append("effort cap: thinking share 0.505 of output when output_reasoning is "
                        "unknown; range uses scale ± 0.25 (upper bound, needs_eval)")

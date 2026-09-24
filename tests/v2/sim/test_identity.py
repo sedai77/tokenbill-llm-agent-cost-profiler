@@ -88,7 +88,7 @@ def test_unpriced_lane_makes_totals_unpriced_but_not_the_saving() -> None:
     assert res.saving.nano is not None
     assert "excludes unpriced changed requests" in res.saving.note
     assert any("unpriced changed requests" in a for a in res.assumptions)
-    assert dict(res.per_lane)["b"] == 0
+    assert "b" not in dict(res.per_lane) and "a" in dict(res.per_lane)   # int field: omitted
     only_unknown = replay([unknown], "ttl=1h")
     assert only_unknown.saving.nano == 0
     assert only_unknown.saving.evidence is Evidence.ESTIMATED

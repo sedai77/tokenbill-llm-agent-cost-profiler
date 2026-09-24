@@ -91,13 +91,17 @@ def test_remap_selector_scopes_lanes_and_uses_the_target_minimum() -> None:
     assert (first.usage.cache_write_5m, first.usage.uncached_input) == (0, 800)
 
 
-def test_remap_is_most_specific_selector_first() -> None:
+def test_remap_first_matching_clause_in_policy_order() -> None:
     lane = table([(0, 0, 10_000, 0, 0, 1_000)], attribution=CC)
-    pol = Policy(name="x", model_remap=(("all", "claude-sonnet-5"),
-                                        ("lane_kind:main", "claude-haiku-4-5")))
+    pol = Policy(name="x", model_remap=(("lane_kind:main", "claude-haiku-4-5"),
+                                        ("all", "claude-sonnet-5")))
     res = replay(lane, pol)
     assert res.cost.nano == price(UsageBuckets(cache_write_5m=10_000, output=1_000),
                                   "claude-haiku-4-5")
+    parsed = replay(lane, "model=claude-sonnet-5;model=claude-haiku-4-5@lane_kind:main")
+    # the grammar orders repeated clauses by selector: "all" < "lane_kind:main"
+    assert parsed.cost.nano == price(UsageBuckets(cache_write_5m=10_000, output=1_000),
+                                     "claude-sonnet-5")
 
 
 # ------------------------------------------------------------------------------------ effort

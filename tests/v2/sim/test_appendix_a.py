@@ -287,19 +287,20 @@ def test_a6_compaction_window_only_on_main_lanes_with_1m_context() -> None:
     assert res.saving.nano == 0
 
 
-def test_compaction_window_summary_is_the_org_median_of_compaction_events() -> None:
+def test_compaction_window_summary_defaults_without_post() -> None:
+    """S_c is ``post=`` or the documented default; it is never derived from the lanes of one call
+    (that would make sharded and unsharded replays differ, §9.1 #6)."""
     from tokenbill.core.records import LaneEvent
 
     lane = a6_lane(lane_key="a6")
     other = table([(0, 0, 50_000, 0, 0, 100)], lane_key="with-events", attribution=CC,
                   events=[LaneEvent(lane_key="with-events", ts_ms=at(-5), kind="compaction",
-                                    attrs=(("post_tokens", pt),)) for pt in (10_000, 30_000)] + [
-                      LaneEvent(lane_key="with-events", ts_ms=at(-4), kind="compaction",
-                                attrs=(("post_tokens", 24_000),))])
+                                    attrs=(("post_tokens", 24_000),))])
     res = replay([lane, other], "compact-window=400000")
-    assert any("24000" in a and "median" in a for a in res.assumptions)
+    assert any("20283" in a and "COMPACTION_SUMMARY_TOKENS_DEFAULT" in a
+               for a in res.assumptions)
     comp = [e for o in res.outcomes or () for e in o.extra][0]
-    assert comp.usage.output == 24_000
+    assert comp.usage.output == 20_283
 
 
 def test_request_without_serving_inference_passes_through() -> None:
