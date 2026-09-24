@@ -14,7 +14,7 @@ from hypothesis import strategies as st
 
 from tokenbill.core import kanon
 from tokenbill.core.errors import UsageError
-from tokenbill.core.labels import unpriced
+from tokenbill.core.labels import Basis, unpriced
 from tokenbill.core.records import LaneKind, Request
 from tokenbill.core.registry import run_detectors
 from tokenbill.core.types import Policy
@@ -26,7 +26,9 @@ from tokenbill.detect.cache_ttl import ColdResume, TtlAdvisor, keepalive_spec, t
 from .helpers import (
     ALL_DETECTORS,
     CWD,
+    PRICER,
     ctx,
+    diag,
     event,
     fleet_saving,
     fn_replayer,
@@ -60,6 +62,23 @@ def test_evidence_kinds_are_the_spec_value_set() -> None:
     for f in findings:
         for item in f.evidence:
             assert item.kind in EVIDENCE_KINDS, (f.kind, item.kind)
+
+
+def test_billing_classes_are_table_driven() -> None:
+    """Only ``billed`` is left out of the scope, so an additive class (GitHub Copilot's ``pool``,
+    R-E20) never shares a finding id with the billed cohort of the same team and lane kind; the
+    list-equivalent classes are a table."""
+    billed = cm.Cohort(team="t", lane_kind="main", billing_class="billed", lanes=())
+    allowance = cm.Cohort(team="t", lane_kind="main", billing_class="allowance", lanes=())
+    pool = cm.Cohort(team="t", lane_kind="main", billing_class="pool", lanes=())
+    assert billed.scope_dims()["billing_class"] is None
+    assert allowance.scope_dims()["billing_class"] == "allowance"
+    assert pool.scope_dims()["billing_class"] == "pool"
+    assert billed.basis(PRICER) is Basis.LIST
+    assert allowance.basis(PRICER) is Basis.LIST_EQUIVALENT
+    assert pool.basis(PRICER) is Basis.LIST_EQUIVALENT
+    assert allowance.allowance and not pool.allowance    # "Allowance headroom:" is D26's only
+    assert cm.LIST_EQUIVALENT_CLASSES >= {"allowance", "pool"}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -349,3 +368,53 @@ def test_edit_churn_is_linear_on_a_long_lane() -> None:
     # edits at …5 and …15 … …45 of every 50: the next break is the next edit (10 later → 9
     # requests) except the edit at …45, whose next break is the clear before …50 (4 requests)
     assert dist["k_rem_p10"] == 4 and dist["k_rem_p90"] == 9
+
+
+# ---------------------------------------------------------------------------------------------
+# a team name is never cut in half (core.kanon scrubs whole tokens only)
+# ---------------------------------------------------------------------------------------------
+
+
+def _long_titles_fleet(team: str) -> list[Any]:
+    kw: dict[str, Any] = {"team": team, "billing_path": "subscription",
+                          "kind": LaneKind.WORKFLOW_AGENT}
+    lanes = [lane_a1(f"P{i}", principal=f"r_dev{i}", **kw) for i in range(5)]
+    lanes.append(lane_a2("B2", hour=True, **kw))
+    compaction = [event("CPX", 20, "compaction", trigger="auto", pre_tokens=100_000,
+                        post_tokens=25_000, duration_ms=5_000, dropped_tokens=None)]
+    lanes.append(lane("CPX", [(0, 0, 100_000, 0, 0, 500), (30, 0, 30_000, 0, 0, 500)],
+                      events=compaction, **kw))
+    rows = [(0, 0, 30_000, 0, 0, 200)]
+    over: dict[int, dict[str, Any]] = {}
+    prefix = 30_000
+    for i in range(1, 30):
+        if i in (5, 15, 25):
+            rows.append((i * 30, 0, prefix + 1_000, 0, 0, 200))
+            over[i] = {"diagnostics": diag("tools_changed")}
+        else:
+            rows.append((i * 30, prefix, 1_000, 0, 0, 200))
+        prefix = rows[-1][1] + rows[-1][2]
+    lanes.append(lane("GW", rows, gateway="corp-gateway", per_request=over, **kw))
+    return lanes
+
+
+@pytest.mark.parametrize("team", ["abcdefghij" * 4, "unattributed-" + "x" * 27])
+def test_titles_and_summaries_never_cut_a_team_name(team: str) -> None:
+    spec = ttl_spec("workflow_agent", "1h")
+
+    def fn(lane_: Any, policy: Policy) -> int:
+        if policy.spec() == spec:
+            return 3_000_000_000 if lane_.lane_key in ("P0", "P1") else -100_000_000
+        return fleet_saving(lane_, policy)
+
+    c = ctx(replayer=fn_replayer(fn), thresholds={"min_usd": "0"})
+    findings = run_detectors(_long_titles_fleet(team), c, only=list(ALL_DETECTORS))
+    kinds = {f.kind for f in findings}
+    assert {"compaction", "tool-search-disabled", "oversized-ttl", "ttl-heterogeneous",
+            "cold-fanout"} <= kinds, kinds
+    fragment = team[:10]
+    for f in findings:
+        assert len(f.title) <= 120 and len(f.summary) <= cm.SUMMARY_BUDGET
+        for text in (f.title, f.summary):
+            assert team in text or fragment not in text, text
+        assert f.title.startswith("Allowance headroom: ")

@@ -41,6 +41,7 @@ from tokenbill.core import catalog
 from tokenbill.core.errors import TokenbillError, UsageError
 from tokenbill.core.findings import (
     MAX_SUMMARY,
+    MAX_TITLE,
     build_finding,
     cohort_key,
     make_scope,
@@ -83,6 +84,15 @@ __all__ = [
 DETECTOR_VERSION = "1"
 DAY_MS = 86_400_000
 DEFAULT_TTL_S = 300
+#: The default billing class, left out of finding scopes (SPEC §10.1).
+BILLED_CLASS = "billed"
+#: The seat-allowance billing class (D26): "Allowance headroom:" titles and the list-equivalent
+#: statement in summaries.
+ALLOWANCE_CLASS = "allowance"
+#: Billing classes whose figures are list-equivalent values, never invoice dollars: the seat
+#: allowance (D26) and GitHub Copilot's pooled credits (R-E20). A table, so additive classes need
+#: no code change.
+LIST_EQUIVALENT_CLASSES = frozenset({ALLOWANCE_CLASS, "pool"})
 ALLOWANCE_TITLE = "Allowance headroom: "
 ALLOWANCE_SUMMARY = " Figures are list-equivalent, not invoice dollars."
 #: Generated summaries stay this short so ``core.kanon.rescope_findings`` can prefix its
@@ -302,19 +312,22 @@ class Cohort:
     @property
     def allowance(self) -> bool:
         """True for a seat-allowance cohort (D26)."""
-        return self.billing_class == "allowance"
+        return self.billing_class == ALLOWANCE_CLASS
 
     def basis(self, pricer: Pricer) -> Basis:
-        """LIST_EQUIVALENT for allowance cohorts, else the pricer's billed basis."""
-        if self.allowance:
+        """LIST_EQUIVALENT for the list-equivalent billing classes
+        (:data:`LIST_EQUIVALENT_CLASSES`), else the pricer's billed basis."""
+        if self.billing_class in LIST_EQUIVALENT_CLASSES:
             return Basis.LIST_EQUIVALENT
         return pricer.basis if pricer.basis in (Basis.LIST, Basis.CONTRACT) else Basis.LIST
 
     def scope_dims(self, **extra: str | None) -> dict[str, str | None]:
-        """Scope dims: team, lane kind, ``billing_class`` for allowance cohorts, plus *extra*."""
+        """Scope dims: team, lane kind, ``billing_class`` unless it is the default ``billed``
+        (so an allowance cohort — or any additive class — never shares a finding id with the
+        billed cohort of the same team and lane kind), plus *extra*."""
         dims: dict[str, str | None] = {
             "team": self.team, "lane_kind": self.lane_kind,
-            "billing_class": "allowance" if self.allowance else None}
+            "billing_class": None if self.billing_class == BILLED_CLASS else self.billing_class}
         dims.update(extra)
         return dims
 
@@ -322,19 +335,34 @@ class Cohort:
         """``"<team> <lane kind>"`` for generated text."""
         return f"{team_label(self.team)} {self.lane_kind}"
 
+    def fit(self, text: str, limit: int) -> str:
+        """*text* within *limit* chars without ever cutting a scope value: ``core.kanon`` scrubs
+        dropped scope values from generated text as whole tokens, so a team name cut in half
+        would survive re-scoping. Too long, the team is dropped from the label (the scope still
+        names it); still too long, the text is cut at a word boundary."""
+        if len(text) <= limit:
+            return text
+        label = self.label()
+        if label in text:
+            text = text.replace(label, self.lane_kind)
+            if len(text) <= limit:
+                return text
+        head = text[:limit - 1]
+        if " " in head:
+            head = head.rsplit(" ", 1)[0]
+        return head + "…"
+
     def title(self, text: str) -> str:
-        """*text* with the allowance prefix when needed, at most 120 chars."""
-        full = (ALLOWANCE_TITLE + text) if self.allowance else text
-        return full if len(full) <= 120 else full[:119] + "…"
+        """*text* with the allowance prefix when needed, at most 120 chars (see :meth:`fit`)."""
+        prefix = ALLOWANCE_TITLE if self.allowance else ""
+        return prefix + self.fit(text, MAX_TITLE - len(prefix))
 
     def summary(self, text: str, note: str = "") -> str:
         """*text*, then *note* and (for allowance cohorts) the "list-equivalent, not invoice
-        dollars" statement, within :data:`SUMMARY_BUDGET` chars: only *text* is ever shortened, so
-        the note and the allowance statement always survive."""
+        dollars" statement, within :data:`SUMMARY_BUDGET` chars: only *text* is ever shortened
+        (see :meth:`fit`), so the note and the allowance statement always survive."""
         tail = note + (ALLOWANCE_SUMMARY if self.allowance else "")
-        room = SUMMARY_BUDGET - len(tail)
-        body = text if len(text) <= room else text[:room - 1] + "…"
-        return body + tail
+        return self.fit(text, SUMMARY_BUDGET - len(tail)) + tail
 
 
 def in_view(lane: Lane, ctx: AnalysisContext) -> bool:
