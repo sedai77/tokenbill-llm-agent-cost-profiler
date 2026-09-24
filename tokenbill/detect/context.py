@@ -43,7 +43,7 @@ import dataclasses
 from bisect import bisect_right
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
-from decimal import ROUND_CEILING, ROUND_HALF_EVEN, Decimal
+from decimal import ROUND_CEILING, ROUND_HALF_EVEN, Context, Decimal
 from fractions import Fraction
 
 from tokenbill.core import catalog
@@ -606,10 +606,22 @@ def premium_family(model: str) -> bool:
     return model_family(model) in PREMIUM_FAMILIES
 
 
+#: Upper bound of every numeric threshold (tokens, seconds, counts, USD, multiples): larger
+#: values are nonsense and would only produce giant integers in generated text.
+_THRESHOLD_MAX = Decimal(2**53)
+
+
+def _bounded(ctx: AnalysisContext, key: str, default: str) -> Decimal:
+    value = threshold(ctx, key, default)
+    if abs(value) > _THRESHOLD_MAX:
+        raise UsageError(f"threshold {key}: out of range")
+    return value
+
+
 def int_threshold(ctx: AnalysisContext, key: str, default: int) -> int:
     """A non-negative integer threshold ``ctx.thresholds[key]`` (else *default*); decimals are
-    truncated toward zero, negative values raise ``UsageError``."""
-    value = threshold(ctx, key, str(default))
+    truncated toward zero; negative or absurdly large (> 2**53) values raise ``UsageError``."""
+    value = _bounded(ctx, key, str(default))
     if value < 0:
         raise UsageError(f"threshold {key}: must not be negative")
     return int(value)
@@ -625,19 +637,20 @@ def share_threshold(ctx: AnalysisContext, key: str, default: str) -> Decimal:
 
 
 def positive_threshold(ctx: AnalysisContext, key: str, default: str) -> Decimal:
-    """A threshold that must be > 0 (a multiple, a rate); otherwise ``UsageError``."""
-    value = threshold(ctx, key, default)
+    """A threshold that must be > 0 (a multiple, a rate) and ≤ 2**53; otherwise
+    ``UsageError``."""
+    value = _bounded(ctx, key, default)
     if value <= 0:
         raise UsageError(f"threshold {key}: must be positive")
     return value
 
 
 def usd_threshold_nano(ctx: AnalysisContext, key: str, default: str) -> int:
-    """A non-negative USD threshold as int nano-USD."""
-    value = threshold(ctx, key, default)
+    """A non-negative USD threshold (≤ 2**53 USD) as int nano-USD, rounded half-even once."""
+    value = _bounded(ctx, key, default)
     if value < 0:
         raise UsageError(f"threshold {key}: must not be negative")
-    return int((value * 10**9).to_integral_value(rounding=ROUND_HALF_EVEN))
+    return round_fraction(Fraction(value) * 10**9)
 
 
 def evidence_item(kind: str, ref: str, **attrs: str | int | None) -> EvidenceItem:
@@ -647,12 +660,15 @@ def evidence_item(kind: str, ref: str, **attrs: str | int | None) -> EvidenceIte
 
 
 def decimal_str(value: Fraction | Decimal | int, places: int = 1) -> str:
-    """A half-even decimal string of *value* with *places* decimals."""
+    """A half-even decimal string of *value* with *places* decimals (display only)."""
     if isinstance(value, Fraction):
         value = RATIO_CTX.divide(Decimal(value.numerator), Decimal(value.denominator))
     elif isinstance(value, int):
         value = Decimal(value)
-    return str(value.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_EVEN))
+    if not value.is_finite() or value.adjusted() > 60:
+        return str(value)
+    context = Context(prec=max(28, value.adjusted() + places + 3), rounding=ROUND_HALF_EVEN)
+    return str(value.quantize(Decimal(1).scaleb(-places), context=context))
 
 
 def pct(num: int, den: int) -> str:
