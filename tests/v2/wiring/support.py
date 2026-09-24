@@ -23,7 +23,7 @@ from tokenbill.config import Config
 from tokenbill.core.builders import make_config, make_license, make_request
 from tokenbill.core.cache_rules import RulesTable
 from tokenbill.core.errors import UsageError
-from tokenbill.core.ids import key_id, stable_id
+from tokenbill.core.ids import key_id, pseudonym
 from tokenbill.core.records import (
     Attribution,
     Fidelity,
@@ -116,8 +116,8 @@ def read_fake(path: Path, opts: IngestOptions, adapter: str, *,
     if records_key is not None:
         records = list(header.get(records_key, []))
     source = SourceInfo(
-        source_id=stable_id("s", adapter, path.name), adapter=adapter,
-        name_hmac=stable_id("h", path.name), sha256=hashlib.sha256(raw).hexdigest(),
+        source_id=pseudonym(NAME_KEY, "s", f"{adapter}:{path.name}"), adapter=adapter,
+        name_hmac=pseudonym(NAME_KEY, "h", path.name), sha256=hashlib.sha256(raw).hexdigest(),
         bytes=len(raw), name_key_id=header.get("name_key_id", opts.name_key_id or None),
         principal_key_id=header.get("principal_key_id"))
     source_adapter = header.get("source_adapter", adapter)
