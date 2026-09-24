@@ -135,6 +135,10 @@ _REVISION_NAME_RE = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})_[0-9a-f]{6,40}\Z")
 _GENERATION_RE = re.compile(r"[0-9]+(?:\.[0-9]+)*\Z")
 _CATEGORY_RE = re.compile(r"(?:^|; )category ([^;]+)")
 _PLAIN_FORBIDDEN_START = frozenset("[{|>&*!%@`")
+#: YAML white space and line breaks (never the wider Unicode sets of ``str.strip`` /
+#: ``str.splitlines``: those characters may sit inside quoted values).
+_WS = " \t"
+_LINE_BREAK_RE = re.compile(r"\r\n|\r|\n")
 _ESCAPES = {"0": "\0", "a": "\a", "b": "\b", "t": "\t", "\t": "\t", "n": "\n", "v": "\v",
             "f": "\f", "r": "\r", "e": "\x1b", " ": " ", '"': '"', "/": "/", "\\": "\\",
             "N": "\x85", "_": "\xa0", "L": "\u2028", "P": "\u2029"}
@@ -201,16 +205,16 @@ def _single_quoted(text: str, lineno: int) -> tuple[str, str]:
 
 def _scalar(raw: str, lineno: int) -> str:
     """One scalar value: quoted (with escapes) or plain (an inline ``#`` comment removed)."""
-    text = raw.strip()
+    text = raw.strip(_WS)
     if text[:1] in ("'", '"'):
         value, rest = (_single_quoted if text[0] == "'" else _double_quoted)(text, lineno)
-        rest = rest.strip()
+        rest = rest.strip(_WS)
         if rest and not rest.startswith("#"):
             raise _fail(lineno, "text after a quoted value")
         return value
     cut = re.search(r"(?:^|[ \t])#", text)
     if cut is not None:
-        text = text[:cut.start()].rstrip()
+        text = text[:cut.start()].rstrip(_WS)
     if text[:1] in _PLAIN_FORBIDDEN_START or text.startswith(("- ", "? ")) or text in ("-", "?"):
         raise _fail(lineno, "unsupported YAML syntax (only flat scalar maps are read)")
     return text
@@ -232,8 +236,8 @@ def parse_yaml_list(text: str) -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
     current: dict[str, str] | None = None
     column: int | None = None
-    for lineno, raw in enumerate(text.splitlines(), 1):
-        line = raw.rstrip()
+    for lineno, raw in enumerate(_LINE_BREAK_RE.split(text), 1):
+        line = raw.rstrip(_WS)
         body = line.lstrip(" ")
         if not body or body.startswith("#") or (line in ("---", "...")):
             continue
@@ -263,7 +267,7 @@ def parse_yaml_list(text: str) -> list[dict[str, str]]:
         key, value = m.group(1), m.group(2)
         if key in current:
             raise _fail(lineno, "duplicate key in an item")
-        current[key] = "" if value is None or not value.strip() else _scalar(value, lineno)
+        current[key] = "" if value is None or not value.strip(_WS) else _scalar(value, lineno)
     return items
 
 
