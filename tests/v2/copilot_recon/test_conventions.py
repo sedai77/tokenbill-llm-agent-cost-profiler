@@ -1,4 +1,5 @@
-"""L1 convention decision (the power rule, addendum §12 L1, §12.1) and the per-file decision keys."""
+"""L1 convention decision (the power rule, addendum §12 L1, §12.1) and the per-file decision
+keys."""
 
 from __future__ import annotations
 

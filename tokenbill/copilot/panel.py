@@ -4,15 +4,16 @@ prices (addendum §13; SPEC §13.1, R8; CP-RECON).
 :func:`build_copilot_panel` is the extension's ``panel_builder`` (``measure --panel copilot`` via
 ``core.extensions.panel``). It returns ``PanelRow``s that VERIFY's estimators consume unchanged:
 
-* **Costs.** Report tokens of every AI-credit cell (``core.pool.build_cells``, day grain) are repriced
-  at the pre-registered **baseline** card (``cost_baseline_nano``, R8) and at the **actual** card
-  (``cost_actual_nano``, for the EXACT rate variance), with the point rates of each card's
-  ``Pricer.unit_rates`` (base rates with modifiers; cells sum many requests, so never a
+* **Costs.** Report tokens of every AI-credit cell (``core.pool.build_cells``, day grain) are
+  repriced at the pre-registered **baseline** card (``cost_baseline_nano``, R8) and at the
+  **actual** card (``cost_actual_nano``, for the EXACT rate variance), with the point rates of each
+  card's ``Pricer.unit_rates`` (base rates with modifiers; cells sum many requests, so never a
   long-context band). The token convention of each AI usage report file is the one
   :mod:`tokenbill.copilot.recon` decides with the actual card (``excl`` when undecidable, R-E46).
   Pseudo cells (code review, cloud agent, …) enter at their reported gross in both columns; a
-  cell a card cannot price counts 0 in that column (as VERIFY's panel does); legacy premium-request
-  cells are not token usage and are left out. The unit is list-equivalent Copilot credits (nano-USD).
+  cell a card cannot price counts 0 in that column (as VERIFY's panel does); legacy
+  premium-request cells are not token usage and are left out. The unit is list-equivalent Copilot
+  credits (nano-USD).
 * **Clusters.** ``cluster_kind`` ``team`` (default), ``cost_center`` or ``org``: the cell's team,
   cost center or organization; cells without one are outside every cluster.
 * **Active developer-days** = distinct principals with an ``ActivityDay`` that day in the cluster
@@ -34,11 +35,11 @@ import datetime as _dt
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 
+from tokenbill.copilot import recon as _recon
 from tokenbill.core import pool as _pool
 from tokenbill.core.errors import UsageError
 from tokenbill.core.protocols import ExtRecordStore, LedgerStore, Pricer
 from tokenbill.core.types import PanelRow
-from tokenbill.copilot import recon as _recon
 
 __all__ = ["CLUSTER_KINDS", "CONTROL_ARMS", "build_copilot_panel"]
 

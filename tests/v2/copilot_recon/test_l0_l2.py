@@ -1,4 +1,5 @@
-"""L0 parity with provider estimates (Appendix C.G11) and L2 token coverage (addendum §12 L0, L2)."""
+"""L0 parity with provider estimates (Appendix C.G11) and L2 token coverage (addendum §12 L0,
+L2)."""
 
 from __future__ import annotations
 
@@ -177,3 +178,15 @@ def test_ledger_without_report_data() -> None:
                                   "github_actions": "reconciled",
                                   "github_sandbox": "insufficient_data"}
     assert report.verdict == "not_reconciled"
+
+
+def test_ledger_days_the_lagging_report_does_not_cover_are_no_over_count() -> None:
+    store, rs = w.world()
+    _report(store)
+    w.ingest(store, requests=[w.request("l1", 0, DATE, LEDGER_USAGE),
+                              w.request("l1", 1, "2026-09-28", LEDGER_USAGE)],
+             adapter="copilot-otel", source_id="otel")
+    report = w.reconcile(store, rs, today="2026-09-30")
+    assert [dict(r.key)["date"] for r in w.rows_of(report, layer="L2")] == [DATE]
+    assert report.over_count_rows == 0
+    assert w.verdicts(report)["github_copilot"] == "reconciled"

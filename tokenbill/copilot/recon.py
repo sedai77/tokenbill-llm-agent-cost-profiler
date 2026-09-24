@@ -30,12 +30,15 @@ deterministic output (rows sorted by key; inputs may come in any order).
   pricer's point rates with modifiers (``Pricer.unit_rates``; base rates, never the long-context
   band, because cells sum many requests) vs Σ gross, under both conventions. **Power rule** per
   file: the convention is decided only when Σ(read + write) ≥ 5% of Σ input over the deciding cells
-  (direct routing, not pseudo, not on a rate boundary, gross > 0), a strict majority of the file's
-  model-days fits the winner within ``tolerance_pct`` and a strict majority of them misses the
-  other by more than 2 × ``tolerance_pct``; else ``undecidable`` (``dq.copilot_convention_undecidable``;
-  its L1 rows are computed under ``excl`` per R-E46 and are excluded from the verdict — the channel is
-  at best reconciled on totals). A model-day "fits" when ``|gap| ≤ tolerance_pct × gross`` or
-  ``|gap| ≤`` :data:`ROW_SLACK_NANO` × report rows (credits carry 6 decimals, VERIFY §19.5 #6).
+  (not pseudo, not on a rate boundary, gross > 0), a strict majority of the file's model-days
+  (date × model × org) fits the winner within ``tolerance_pct`` and a strict majority of them
+  misses the other by more than 2 × ``tolerance_pct`` — a model-day fits when one of its price
+  variants (as configured; Auto without its 10%; compliance toggled) is within tolerance, and
+  misses when every variant is off by more; else ``undecidable``
+  (``dq.copilot_convention_undecidable``: its L1 rows are computed under ``excl`` per R-E46 and are
+  excluded from the verdict unless the file has no cache tokens at all, so the channel is at best
+  reconciled on totals). Within tolerance means ``|gap| ≤ tolerance_pct × gross`` or ``|gap| ≤``
+  :data:`ROW_SLACK_NANO` × report rows (credits carry 6 decimals, VERIFY §19.5 #6).
   Days within ±2 of a K-dated rate change of the cell's model (``core.facts.copilot_rates()``) are
   ``copilot_rate_boundary`` and excluded from the test; Auto rows at list (−10%), compliance
   (+10%), long-context models with a positive gap of at most the band (≤ 2 × base) and utility
@@ -55,7 +58,8 @@ deterministic output (rows sorted by key; inputs may come in any order).
   (``copilot_seat_proration``; ``copilot_seat_contract`` for volume / azure billing); Actions lines
   vs runner rates and the summary's Actions SKUs (the Copilot share may not exceed the SKU total) →
   ``github_actions``; sandbox lines vs the summary → ``github_sandbox``; the revision check (the
-  latest coverage aggregate of a day vs Σ current rows of that day) → ``copilot_revision_stale_rows``.
+  latest coverage aggregate of a day vs Σ current rows of that day) →
+  ``copilot_revision_stale_rows``.
 * **Plan fit** (owner answer 2): for an entity-month whose plan is unknown (two scenario pool
   months), closed and final: pooled discount above the Business pool (beyond tolerance), or pooled
   use above it with overage net 0 → ``enterprise``; overage net > 0 while use is below the
@@ -65,7 +69,8 @@ deterministic output (rows sorted by key; inputs may come in any order).
 **Sources (decision keys).** The ``<source_id>`` of ``convention:`` is the ``source`` dim of the
 file's ``github.ai_usage_report.coverage`` aggregates; a report day belongs to the source whose
 coverage aggregate for that day was fetched last (ties: the larger id); days without a coverage
-aggregate belong to :data:`FALLBACK_SOURCE_ID` (see ``tests/v2/copilot_recon/CONTRACT-CHANGE-CP-RECON-1.md``).
+aggregate belong to :data:`FALLBACK_SOURCE_ID` (see
+``tests/v2/copilot_recon/CONTRACT-CHANGE-CP-RECON-1.md``).
 
 **Rows and residuals.** ``ReconRow.key`` pairs start with ``layer`` (L0 | L1 | L2 | L3) and
 ``check``. For L0 rows ``priced_provider_nano`` carries the provider *estimate* (nano-AIU), never an
@@ -126,8 +131,8 @@ from tokenbill.core.types import (
     ChannelVerdict,
     DataQualityNote,
     PoolMonth,
-    ReconciliationReport,
     PricedInference,
+    ReconciliationReport,
     ReconRow,
     ResolvedRates,
     UnitRates,
@@ -278,22 +283,13 @@ def _nearest_rank(values: Sequence[Decimal], num: int, den: int) -> Decimal:
 
 
 def _credits_nano(quantity: str | None) -> int | None:
-    if quantity is None:
-        return None
-    try:
-        return credits_str_to_nano(quantity)[0]
-    except (ValueError, TypeError, ArithmeticError):
-        return None
+    """Credits (a validated ``CostLine.quantity`` decimal string) → nano-USD, None when absent."""
+    return None if quantity is None else credits_str_to_nano(quantity)[0]
 
 
 def _decimal_or_none(text: str | None) -> Decimal | None:
-    if text is None:
-        return None
-    try:
-        d = Decimal(text)
-    except InvalidOperation:
-        return None
-    return d if d.is_finite() else None
+    """A validated ``CostLine.quantity`` as a ``Decimal`` (None when absent)."""
+    return None if text is None else Decimal(text)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -801,7 +797,8 @@ def _l0_class(pricer: Pricer, inf: Inference, ts: int, priced: PricedInference
                     and (inf.usage.total_input > threshold) != (ctx.context_tier == "long_context"))
 
     def alt(**kw: object) -> int | None:
-        return pricer.price_inference(replace(inf, pricing=replace(ctx, **kw)), ts_ms=ts).figure.nano
+        alt_inf = replace(inf, pricing=replace(ctx, **kw))
+        return pricer.price_inference(alt_inf, ts_ms=ts).figure.nano
 
     write_1h = alt(write_ttl_hint="1h") if inf.usage.cache_write_unknown else None
     if abs(provider - point) <= tol:
@@ -904,20 +901,25 @@ def _l0_l2(ledger: LedgerStore, pricer: Pricer, since_ms: int, until_ms: int, st
 
 def _l2(pcells: Sequence[_PCell], decisions: Mapping[str, _Decision],
         ledger_tokens: Mapping[tuple[str, str, str], int],
-        utility: Mapping[tuple[str, str, str], int], st: _Ctx) -> tuple[int, int, int]:
-    """L2 rows; returns (over-count rows, Σ ledger tokens, Σ report tokens)."""
+        utility: Mapping[tuple[str, str, str], int], covered: set[str], st: _Ctx
+        ) -> tuple[int, int, int]:
+    """L2 rows over the report's *covered* days (days with report rows or a coverage aggregate;
+    under ``closed_only`` without provisional rows) — ledger days the report does not cover yet
+    (the report lags) are no over-count. Returns (over-count rows, Σ ledger, Σ report tokens)."""
     report: dict[tuple[str, str, str], list[int]] = defaultdict(lambda: [0, 0])
+    days = set(covered)
     for pc in pcells:
         c = pc.cell
-        if st.closed_only and not c.final:
-            continue
         date = c.date_utc or f"{c.month}-01"
+        days.add(date)
         key = (date, c.team or "", c.model)
         r = report[key]
         r[0] += _report_tokens(c.usage, decisions[pc.source].used)
         r[1] += c.gross_nano
+    if st.closed_only:
+        days -= {pc.cell.date_utc or "" for pc in pcells if not pc.cell.final}
     over = led_total = rep_total = 0
-    for key in sorted(set(report) | set(ledger_tokens)):
+    for key in sorted(k for k in set(report) | set(ledger_tokens) if k[0] in days):
         date, team, model = key
         rep, gross = report.get(key, [0, 0])
         led = ledger_tokens.get(key, 0)
@@ -940,6 +942,8 @@ def _l2(pcells: Sequence[_PCell], decisions: Mapping[str, _Decision],
                             provider_tokens=rep, invoice_nano=gross, coverage_pct=_pct(led, rep)))
     for key, n in sorted(utility.items()):
         date, team, model = key
+        if date not in days:
+            continue
         st.gaps[_COPILOT].append(_Gap("copilot_utility_unbilled", 0, gate=False))
         st.rows.append(_row([("layer", "L2"), ("check", "utility"), ("channel", _COPILOT),
                              ("month", date[:7]), ("date", date), ("team", team),
@@ -1129,9 +1133,11 @@ def _summaries(inp: _In, stale: Mapping[str, int], rounding: int, st: _Ctx) -> s
                 st.rows.append(_row(key, status=status, priced_nano=o, invoice_nano=r,
                                     coverage_pct=None if r is None else _pct(o, r)))
             continue
+        # an open month's summary and rows are both still moving: all of its gap is revision
+        # window; a closed month only has its provisional rows to revise
         provisional = sum(c.amount_nano for c in ours if c.finality != "final")
-        budgets = [("revision_window", abs(provisional) if provisional or
-                    not st.month_closed(month) else 0, 0),
+        window = abs(gap) if not st.month_closed(month) else abs(provisional)
+        budgets = [("revision_window", window, 0),
                    ("copilot_revision_stale_rows", stale.get(month, 0), -1)]
         if scope != "enterprise":
             unattributed = sum(c.amount_nano for c in lines_by.get((month, product), [])
@@ -1506,7 +1512,8 @@ def reconcile_copilot(ledger: LedgerStore, record_stores: Sequence[ExtRecordStor
     over = 0
     token_cov = dollar_cov = None
     if ledger_seen:
-        over, led_total, rep_total = _l2(pcells, decisions, ledger_tokens, utility, st)
+        covered = {_date_of_ms(a.bucket_start_ms) for a in inp.coverage}
+        over, led_total, rep_total = _l2(pcells, decisions, ledger_tokens, utility, covered, st)
         token_cov = _pct(led_total, rep_total)
         report_gross = sum(pc.cell.gross_nano for pc in pcells)
         dollar_cov = _pct(ledger_nano, report_gross)
@@ -1627,9 +1634,9 @@ def report_notes(report: ReconciliationReport) -> tuple[DataQualityNote, ...]:
     unverified = [v.channel for v in report.channels
                   if not v.mapping_verified and v.verdict != "insufficient_data"]
     if unverified:
+        detail = "synthetic; schema unverified: " + ", ".join(unverified)
         notes.append(DataQualityNote(code=DQ_RECON_SCHEMA_UNVERIFIED, severity="warn",
-                                     count=len(unverified),
-                                     detail="synthetic; schema unverified: " + ", ".join(unverified)))
+                                     count=len(unverified), detail=detail))
     undecidable = sum(1 for k, v in report.decisions
                       if k.startswith("convention:") and v == "undecidable")
     if undecidable:
