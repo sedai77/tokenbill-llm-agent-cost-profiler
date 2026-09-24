@@ -475,6 +475,8 @@ def _keepalive_lane(rnd: random.Random, key: str, skey: str) -> Lane:
     params: dict[str, Any] = {}
     product = "agent_sdk"
     kind = LaneKind.API_RUN
+    if x >= 0.97:   # an OpenAI agent lane: keepalive (Anthropic's mechanism) must skip it
+        return _openai_lane(rnd, key, skey)
     if x < 0.12:
         product, kind = "claude_code", LaneKind.MAIN
     elif x < 0.17:

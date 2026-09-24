@@ -19,7 +19,9 @@ and, when anything in the lane is range-sensitive, as a **low** scenario (ambigu
 alive, low tokenizer band, effort scale ``s − 0.25``, batch hit band 0.98) and a **high** scenario
 (ambiguous transitions expired, high band, ``s + 0.25``, hit band 0.30). A request's cost is the
 point scenario's point; its bounds span every scenario's priced bounds, so ``low ≤ point ≤ high``
-always holds. The readings of SPEC text that the SPEC leaves open are listed (O-1 … O-17) in
+always holds. The saving is computed per request, then summed: an unchanged request saves
+exactly 0, a changed one ``observed − policy`` with its ranges crosswise (§3.5, §9.1 #1). The
+readings of SPEC text that the SPEC leaves open are listed (O-1 … O-19) in
 ``tests/v2/synth_oracle/CONTRACT-CHANGE-SYNTH-ORACLE-1.md``.
 """
 
@@ -617,9 +619,15 @@ class ReferenceReplay:
 
     @staticmethod
     def _keepalive_block(lane: Lane) -> str | None:
-        """Why keepalive cannot run on *lane* (§9.3.2), or None."""
+        """Why keepalive cannot run on *lane* (§9.3.2), or None. The mechanism is Anthropic's
+        (5m TTL measured from the request start, ``max_tokens: 0`` pings), so other providers are
+        skipped like TTL policies are (§9.3.1): there a ping would only add cost."""
         if lane.requests and lane.requests[0].attribution.agent_product == "claude_code":
             return "keepalive not allowed for claude_code"
+        first = next((r.serving_inference for r in lane.requests
+                      if r.serving_inference is not None), None)
+        if first is not None and first.pricing.provider != "anthropic":
+            return "keepalive applies to Anthropic channels only"
         for req in lane.requests:
             p = req.params
             si = req.serving_inference

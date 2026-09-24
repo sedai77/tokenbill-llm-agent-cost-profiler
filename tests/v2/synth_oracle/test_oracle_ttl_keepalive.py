@@ -229,3 +229,18 @@ def test_keepalive_lane_ignores_a_ttl_clause_and_selectors_apply() -> None:
     assert res.outcomes is not None and res.outcomes[0].usage.cache_write_5m == 100_000
     other = replay([_sdk(rows)], "keepalive=240s@agent_product:api")
     assert other.keepalive_pings == 0 and other.lanes_skipped == ()
+
+
+def test_keepalive_skips_non_anthropic_lanes() -> None:
+    # §9.3.2 is Anthropic's 5m-TTL mechanism (like TTL policies, §9.3.1): an OpenAI lane (1800 s
+    # cache measured from the last use, no TTL-expiry misses to flip) would only pay for pings
+    sdk = {"agent_product": "agent_sdk"}
+    oa = lane_of([req("Loa", 0, 0, {"uncached_input": 20_000, "output": 10}, "gpt-5.6-sol",
+                      attribution=sdk),
+                  req("Loa", 1, 900, {"uncached_input": 1_000, "cache_read": 19_456,
+                                      "output": 10}, "gpt-5.6-sol", attribution=sdk)],
+                 kind=LaneKind.API_RUN, scope="org:openai_api:a")
+    res = replay([oa], "keepalive=240s")
+    assert res.lanes_skipped == (("Loa", "keepalive applies to Anthropic channels only"),)
+    assert res.keepalive_pings == 0 and res.saving.nano == 0
+    assert all(not o.changed and o.extra == () for o in res.outcomes or ())
