@@ -95,16 +95,19 @@ def nano(usd: Decimal) -> int:
     return int((usd * 10**9).quantize(Decimal(1), rounding=ROUND_HALF_EVEN))
 
 
-def dump_json(path: Path, obj: object) -> None:
+def write_text(path: Path, text: str) -> None:
+    """UTF-8 with LF line endings on every platform (byte-identical fixtures)."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-                    encoding="utf-8")
+    path.write_bytes(text.encode("utf-8"))
+
+
+def dump_json(path: Path, obj: object) -> None:
+    write_text(path, json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
 
 
 def dump_jsonl(path: Path, objs: list[object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(o, sort_keys=True, separators=(",", ":")) + "\n"
-                            for o in objs), encoding="utf-8")
+    write_text(path, "".join(json.dumps(o, sort_keys=True, separators=(",", ":")) + "\n"
+                             for o in objs))
 
 
 def write_gz(path: Path, data: bytes) -> None:
@@ -888,22 +891,20 @@ def main() -> None:
 
     ou, oue, oc, oce = build_openai()
     dump_json(HERE / "openai" / "usage_completions_2026-09.json", ou)
-    (HERE / "openai" / "costs_2026-09.json").write_text(
-        _dumps_decimal(oc) + "\n", encoding="utf-8")
+    write_text(HERE / "openai" / "costs_2026-09.json", _dumps_decimal(oc) + "\n")
     entry("openai/usage_completions_2026-09.json", "openai-usage-buckets", "openai", "openai",
           oue)
     entry("openai/costs_2026-09.json", "openai-costs", "openai", "openai", oce)
 
     cur_csv, cur_exp = build_cur()
     (HERE / "cloud").mkdir(parents=True, exist_ok=True)
-    (HERE / "cloud" / "cur2_bedrock_2026-09.csv").write_text(cur_csv, encoding="utf-8")
+    write_text(HERE / "cloud" / "cur2_bedrock_2026-09.csv", cur_csv)
     write_gz(HERE / "cloud" / "cur2_bedrock_2026-09.csv.gz", cur_csv.encode("utf-8"))
     for rel in ("cloud/cur2_bedrock_2026-09.csv", "cloud/cur2_bedrock_2026-09.csv.gz"):
         entry(rel, "aws-cur", "cloud", "cur", cur_exp)
     gcp_rows, gcp_csv, gcp_exp = build_gcp()
-    (HERE / "cloud" / "gcp_billing_2026-09.jsonl").write_text(gcp_jsonl(gcp_rows),
-                                                              encoding="utf-8")
-    (HERE / "cloud" / "gcp_billing_2026-09.csv").write_text(gcp_csv, encoding="utf-8")
+    write_text(HERE / "cloud" / "gcp_billing_2026-09.jsonl", gcp_jsonl(gcp_rows))
+    write_text(HERE / "cloud" / "gcp_billing_2026-09.csv", gcp_csv)
     for rel in ("cloud/gcp_billing_2026-09.jsonl", "cloud/gcp_billing_2026-09.csv"):
         entry(rel, "gcp-billing", "cloud", "gcp", gcp_exp)
 

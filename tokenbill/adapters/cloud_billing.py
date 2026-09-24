@@ -283,7 +283,8 @@ class AwsCurAdapter:
         for i, f in enumerate(ctx.files):
             for loc, row in iter_csv(ctx, f, i, CUR_ALIASES):
                 try:
-                    self._row(ctx, row, unmapped)
+                    if self._row(ctx, row, unmapped):
+                        ctx.stat("records")
                 except BadRecord as exc:
                     ctx.quarantine(loc, exc.reason)
         if unmapped[0]:
@@ -292,17 +293,17 @@ class AwsCurAdapter:
                      unmapped[0], unmapped[1])
         return ctx.result(self.capabilities)
 
-    def _row(self, ctx: ReadContext, row: Mapping[str, str], unmapped: list[int]) -> None:
+    def _row(self, ctx: ReadContext, row: Mapping[str, str], unmapped: list[int]) -> bool:
+        """Record one CUR row; False when the row is skipped (not Bedrock, tax)."""
         code = _text(row.get("line_item_product_code"))
         usage_type = _text(row.get("line_item_usage_type"))
         if code not in CUR_PRODUCT_CODES and "anthropic" not in usage_type.lower():
             ctx.stat("rows_skipped_not_bedrock")
-            return
+            return False
         line_type = _text(row.get("line_item_line_item_type"))
         if line_type in CUR_SKIPPED_LINE_TYPES:
             ctx.stat("rows_skipped_tax")
-            return
-        ctx.stat("records")
+            return False
         if not usage_type:
             raise BadRecord("missing:line_item_usage_type")
         start = ts_ms(_text(row.get("line_item_usage_start_date")) or None,
@@ -374,6 +375,7 @@ class AwsCurAdapter:
                      token_type=rule.bucket if rule else None, sku=sku,
                      service_tier=rule.service_tier if rule else None,
                      endpoint_scope=rule.endpoint_scope if rule else None, principal=principal)
+        return True
 
 
 # ---------------------------------------------------------------------------------------------
@@ -476,7 +478,8 @@ class GcpBillingExportAdapter:
                 if row is None:
                     continue
                 try:
-                    self._row(ctx, row, state)
+                    if self._row(ctx, row, state):
+                        ctx.stat("records")
                 except BadRecord as exc:
                     ctx.quarantine(loc, exc.reason)
         unmapped = state["unmapped"]
@@ -506,7 +509,8 @@ class GcpBillingExportAdapter:
             return
         yield from iter_csv(ctx, path, file_index, {})
 
-    def _row(self, ctx: ReadContext, row: Mapping[str, Any], state: dict[str, Any]) -> None:
+    def _row(self, ctx: ReadContext, row: Mapping[str, Any], state: dict[str, Any]) -> bool:
+        """Record one billing-export row; False when skipped (not Claude, tax)."""
         sku_id = label(gcp_get(row, "sku.id"), "sku.id", max_len=256)
         sku_desc = description(gcp_get(row, "sku.description"))
         rule = catalog.map_sku(self.source_kind, sku_id) if sku_id else None
@@ -514,12 +518,11 @@ class GcpBillingExportAdapter:
             rule = None
         if "claude" not in sku_desc.lower() and rule is None:
             ctx.stat("rows_skipped_not_claude")
-            return
+            return False
         cost_type = label(gcp_get(row, "cost_type"), "cost_type") or ""
         if cost_type.lower() in GCP_SKIPPED_COST_TYPES:
             ctx.stat("rows_skipped_tax")
-            return
-        ctx.stat("records")
+            return False
         start = ts_ms(_str_or_none(gcp_get(row, "usage_start_time")), "usage_start_time")
         day = date_of(start)
         project = ctx.name(_str_or_none(gcp_get(row, "project.id")), "project.id")
@@ -572,6 +575,7 @@ class GcpBillingExportAdapter:
                      description=sku_desc, model=model, cost_type=cost_type or None,
                      token_type=rule.bucket if rule else None, sku=sku_id,
                      service_tier=rule.service_tier if rule else None, endpoint_scope=scope)
+        return True
 
     @staticmethod
     def _tokens(ctx: ReadContext, row: Mapping[str, Any], rule: catalog.SkuRule | None

@@ -7,6 +7,7 @@ import ast
 import gzip
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from decimal import Decimal
@@ -261,7 +262,7 @@ def test_deterministic_across_processes() -> None:
         "    out.update(result_json(read(e['adapter'], fixture(e['path']))).encode())\n"
         "print(out.hexdigest())\n")
     digests = {subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
-                              check=True, env={"PYTHONHASHSEED": seed},
+                              check=True, env={**os.environ, "PYTHONHASHSEED": seed},
                               cwd=REPO).stdout.strip() for seed in ("1", "2")}
     assert len(digests) == 1 and len(next(iter(digests))) == 64
 

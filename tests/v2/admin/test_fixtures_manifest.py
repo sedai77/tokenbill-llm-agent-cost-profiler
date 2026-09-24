@@ -4,6 +4,7 @@ without importing tokenbill. Also: the fixtures ingest into the foundation Memor
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -45,9 +46,12 @@ def test_build_script_reproduces_fixtures(tmp_path: Path) -> None:
     (root / "tokenbill" / "core").mkdir(parents=True)
     shutil.copy(REPO / "tokenbill" / "core" / "facts.json", root / "tokenbill" / "core")
     subprocess.run([sys.executable, str(target / "build_fixtures.py")], check=True,
-                   capture_output=True, env={"PYTHONHASHSEED": "0"}, cwd=tmp_path)
+                   capture_output=True, env={**os.environ, "PYTHONHASHSEED": "0"}, cwd=tmp_path)
     for rel in [*_data_files(), "MANIFEST.json"]:
-        assert (target / rel).read_bytes() == (FIXTURES / rel).read_bytes(), rel
+        built, checked_in = (target / rel).read_bytes(), (FIXTURES / rel).read_bytes()
+        if not rel.endswith(".gz"):  # a Windows checkout may have converted LF to CRLF
+            built, checked_in = (x.replace(b"\r\n", b"\n") for x in (built, checked_in))
+        assert built == checked_in, rel
 
 
 @pytest.mark.parametrize("entry", MANIFEST["files"], ids=lambda e: e["path"])
