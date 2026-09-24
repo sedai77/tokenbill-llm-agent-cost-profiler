@@ -46,6 +46,7 @@ from __future__ import annotations
 import dataclasses
 import datetime as _dt
 import math
+import types
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from decimal import Decimal, InvalidOperation
@@ -121,7 +122,7 @@ def _alts(*sets: Iterable[str]) -> tuple[frozenset[str], ...]:
 #: Inputs each kind needs (alternatives, any-of: a kind runs when every input of one alternative is
 #: present). Input names: ``pools``, ``plans``, ``licenses``, ``seat_counts``, ``activity``,
 #: ``cost_lines``, ``budgets``, ``cost_centers``, ``org_settings``. ``plan-status`` needs nothing.
-KIND_REQUIRES: Mapping[str, tuple[frozenset[str], ...]] = {
+KIND_REQUIRES: Mapping[str, tuple[frozenset[str], ...]] = types.MappingProxyType({
     "plan-status": _alts(()),
     "pool-regime": _alts({"pools"}),
     "overage-forecast": _alts({"pools"}),
@@ -138,7 +139,7 @@ KIND_REQUIRES: Mapping[str, tuple[frozenset[str], ...]] = {
     "budget-org-multi-org-seats": _alts({"budgets", "licenses"}),
     "budget-no-cost-center-pool": _alts({"cost_centers", "pools", "cost_lines", "licenses"}),
     "budget-enterprise-misread": _alts({"budgets", "plans"}),
-}
+})
 
 #: ``last_activity_bucket`` values of an idle seat (no activity in the last 30 days).
 IDLE_BUCKETS = ("31-90", "none_90d")
@@ -166,7 +167,7 @@ _PLAN_MIX_MONTHS = 3
 _PLAN_MIX_MIN_MONTHS = 2
 _ASSIGNMENTS = ("removable", "team", "auto", "unknown")
 
-_REFS: Mapping[str, tuple[str, ...]] = {
+_REFS: Mapping[str, tuple[str, ...]] = types.MappingProxyType({
     "plan-status": ("copilot-billing/F1", "copilot-billing/F11", "addendum/R17"),
     "pool-regime": ("copilot-billing/F2", "copilot-cost-levers/F3", "addendum/R11"),
     "overage-forecast": ("copilot-billing/F8", "copilot-billing/F9", "addendum/R11"),
@@ -184,7 +185,7 @@ _REFS: Mapping[str, tuple[str, ...]] = {
     "budget-no-cost-center-pool": ("copilot-billing/F9", "copilot-billing/F22"),
     "budget-enterprise-misread": ("copilot-cost-levers/F7", "copilot-billing/F9"),
     "dq.skipped-kinds": ("dq.skipped-kinds",),
-}
+})
 _NO_FIX = "No mechanical fix"
 
 
