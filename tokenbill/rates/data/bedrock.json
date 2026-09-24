@@ -1,0 +1,905 @@
+{
+ "schema": "tokenbill/rates@1",
+ "provider": "anthropic",
+ "as_of": "2026-09-24",
+ "notes": "Amazon Bedrock at global-endpoint prices (us-east-1 unit map published 2026-09-22); regional and geo profiles +10% via bedrock.endpoint.regional",
+ "rows": [
+  {
+   "row_id": "anthropic/bedrock/claude-opus-5-5/2026-09-22",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-opus-5-5",
+   "aliases": [],
+   "generation": "5.5",
+   "effective_from": "2026-09-22",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "4.00",
+    "output": "20.00"
+   },
+   "multipliers": {
+    "cache_read": "0.05",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.20",
+    "cache_write_5m": "5.00",
+    "cache_write_1h": "8.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-cache-semantics"
+    }
+   ],
+   "notes": "global price listed in the Bedrock 'Global cross-region inference' table; batch not listed; effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-fable-5-1/2026-09-01",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-fable-5-1",
+   "aliases": [],
+   "generation": "5.1",
+   "effective_from": "2026-09-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "multipliers": {
+    "cache_read": "0.025",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.25",
+    "cache_write_5m": "12.50",
+    "cache_write_1h": "20.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-cache-semantics"
+    }
+   ],
+   "notes": "global price = the listed geo/in-region price / 1.1 (Anthropic's documented 10% regional premium; the Bedrock page lists only the regional price); batch not listed; effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-mythos-5-1/2026-09-01",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-mythos-5-1",
+   "aliases": [],
+   "generation": "5.1",
+   "effective_from": "2026-09-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "multipliers": {
+    "cache_read": "0.025",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.25",
+    "cache_write_5m": "12.50",
+    "cache_write_1h": "20.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-cache-semantics"
+    }
+   ],
+   "notes": "global price = the listed geo/in-region price / 1.1 (Anthropic's documented 10% regional premium; the Bedrock page lists only the regional price); batch not listed; effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-opus-5/2026-07-24",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-opus-5",
+   "aliases": [],
+   "generation": "5",
+   "effective_from": "2026-07-24",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-23",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-modifiers-geo-fast-priority"
+    }
+   ],
+   "notes": "global endpoint prices (SPEC §19.6: input $5.00 global vs $5.50 regional, read $0.50 vs $0.55, 1h write $10 vs $11); output $25 and the 512-token minimum were not re-checked on the Bedrock page (JS-rendered; claude-opus-5 absent from the AmazonBedrockFoundationModels offer file of 2026-09-22)"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-sonnet-5/2026-06-30",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-sonnet-5",
+   "aliases": [],
+   "generation": "5",
+   "effective_from": "2026-06-30",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "2.00",
+    "output": "10.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.20",
+    "cache_write_5m": "2.50",
+    "cache_write_1h": "4.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-cache-semantics"
+    }
+   ],
+   "notes": "global price = the listed geo/in-region price / 1.1 (Anthropic's documented 10% regional premium; the Bedrock page lists only the regional price); batch not listed; effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-fable-5/2026-06-09",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-fable-5",
+   "aliases": [],
+   "generation": "5",
+   "effective_from": "2026-06-09",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "1.00",
+    "cache_write_5m": "12.50",
+    "cache_write_1h": "20.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-cache-semantics"
+    }
+   ],
+   "notes": "global price = the listed geo/in-region price / 1.1 (Anthropic's documented 10% regional premium; the Bedrock page lists only the regional price); batch not listed; effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-mythos-5/2026-06-09",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-mythos-5",
+   "aliases": [],
+   "generation": "5",
+   "effective_from": "2026-06-09",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "1.00",
+    "cache_write_5m": "12.50",
+    "cache_write_1h": "20.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-cache-semantics"
+    }
+   ],
+   "notes": "global price = the listed geo/in-region price / 1.1 (Anthropic's documented 10% regional premium; the Bedrock page lists only the regional price); batch not listed; effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-opus-4-8/2026-05-28",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-opus-4-8",
+   "aliases": [],
+   "generation": "4.8",
+   "effective_from": "2026-05-28",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-cache-semantics"
+    }
+   ],
+   "notes": "global price = the listed geo/in-region price / 1.1 (Anthropic's documented 10% regional premium; the Bedrock page lists only the regional price); batch not listed; effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-opus-4-7/2026-04-16",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-opus-4-7",
+   "aliases": [],
+   "generation": "4.7",
+   "effective_from": "2026-04-16",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 4096,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-cache-semantics"
+    }
+   ],
+   "notes": "global price = the listed geo/in-region price / 1.1 (Anthropic's documented 10% regional premium; the Bedrock page lists only the regional price); batch not listed; effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-sonnet-4-6/2026-02-17",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-sonnet-4-6",
+   "aliases": [],
+   "generation": "4.6",
+   "effective_from": "2026-02-17",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "3.00",
+    "output": "15.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.30",
+    "cache_write_5m": "3.75",
+    "cache_write_1h": "6.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-cache-semantics"
+    }
+   ],
+   "notes": "global price listed in the Bedrock 'Global cross-region inference' table; effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-opus-4-6/2026-02-05",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-opus-4-6",
+   "aliases": [],
+   "generation": "4.6",
+   "effective_from": "2026-02-05",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 4096,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-cache-semantics"
+    }
+   ],
+   "notes": "global price listed in the Bedrock 'Global cross-region inference' table; effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-opus-4-5/2025-11-24",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-opus-4-5",
+   "aliases": [],
+   "generation": "4.5",
+   "effective_from": "2025-11-24",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 4096,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-cache-semantics"
+    }
+   ],
+   "notes": "global price listed in the Bedrock 'Global cross-region inference' table; effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-haiku-4-5/2025-10-15",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-haiku-4-5",
+   "aliases": [],
+   "generation": "4.5",
+   "effective_from": "2025-10-15",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "1.00",
+    "output": "5.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.10",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 4096,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-cache-semantics"
+    }
+   ],
+   "notes": "global price listed in the Bedrock 'Global cross-region inference' table; effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-sonnet-4-5/2025-09-29",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-sonnet-4-5",
+   "aliases": [],
+   "generation": "4.5",
+   "effective_from": "2025-09-29",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "3.00",
+    "output": "15.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.30",
+    "cache_write_5m": "3.75",
+    "cache_write_1h": "6.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-cache-semantics"
+    }
+   ],
+   "notes": "global price listed in the Bedrock 'Global cross-region inference' table; effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-opus-4-1/2025-08-05",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-opus-4-1",
+   "aliases": [],
+   "generation": "4.1",
+   "effective_from": "2025-08-05",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "15.00",
+    "output": "75.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25"
+   },
+   "published_absolute": {
+    "cache_read": "1.50",
+    "cache_write_5m": "18.75"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-cache-semantics"
+    }
+   ],
+   "notes": "pre-4.5 model: no regional premium, the listed price is the global price; minimum checkpoint size not in the Bedrock explicit-caching table; no 1h cache write listed; batch not listed; effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-opus-4/2025-05-14",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-opus-4",
+   "aliases": [],
+   "generation": "4",
+   "effective_from": "2025-05-14",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "15.00",
+    "output": "75.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25"
+   },
+   "published_absolute": {
+    "cache_read": "1.50",
+    "cache_write_5m": "18.75"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-cache-semantics"
+    }
+   ],
+   "notes": "pre-4.5 model: no regional premium, the listed price is the global price; minimum checkpoint size not in the Bedrock explicit-caching table; no 1h cache write listed; effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-sonnet-4/2025-05-14",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-sonnet-4",
+   "aliases": [],
+   "generation": "4",
+   "effective_from": "2025-05-14",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "3.00",
+    "output": "15.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25"
+   },
+   "published_absolute": {
+    "cache_read": "0.30",
+    "cache_write_5m": "3.75"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-cache-semantics"
+    }
+   ],
+   "notes": "global price listed in the Bedrock 'Global cross-region inference' table; minimum checkpoint size not in the Bedrock explicit-caching table; no 1h cache write listed; effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/bedrock/claude-3-5-haiku/2024-10-22",
+   "provider": "anthropic",
+   "channel": "bedrock",
+   "model": "claude-3-5-haiku",
+   "aliases": [
+    "claude-haiku-3-5"
+   ],
+   "generation": "3.5",
+   "effective_from": "2024-10-22",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "0.80",
+    "output": "4.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25"
+   },
+   "published_absolute": {
+    "cache_read": "0.08",
+    "cache_write_5m": "1.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://aws.amazon.com/bedrock/pricing/",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-price-list-api"
+    },
+    {
+     "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html",
+     "retrieved": "2026-09-24",
+     "finding": "bedrock-cache-semantics"
+    }
+   ],
+   "notes": "pre-4.5 model: no regional premium, the listed price is the global price; minimum checkpoint size not in the Bedrock explicit-caching table; no 1h cache write listed; effective_from = the Claude API launch date"
+  }
+ ],
+ "modifiers": [
+  {
+   "modifier_id": "bedrock.endpoint.regional",
+   "kind": "multiply",
+   "factor": "1.1",
+   "base_usd_per_mtok": {},
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "bedrock",
+    "endpoint_scope": "regional",
+    "generation_gte": "4.5"
+   },
+   "stacking": "documented",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "bedrock-price-list-api"
+    }
+   ],
+   "notes": "regional and multi-region endpoints carry a 10% premium over global for Claude 4.5 models and later (pricing page note); matches the Bedrock Price List 'Regional CRIS' vs 'Global' usage types (e.g. Sonnet 4.6 input $3.30 vs $3.00)"
+  }
+ ]
+}
