@@ -170,3 +170,28 @@ def test_bad_json_lines_and_strict(tmp_path: Path) -> None:
     assert [q.reason for q in result.quarantined] == ["bad_json", "not_object"]
     with pytest.raises(SourceError, match="line:2"):
         read("gcp-billing", path, lenient=False)
+
+
+def test_label_and_credit_shapes(tmp_path: Path, monkeypatch) -> None:
+    rows = [_row(labels={"team": "infra", "owner": "x"}, credits={"amount": "-1"}),
+            _row(labels=None, credits=None, usage={"amount": None, "unit": "tokens"},
+                 sku={"id": "A1B2-0002", "description": "Claude Opus 5 Output"}),
+            _row(usage={"amount": "0.0015", "unit": "1K tokens"},
+                 sku={"id": "A1B2-0003", "description": "Claude Opus 5 Cache"})]
+    result = read("gcp-billing", write_jsonl(tmp_path / "g.jsonl", rows))
+    by_sku = {c.sku: c for c in result.cost_lines}
+    assert by_sku["A1B2-0001"].amount_nano == 9_000_000_000
+    assert by_sku["A1B2-0002"].amount_nano == 10_000_000_000
+    assert {dims(a).get("team") for a in result.aggregates} == {"infra", "search"}
+    assert result.stats["token_amounts_rounded"] == 1
+    rule = catalog.SkuRule(source_kind="gcp.billing_export", pattern="A1B2-0001", model=None,
+                           bucket="bogus", endpoint_scope=None, service_tier=None, unit_tokens=1,
+                           verified=True, source="t")
+    monkeypatch.setattr(catalog, "SKU_RULES", (rule,))
+    result = read("gcp-billing", write_jsonl(tmp_path / "g2.jsonl", rows[:1]))
+    assert dims(result.aggregates[0])["sku"] == "A1B2-0001"     # rule ignored: unmapped path
+    rule = dataclasses.replace(rule, bucket="output", endpoint_scope="global")
+    monkeypatch.setattr(catalog, "SKU_RULES", (rule,))
+    row = _row(location={}, sku={"id": "A1B2-0001", "description": "SKU"})
+    result = read("gcp-billing", write_jsonl(tmp_path / "g3.jsonl", [row]))
+    assert result.cost_lines[0].endpoint_scope == "global"      # rule scope without a region

@@ -37,6 +37,7 @@ from __future__ import annotations
 import csv
 import io
 import re
+import zlib
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -203,7 +204,7 @@ def iter_csv(ctx: ReadContext, path: Path, file_index: int, aliases: Mapping[str
                 last_error_line = reader.line_num
                 ctx.quarantine(loc, "bad_csv")
                 continue
-            except (OSError, EOFError, ValueError) as exc:
+            except (OSError, EOFError, ValueError, zlib.error) as exc:
                 raise SourceError(f"{path.name}: corrupt stream ({type(exc).__name__})") from None
             if header is None:
                 header = [aliases.get(h.strip(), h.strip()) for h in row]

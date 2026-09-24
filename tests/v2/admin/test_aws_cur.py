@@ -290,3 +290,42 @@ def test_usage_tokens_exact_and_rounding() -> None:
         usage_tokens("-1", 1)
     with pytest.raises(BadRecord):
         usage_tokens("1e20", 1_000_000)
+
+
+def test_oversize_csv_field_is_quarantined(tmp_path: Path) -> None:
+    rows = [_row(), _row(tags="x" * 200_000), _row(line_item_usage_start_date=
+                                                   "2026-09-02T00:00:00Z")]
+    result = read("aws-cur", _write(tmp_path / "cur.csv", rows))
+    assert [q.reason for q in result.quarantined] == ["bad_csv"]
+    assert len(result.cost_lines) == 2
+
+
+def test_team_tags_and_role_fallbacks(tmp_path: Path) -> None:
+    rows = [
+        _row(line_item_iam_principal="arn:aws:iam::111122223333:user/alice",
+             tags='{"iamPrincipal/team": "data"}'),
+        _row(line_item_iam_principal="arn:aws:iam::111122223333:user/bob", tags="not json",
+             line_item_usage_start_date="2026-09-02T00:00:00Z"),
+        _row(line_item_iam_principal="arn:aws:iam::111122223333:user/carol", tags="[1]",
+             line_item_usage_start_date="2026-09-03T00:00:00Z"),
+        _row(line_item_iam_principal="arn:aws:iam::111122223333:user/dan",
+             tags='{"iamPrincipal/team": "bad\\u0000value"}',
+             line_item_usage_start_date="2026-09-04T00:00:00Z"),
+    ]
+    result = read("aws-cur", _write(tmp_path / "cur.csv", rows))
+    teams = [dims(a)["team"] for a in sorted(result.aggregates,
+                                            key=lambda a: a.bucket_start_ms)]
+    assert teams == ["data", "(unmapped)", "(unmapped)", "(unmapped)"]
+    assert_person_free(result, "alice", "bob", "carol", "dan")
+
+
+def test_rules_with_non_token_buckets_are_ignored(tmp_path: Path, monkeypatch) -> None:
+    rule = catalog.SkuRule(source_kind="aws.cur2", pattern=r".*InputTokenCount-Units",
+                           model=None, bucket="web_search_requests", endpoint_scope=None,
+                           service_tier=None, unit_tokens=1000, verified=True, source="t")
+    monkeypatch.setattr(catalog, "SKU_RULES", (rule,))
+    result = read("aws-cur", _write(tmp_path / "cur.csv", [_row(line_item_usage_amount="0.0015",
+                                                                pricing_unit="1K tokens")]))
+    (agg,) = result.aggregates
+    assert dims(agg)["sku"] and agg.usage.uncached_input == 2      # 1.5 → 2, unmapped path
+    assert result.stats["token_amounts_rounded"] == 1
