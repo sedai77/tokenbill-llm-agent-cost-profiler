@@ -675,7 +675,9 @@ class _Prepared:
 
 
 def _prepare(terms: frozenset[str]) -> _Prepared:
-    category = terms.category if isinstance(terms, LeakTerms) else (lambda _t: "login")
+    if not isinstance(terms, LeakTerms):
+        terms = LeakTerms(terms)
+    category = terms.category
     exact: dict[str, str] = {}
     contained: list[tuple[str, str]] = []
     ids: list[tuple[re.Pattern[str], str]] = []
@@ -1504,13 +1506,13 @@ def _check_infos(infos: Sequence[zipfile.ZipInfo]) -> None:
     total = 0
     for info in infos:
         name = info.filename
+        mode = info.external_attr >> 16
+        if info.is_dir() or stat.S_ISDIR(mode):
+            raise SourceError("bundle: directory member")
         parts = name.split("/")
         if (name.startswith("/") or "\\" in name or ".." in parts or ":" in name
                 or any(not p for p in parts)):
             raise SourceError("bundle: unsafe member path")
-        mode = info.external_attr >> 16
-        if info.is_dir() or stat.S_ISDIR(mode):
-            raise SourceError("bundle: directory member")
         if stat.S_ISLNK(mode):
             raise SourceError("bundle: symbolic-link member")
         if name not in _MEMBER_ORDER:

@@ -329,7 +329,8 @@ class _ReadState:
                                          detail="undocumented activity report columns ignored"))
         source = SourceInfo(
             source_id=self.source_id, adapter=ADAPTER_NAME, name_hmac=self.name_hmac,
-            sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw), name_key_id=None,
+            sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw),
+            name_key_id=self.opts.name_key_id if self.name_hmac else None,
             principal_key_id=self.opts.principal_key_id if licenses else None)
         return IngestResult(
             source=source, requests=[], sessions=[], events=[], aggregates=[], cost_lines=[],
