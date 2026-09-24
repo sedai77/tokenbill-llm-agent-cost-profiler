@@ -95,6 +95,11 @@ the directory; the headless files are rejected by the transcript sniffer).
   content-free parser context at the cursor (triggers, pending appended sizes, recent tool names,
   quota state, last version, recently closed messages) so a resumed read derives every record
   exactly like a one-shot import — property-tested over random sessions cut at random points.
+  `collect_incremental(..., final=True)` (a last collection at shutdown) and an injected clock
+  more than a minute behind a file's mtime also treat files as final.
+* **Collector chunk identity.** A chunk's `SourceInfo.sha256` hashes the source id, the start
+  offset and the consumed lines, so the store's "same sha256 = no-op" rule never merges two
+  distinct chunks.
 * **requestId** is kept as `provider_request_id` on every request; a collision within a read adds
   `dq.request_id_collision`, and the store (§7.3) never joins on a colliding id. Nulling it in the
   adapter would make incremental and one-shot records differ.

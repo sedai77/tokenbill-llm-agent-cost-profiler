@@ -978,7 +978,9 @@ class _FileParser:
         self.earliest_open: int | None = None
         self.unterminated: int | None = None
         self.end_offset = start_offset
-        self.hasher = hashlib.sha256()
+        # collector chunks: the hash covers the source, the start offset and the consumed lines,
+        # so two chunks with identical bytes at different offsets are distinct sources
+        self.hasher = hashlib.sha256(f"{run.source_id}:{start_offset}:".encode())
         self.n_bytes = 0
         self.assistant_lines = 0
 
