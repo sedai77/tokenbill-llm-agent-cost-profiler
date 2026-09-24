@@ -639,7 +639,7 @@ def _classify_keys(text: str) -> str | None:
         if _TOKEN_KEYS & keys:
             return K_ENT_USER_USAGE
         return None
-    if "results" not in keys or "starting_at" not in keys:
+    if "results" not in keys or not {"starting_at", "ending_at"} & keys:
         return None
     enterprise = bool((_ENTERPRISE_MARKERS | {"organization_id"}) & keys)
     if "amount" in keys:
