@@ -816,3 +816,16 @@ def test_read_of_a_missing_path_is_a_source_error(tmp_path: Path) -> None:
         CC.read(tmp_path, "not options")  # type: ignore[arg-type]
     with pytest.raises(UsageError):
         CC.read(tmp_path, opts(content_tier="bogus"))
+
+
+def test_sniff_accepts_a_first_line_longer_than_the_head(tmp_path: Path) -> None:
+    import json as _json
+
+    # Claude Code writes keys in insertion order: sessionId and type precede the message
+    line = _json.dumps({"parentUuid": None, "sessionId": "s1", "type": "user",
+                        "message": {"role": "user", "content": "x" * 100_000}, "uuid": "u1"},
+                       separators=(",", ":"))
+    path = tmp_path / "s1.jsonl"
+    path.write_text(line + "\n")
+    assert CC.sniff(path, path.read_bytes()[:65536]) is True
+    assert CC.sniff(path, b'{"session_id": "s", "type": "user", "sessionId": 1') is False

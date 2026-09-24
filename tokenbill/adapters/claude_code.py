@@ -2168,7 +2168,8 @@ class ClaudeCodeAdapter:
             return False
         if not isinstance(head, (bytes, bytearray)):
             return False
-        for raw in bytes(head).split(b"\n")[:32]:
+        head = bytes(head)
+        for raw in head.split(b"\n")[:32]:
             raw = raw.strip()
             if not raw:
                 continue
@@ -2180,7 +2181,11 @@ class ClaudeCodeAdapter:
             if obj.get("type") in _SNIFF_TYPES and ("sessionId" in obj or "leafUuid" in obj
                                                     or "uuid" in obj):
                 return True
-        return False
+        # a first line longer than the head (a huge pasted prompt): look at its keys
+        first = head.lstrip()[:1] == b"{" and b"\n" not in head.strip()
+        return first and b'"sessionId":' in head and b'"session_id"' not in head and any(
+            m in head for m in (b'"type":"user"', b'"type":"assistant"', b'"type": "user"',
+                                b'"type": "assistant"'))
 
     def read(self, path: Path, opts: IngestOptions) -> IngestResult:
         """Import one transcript, or every transcript under a directory (one result)."""
