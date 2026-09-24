@@ -2047,6 +2047,13 @@ def _leaks_source(text: str, source: bytes, window: int = 65) -> bool:
 _PROVIDER_LABEL_FIELDS = (".cost_lines.description", ".cost_lines.sku", ".aggregates.dims")
 
 
+def _raw_usage(text: str) -> Any:
+    try:
+        return json.loads(text)
+    except ValueError:
+        raise AssertionError("raw_usage_json is not valid JSON") from None
+
+
 def _sum_check_attempts(result: IngestResult) -> int:
     try:
         from tokenbill.core import conventions  # F-SEM; optional at wave 1
@@ -2063,7 +2070,7 @@ def _sum_check_attempts(result: IngestResult) -> int:
                 continue
             if not conv.enabled:
                 continue
-            raw = json.loads(att.raw_usage_json)
+            raw = _raw_usage(att.raw_usage_json)
             if isinstance(raw, Mapping) and raw.get("iterations"):
                 continue
             buckets, _ = conventions.normalize(att.convention_id, raw)
@@ -2119,7 +2126,7 @@ def assert_adapter_conforms(adapter: Adapter, fixture_path: Path, *,
             if path.endswith(_PROVIDER_LABEL_FIELDS):
                 continue  # provider cost-type labels and codes, never user content
             if path.endswith(".raw_usage_json"):
-                _check(all(len(s.encode()) <= 64 for _, s in _walk_strings(json.loads(text))),
+                _check(all(len(s.encode()) <= 64 for _, s in _walk_strings(_raw_usage(text))),
                        "raw_usage_json carries long strings")
                 continue
             _check(not _leaks_source(text, source),

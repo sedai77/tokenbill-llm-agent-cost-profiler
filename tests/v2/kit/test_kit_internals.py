@@ -136,6 +136,17 @@ def test_sum_check_with_a_conventions_stub(monkeypatch: pytest.MonkeyPatch,
     kit.assert_adapter_conforms(WithRaw({"input_tokens": 999_999}), path,
                                 expect_capabilities=EXPECT)
 
+    class NotJson(WithRaw):
+        def read(self, path, opts):
+            res = super().read(path, opts)
+            res.requests = [dataclasses.replace(r, attempts=(dataclasses.replace(
+                r.attempts[0], raw_usage_json="{not json"),)) for r in res.requests]
+            return res
+
+    fsem_stubs.put(monkeypatch, fsem_stubs.conventions())
+    with pytest.raises(AssertionError, match="not valid JSON"):
+        kit.assert_adapter_conforms(NotJson({}), path, expect_capabilities=EXPECT)
+
 
 # ---------- FakePricer internals ----------
 
