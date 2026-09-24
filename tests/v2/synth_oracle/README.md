@@ -38,7 +38,10 @@ note.
 `ttl`, `keepalive`, `compaction`, `cold_resume`, `remap`, `effort`, `rates`, `batch`, `repairs`,
 `placeholder`, `unknown_ttl` (the brief's families) and `allowance` (subscription lanes: one billing
 class per replay, SPEC §9.1 #5). Each family's policies start with the observed policy; the rest are
-listed in `lanes_gen._FAMILY_SPECS`.
+listed in `lanes_gen._FAMILY_SPECS`; the last one of the `ttl`, `keepalive`, `compaction`,
+`cold_resume`, `remap` and `effort` families is a joint policy (the §9.3 application order and
+the clause precedence are what Shapley's joint replays depend on), chosen so every lane stays
+priced.
 
 ## Fixtures and provenance
 

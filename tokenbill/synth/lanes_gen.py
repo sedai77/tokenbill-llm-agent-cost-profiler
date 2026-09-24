@@ -80,18 +80,26 @@ _HOUR_MS = 3_600_000
 FAMILIES = ("ttl", "keepalive", "compaction", "cold_resume", "remap", "effort", "rates", "batch",
             "repairs", "placeholder", "unknown_ttl", "allowance")
 
+#: The last policy of several families is a joint policy (the §9.3 application order composes
+#: levers; PLAN's Shapley credits come from joint replays), chosen so every lane stays priced.
 _FAMILY_SPECS: dict[str, tuple[str, ...]] = {
-    "ttl": ("ttl=1h", "ttl=5m", "ttl=1h@lane_kind:main", "ttl=5m@agent_product:agent_sdk"),
+    "ttl": ("ttl=1h", "ttl=5m", "ttl=1h@lane_kind:main", "ttl=5m@agent_product:agent_sdk",
+            "ttl=1h@lane_kind:main;keepalive=240s@agent_product:agent_sdk;fast=off;geo=global;"
+            "regional=global"),
     "keepalive": ("keepalive=240s", "keepalive=240s,max=1800s@agent_product:agent_sdk",
-                  "keepalive=120s,max=600s"),
+                  "keepalive=120s,max=600s", "keepalive=240s;effort=medium;repair=fallback_credit"),
     "compaction": ("compact-window=400000", "compact-window=300000,post=25000",
-                   "compact-window=600000,post=20283"),
+                   "compact-window=600000,post=20283",
+                   "ttl=1h;compact-window=400000;cold-resume=compact;effort=high"),
     "cold_resume": ("cold-resume=compact", "cold-resume=clear",
-                    "cold-resume=compact,min=100000"),
+                    "cold-resume=compact,min=100000",
+                    "ttl=5m;cold-resume=clear,min=100000;repair=retry_backoff_cap"),
     "remap": ("model=claude-sonnet-5", "model=claude-haiku-4-5@lane_kind:subagent",
-              "model=claude-opus-5-5@agent_product:agent_sdk", "model=claude-sonnet-4-6"),
+              "model=claude-opus-5-5@agent_product:agent_sdk", "model=claude-sonnet-4-6",
+              "ttl=1h;model=claude-sonnet-5@lane_kind:main;effort=medium"),
     "effort": ("effort=medium", "effort=high,scale=0.25@lane_kind:main",
-               "effort=low,scale=0.75@agent_product:agent_sdk"),
+               "effort=low,scale=0.75@agent_product:agent_sdk",
+               "effort=low@lane_kind:main;effort=medium;ttl=1h"),
     "rates": ("fast=off", "geo=global", "regional=global", "fast=off;geo=global;regional=global"),
     "batch": ("batch=eligible", "batch=eligible;fast=off"),
     "repairs": ("repair=restore_caching", "repair=stagger_fanout", "repair=retry_backoff_cap",
