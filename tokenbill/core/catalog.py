@@ -467,8 +467,17 @@ _DOCS = "https://docs.github.com/en"
 _MODEL_ID_RE = re.compile(r"[a-z0-9][a-z0-9.\-]{0,63}\Z")
 _DAYS_RE = re.compile(r"[1-9][0-9]{0,3}d\Z")
 _POS_INT_RE = re.compile(r"[1-9][0-9]{0,8}\Z")
-_SCOPE_VALUE_RE = re.compile(r"[^\x00-\x20@;\x7f]{1,128}\Z")
-_ENTITY_RE = re.compile(r"(?:enterprise|(?:org|cc):[^\x00-\x20@;\x7f]{1,125})\Z")
+#: Separators a free scope value never contains (the SPEC §9.5 selector rule of core.policy).
+_SCOPE_FORBIDDEN = frozenset(";,@=")
+
+
+def _free_value_ok(value: str, limit: int = 128) -> bool:
+    """A free scope value (team, org, cost center name) — the SPEC §9.5 selector value rule of
+    ``core.policy``: non-empty, no surrounding whitespace, no ``; , @ =``; inner spaces are fine
+    (``team:Data Platform``) — and printable (no control, format or non-ASCII separator
+    characters)."""
+    return (0 < len(value) <= limit and value == value.strip() and value.isprintable()
+            and not any(ch in _SCOPE_FORBIDDEN for ch in value))
 
 
 def _runner_value_ok(value: str) -> bool:
@@ -525,10 +534,13 @@ def _scope_ok(scope: str) -> bool:
     if not sep or kind not in AGGREGATE_SCOPES or kind == "all":
         return False
     if kind == "entity":
-        return bool(_ENTITY_RE.match(value))
+        if value == "enterprise":
+            return True
+        prefix, colon, name = value.partition(":")
+        return bool(colon) and prefix in ("org", "cc") and _free_value_ok(name, 125)
     if kind == "model":
         return bool(_MODEL_ID_RE.match(value))
-    return bool(_SCOPE_VALUE_RE.match(value))
+    return _free_value_ok(value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -558,8 +570,9 @@ _AGG_PREFIX = "copilot:"
 
 def parse_aggregate_spec(spec: str) -> AggregateSpec:
     """Parse ``copilot:<param>=<value>[@<scope>]`` (scope defaults to ``all``); anything else —
-    unknown parameter, bad value or scope, whitespace, a second ``=`` or ``@`` — → ``UsageError``.
-    :func:`to_aggregate_spec` is its exact inverse on canonical strings."""
+    unknown parameter, bad value or scope (surrounding whitespace, a separator ``; , @ =`` or a
+    non-printable character in a team / org / cost-center name), a second ``=`` or ``@`` — →
+    ``UsageError``. :func:`to_aggregate_spec` is its exact inverse on canonical strings."""
     if not isinstance(spec, str) or not spec.startswith(_AGG_PREFIX):
         raise UsageError("aggregate spec must start with 'copilot:'")
     body = spec[len(_AGG_PREFIX):]

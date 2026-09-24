@@ -117,6 +117,9 @@ def test_every_aggregate_grid_entry_parses_and_round_trips() -> None:
     ("copilot:mcp=trim@all", ("mcp", "trim", "all")),
     ("copilot:aw_cap=1500@org:acme", ("aw_cap", "1500", "org:acme")),
     ("copilot:fast=off@entity:org:acme", ("fast", "off", "entity:org:acme")),
+    # team names follow the SPEC §9.5 selector value rule: inner spaces are fine
+    ("copilot:auto=on@team:Data Platform", ("auto", "on", "team:Data Platform")),
+    ("copilot:auto=on@entity:cc:R&D (EU)", ("auto", "on", "entity:cc:R&D (EU)")),
 ])
 def test_parse_aggregate_spec(spec: str, expected: tuple[str, str, str]) -> None:
     agg = catalog.parse_aggregate_spec(spec)
@@ -130,7 +133,10 @@ def test_parse_aggregate_spec(spec: str, expected: tuple[str, str, str]) -> None
     "", "auto=on", "copilot:", "copilot:auto", "copilot:auto=", "copilot:=on",
     "copilot:auto=maybe", "copilot:unknown=on", "copilot:auto=on@", "copilot:auto=on@all@all",
     "copilot:auto=on=off", "copilot:auto=on@galaxy:x", "copilot:auto=on@team:",
-    "copilot:auto=on@team:a b", "copilot:auto=on@entity:planet", "copilot:auto=on@model:Opus!",
+    "copilot:auto=on@team: a", "copilot:auto=on@team:a ", "copilot:auto=on@team:a,b",
+    "copilot:auto=on@team:a=b", "copilot:auto=on@team:a\u00a0b", "copilot:auto=on@team:a\u200bb",
+    "copilot:auto=on@entity:org: acme", "copilot:auto=on@entity:cc:", "copilot:auto=on@entity:x:y",
+    "copilot:auto=on@entity:planet", "copilot:auto=on@model:Opus!",
     "copilot:seats_idle=30@all", "copilot:seats_idle=0d@all", "copilot:aw_cap=0@all",
     "copilot:aw_cap=-5@all", "copilot:remap=Claude Opus@all", "copilot:runner=quantum@all",
     "copilot:plan=unknown@all", "copilot:plan=mixed@all", "copilot:auto=on@all:x",
