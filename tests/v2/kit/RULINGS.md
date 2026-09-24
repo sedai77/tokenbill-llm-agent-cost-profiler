@@ -30,7 +30,14 @@ figures never add (R10). An org finding whose scope names `principal`, `session`
 re-scoped even at *k* or more users (break-glass session naming is applied by the caller after
 publication). `self` findings pass through (the caller shows them only in the self view). Merging adds
 the figures, sums events/lanes, unions lever ids and references, keeps the first fix, takes the lowest
-confidence, and prefixes the summary with the re-scoping note. Provider-side `aggregate` findings
+confidence, and prefixes the summary with the re-scoping note. **Complementary suppression** (review
+fix): when findings of the same detector and kind under the parent are already published, the merge
+also absorbs the one at exactly the parent scope, else the smallest of them (fewest users, then lowest
+cost), so the small children's figures never stand alone beside their published siblings under the
+parent's larger user count. **Text scrubbing** (review fix): in a re-scoped finding the values of the
+dropped scope dimensions are replaced by `"(other)"` in the title, summary, fix text, evidence
+attributes and `validated_against` (whole tokens; values still in the parent scope are kept), so an
+org-level finding never names the small team it came from. Provider-side `aggregate` findings
 without person or API-key dimensions describe workspaces and models, not people (SPEC §8.5), and pass
 through; an API-key-scoped one below *k* is re-scoped to its workspace. See `CONTRACT-CHANGE-KIT-3.md`.
 
@@ -53,7 +60,9 @@ workflow agent" levers repeat the clause per lane kind (`ttl` and `model` are re
 `CONTRACT-CHANGE-KIT-1.md`. Levers whose SPEC selector is "lanes with fingerprints" or "per model with
 a successor" use `all`. `patch_keys` hold only `ALLOWLIST` keys (the acceptance test requires it);
 snippet-delivered levers have none — see `CONTRACT-CHANGE-KIT-2.md`. `finding_kinds` link the §10
-kinds named in each lever's fix or recoverable column.
+kinds named in each lever's fix or recoverable column. `upper_bound` is True for every trajectory
+lever (§9.1 #4) and for levers whose §10 projection is stated as an upper bound: `fanout.stagger`
+(cold-fanout), `ci.shared_prefix`, `cc.tool_search` and `sdk.defer_loading` (tool-defs-bloat).
 
 **K-7 — lifecycle.** `RETIREMENTS` holds the retirement floors and the dates of already retired models;
 `retiring_within` also returns dates already past. `promotion_for` matches `start ≤ date ≤
@@ -65,7 +74,11 @@ the first verified rule; unverified rules never map.
 
 **K-9 — key files** hold 64 lowercase hex characters and a newline (`load` also accepts ≥ 32 raw
 bytes; content made only of hex digits is always read as hex). On POSIX any group or other permission
-bit (`mode & 0o077`) is refused with `PrivacyError`. `load` / `load_or_create` take keyword-only
+bit (`mode & 0o077`) is refused with `PrivacyError`; the type/size/mode checks are repeated with
+`fstat` on the descriptor actually read. `load_or_create` writes a private temporary file and
+publishes it with a hard link (a concurrent creator's complete key wins; no reader sees a partial
+key); without hard links it writes in place with `O_EXCL` and a losing creator retries short reads
+for up to one second. `load` / `load_or_create` take keyword-only
 `runner`, `platform` and `notes` (additive; used for the Windows ACL path, D44).
 
 **K-10 — FakePricer conventions** (RATES decides its own; the parity test compares rows and
@@ -82,7 +95,12 @@ ledger is a function of the set of contributions: the surviving request id is th
 contributions carrying a provider message id (else the smallest id); exact usage-set ties go to the
 canonically smallest contribution ("keep the existing set" is order-dependent), and the lane, session
 and sequence number travel with the winning usage set; a provider request id
-seen with two message ids anywhere is never a join key. `assert_store_conforms` keeps each collision
+seen with two message ids anywhere is never a join key. Pricing follows §7.2: each ingest prices
+the contributions it stores with its own pricer (else the constructor's), a merged request uses the
+pricer of its winning contribution, and `reprice(pricer, since_ms, until_ms)` re-prices exactly the
+requests starting in its window; `purge` deletes every contribution merged into a purged request.
+When a provider aggregate or cost line id is stored in several versions, the `final` one wins, then
+the most recently fetched, then canonical order. `assert_store_conforms` keeps each collision
 pair and split-entry pair inside one source, so an incremental store that pre-scans each batch for
 collisions passes; it fixes the store's name key id up front through the factory so that h_ nulling
 does not depend on ingest order. Factory convention: `factory(org_key=…, name_key_id=…, pricer=…)`.
