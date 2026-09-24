@@ -1,0 +1,448 @@
+{
+  "files": [
+    {
+      "adapter": "github-ai-usage",
+      "expect": {
+        "cost_lines": 40,
+        "coverage_aggregates": 29,
+        "gross_nano": 9887000000,
+        "net_nano": 5238000000,
+        "quarantined": 0,
+        "rounding_remainder_e18": 100,
+        "rows": 40,
+        "token_aggregates": 39,
+        "tokens": 8585500,
+        "unattributed": 5
+      },
+      "options": {
+        "now": "2026-09-23",
+        "team_map": {
+          "octo-alice": "platform",
+          "octo-bob": "platform",
+          "octo-carol": "infra",
+          "tb-canary-login-7f3a91": "infra"
+        }
+      },
+      "path": "ai_usage_2026-09.csv",
+      "provenance": "primary",
+      "role": "acceptance",
+      "schema_source": "https://docs.github.com/en/billing/reference/billing-reports (documented field order) + total_monthly_quota (github/copilot-billing-preview src/reportAdapters.test.ts)",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-ai-usage",
+      "expect": {
+        "backfill_duplicates_dropped": 1,
+        "cost_lines": 3,
+        "directional_rows": 3,
+        "gross_nano": 960000000,
+        "net_nano": 960000000,
+        "rounding_remainder_e18": 0,
+        "rows": 4,
+        "tokens": 0
+      },
+      "options": {
+        "now": "2026-09-23"
+      },
+      "path": "ai_usage_april_preview.csv",
+      "provenance": "primary",
+      "role": "legacy",
+      "schema_source": "github/copilot-billing-preview src/reportAdapters.test.ts (April back-fill rows)",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-ai-usage",
+      "expect": {
+        "cost_lines": 3,
+        "duplicate_keys": 1,
+        "gross_nano": 147000000,
+        "net_nano": 0,
+        "rounding_remainder_e18": 0,
+        "rows": 4,
+        "token_aggregates": 3,
+        "tokens": 392000
+      },
+      "options": {
+        "now": "2026-09-23",
+        "team_map": {
+          "octo-alice": "platform",
+          "octo-bob": "platform",
+          "octo-carol": "infra",
+          "tb-canary-login-7f3a91": "infra"
+        }
+      },
+      "path": "ai_usage_duplicates.csv",
+      "provenance": "primary",
+      "role": "duplicates",
+      "schema_source": "https://docs.github.com/en/billing/reference/billing-reports",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-ai-usage",
+      "expect": {
+        "cost_lines": 5,
+        "gross_nano": 15000000,
+        "net_nano": 500000000,
+        "quarantined": 9,
+        "rounding_remainder_e18": 0,
+        "rows": 14,
+        "tokens": 5500
+      },
+      "options": {
+        "now": "2026-09-23",
+        "team_map": {
+          "octo-alice": "platform",
+          "octo-bob": "platform",
+          "octo-carol": "infra",
+          "tb-canary-login-7f3a91": "infra"
+        }
+      },
+      "path": "ai_usage_edge.csv",
+      "provenance": "primary",
+      "role": "edge",
+      "schema_source": "https://docs.github.com/en/billing/reference/billing-reports",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-ai-usage",
+      "expect": {
+        "cost_lines": 1,
+        "discount_nano": 427262130,
+        "gross_nano": 427262130,
+        "net_nano": 0,
+        "rows": 1
+      },
+      "options": {
+        "now": "2026-09-23"
+      },
+      "path": "ai_usage_github_test_row.csv",
+      "provenance": "primary",
+      "role": "acceptance",
+      "schema_source": "github/copilot-billing-preview src/reportAdapters.test.ts ('detects native AI Credits reports when alias columns are absent')",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-ai-usage",
+      "expect": {
+        "cost_lines": 5,
+        "gross_nano": 880000000,
+        "net_nano": 880000000,
+        "rounding_remainder_e18": 0,
+        "rows": 5,
+        "token_aggregates": 0,
+        "tokens": 0,
+        "unattributed": 1
+      },
+      "options": {
+        "now": "2026-09-23"
+      },
+      "path": "ai_usage_legacy_pru.csv",
+      "provenance": "primary",
+      "role": "legacy",
+      "schema_source": "github/copilot-billing-preview src/reportAdapters.test.ts (transition-period preview header)",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-ai-usage",
+      "expect": {
+        "cost_lines": 20,
+        "gross_nano": 1200000000,
+        "net_nano": 0,
+        "rounding_remainder_e18": 0,
+        "rows": 20,
+        "tokens": 2240000
+      },
+      "options": {
+        "now": "2026-09-11",
+        "team_map": {
+          "octo-alice": "platform",
+          "octo-bob": "platform",
+          "octo-carol": "infra",
+          "tb-canary-login-7f3a91": "infra"
+        }
+      },
+      "path": "ai_usage_overlap_a.csv",
+      "provenance": "primary",
+      "role": "overlap",
+      "schema_source": "https://docs.github.com/en/billing/reference/billing-reports (documented field order)",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-ai-usage",
+      "expect": {
+        "cost_lines": 20,
+        "gross_nano": 1200000000,
+        "net_nano": 60000000,
+        "rounding_remainder_e18": 0,
+        "rows": 20,
+        "tokens": 2240000
+      },
+      "options": {
+        "now": "2026-09-18",
+        "team_map": {
+          "octo-alice": "platform",
+          "octo-bob": "platform",
+          "octo-carol": "infra",
+          "tb-canary-login-7f3a91": "infra"
+        }
+      },
+      "path": "ai_usage_overlap_b.csv",
+      "provenance": "primary",
+      "role": "overlap",
+      "schema_source": "https://docs.github.com/en/billing/reference/billing-reports (documented field order)",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-ai-usage",
+      "expect": {
+        "cost_lines": 2,
+        "gross_nano": 1939980690,
+        "net_nano": 1939980690,
+        "preview_rows": 1,
+        "rounding_remainder_e18": 0,
+        "rows": 2,
+        "tokens": 0
+      },
+      "options": {
+        "now": "2026-09-23"
+      },
+      "path": "ai_usage_preview_columns.csv",
+      "provenance": "primary",
+      "role": "legacy",
+      "schema_source": "github/copilot-billing-preview src/reportAdapters.test.ts (native report with alias columns)",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-ai-usage",
+      "expect": {
+        "cost_lines": 66,
+        "gross_nano": 5125000000,
+        "net_nano": 250000000,
+        "quota_unknown": 5,
+        "quota_users": 60,
+        "rounding_remainder_e18": 0,
+        "rows": 66,
+        "tokens": 3493500
+      },
+      "options": {
+        "now": "2026-09-23"
+      },
+      "path": "ai_usage_quota_api.csv",
+      "provenance": "primary",
+      "role": "plan_quota",
+      "schema_source": "https://docs.github.com/en/billing/reference/billing-reports; report export API (ai_credit)",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-ai-usage",
+      "expect": {
+        "cost_lines": 66,
+        "gross_nano": 5125000000,
+        "net_nano": 250000000,
+        "quota_unknown": 5,
+        "quota_users": 60,
+        "rounding_remainder_e18": 0,
+        "rows": 66,
+        "tokens": 3493500
+      },
+      "options": {
+        "now": "2026-09-23"
+      },
+      "path": "ai_usage_quota_ui.csv",
+      "provenance": "primary",
+      "role": "plan_quota",
+      "schema_source": "https://docs.github.com/en/billing/reference/billing-reports; UI download (BOM, M/D/YY, CRLF, quoted)",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-metered-usage",
+      "expect": {
+        "actions_lines": 6,
+        "actions_unattributed_dropped": 1,
+        "cost_lines": 15,
+        "gross_nano": 504290332700,
+        "net_nano": 491225332700,
+        "rounding_remainder_e18": 0,
+        "rows": 18,
+        "rows_other_products": 1,
+        "sandbox_lines": 2,
+        "seat_lines": 5,
+        "tokens": 0,
+        "user_workflows_dropped": 1
+      },
+      "options": {
+        "now": "2026-09-23",
+        "team_map": {
+          "octo-alice": "platform",
+          "octo-bob": "platform",
+          "octo-carol": "infra",
+          "tb-canary-login-7f3a91": "infra"
+        }
+      },
+      "path": "detailed_2026-09.csv",
+      "provenance": "primary",
+      "role": "acceptance",
+      "schema_source": "https://docs.github.com/en/billing/reference/billing-reports (detailed usage report fields)",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-billing-api",
+      "expect": {
+        "cost_lines": 1,
+        "export_envelopes": 0,
+        "net_nano": 1000000000
+      },
+      "options": {
+        "now": "2026-09-23"
+      },
+      "path": "rest/oas_ai_credit_enterprise.json",
+      "provenance": "primary",
+      "role": "oas",
+      "schema_source": "github/rest-api-description descriptions/ghec/ghec.json 1.1.4 (+ api.github.com.json) (response example)",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-billing-api",
+      "expect": {
+        "cost_lines": 1,
+        "export_envelopes": 0,
+        "net_nano": 1000000000
+      },
+      "options": {
+        "now": "2026-09-23"
+      },
+      "path": "rest/oas_ai_credit_org.json",
+      "provenance": "primary",
+      "role": "oas",
+      "schema_source": "github/rest-api-description descriptions/ghec/ghec.json 1.1.4 (+ api.github.com.json) (response example)",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-billing-api",
+      "expect": {
+        "cost_lines": 1,
+        "export_envelopes": 0,
+        "net_nano": 1000000000
+      },
+      "options": {
+        "now": "2026-09-23"
+      },
+      "path": "rest/oas_ai_credit_user.json",
+      "provenance": "primary",
+      "role": "oas",
+      "schema_source": "github/rest-api-description descriptions/ghec/ghec.json 1.1.4 (+ api.github.com.json) (response example)",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-billing-api",
+      "expect": {
+        "cost_lines": 1,
+        "export_envelopes": 0,
+        "net_nano": 4000000000
+      },
+      "options": {
+        "now": "2026-09-23"
+      },
+      "path": "rest/oas_premium_request.json",
+      "provenance": "primary",
+      "role": "oas",
+      "schema_source": "github/rest-api-description descriptions/ghec/ghec.json 1.1.4 (+ api.github.com.json) (response example)",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-billing-api",
+      "expect": {
+        "cost_lines": 0,
+        "export_envelopes": 1,
+        "net_nano": 0
+      },
+      "options": {
+        "now": "2026-09-23"
+      },
+      "path": "rest/oas_report_exports.json",
+      "provenance": "primary",
+      "role": "oas",
+      "schema_source": "github/rest-api-description descriptions/ghec/ghec.json 1.1.4 (+ api.github.com.json) (response example)",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-billing-api",
+      "expect": {
+        "cost_lines": 1,
+        "export_envelopes": 0,
+        "net_nano": 800000000
+      },
+      "options": {
+        "now": "2026-09-23"
+      },
+      "path": "rest/oas_usage.json",
+      "provenance": "primary",
+      "role": "oas",
+      "schema_source": "github/rest-api-description descriptions/ghec/ghec.json 1.1.4 (+ api.github.com.json) (response example)",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-billing-api",
+      "expect": {
+        "cost_lines": 1,
+        "export_envelopes": 0,
+        "net_nano": 8000000000
+      },
+      "options": {
+        "now": "2026-09-23"
+      },
+      "path": "rest/oas_usage_summary.json",
+      "provenance": "primary",
+      "role": "oas",
+      "schema_source": "github/rest-api-description descriptions/ghec/ghec.json 1.1.4 (+ api.github.com.json) (response example)",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-billing-api",
+      "expect": {
+        "cost_lines": 7,
+        "export_envelopes": 1,
+        "integer_quantity": 1,
+        "items_other_products": 1,
+        "net_nano": 2500600000000,
+        "pages": 4
+      },
+      "options": {
+        "now": "2026-09-23"
+      },
+      "path": "rest/pull_pages_2026-09.jsonl",
+      "provenance": "primary",
+      "role": "acceptance",
+      "schema_source": "github/rest-api-description descriptions/ghec/ghec.json 1.1.4 (+ api.github.com.json) (schemas; CP-PULL request/response envelopes)",
+      "values": "synthetic"
+    },
+    {
+      "adapter": "github-metered-usage",
+      "expect": {
+        "actions_unattributed_dropped": 1,
+        "cost_lines": 5,
+        "gross_nano": 1193065000000,
+        "net_nano": 1180720000000,
+        "rounding_remainder_e18": 0,
+        "rows": 6,
+        "tokens": 0
+      },
+      "options": {
+        "now": "2026-09-23"
+      },
+      "path": "summarized_2026-09.csv",
+      "provenance": "primary",
+      "role": "acceptance",
+      "schema_source": "https://docs.github.com/en/billing/reference/billing-reports (summarized usage report fields)",
+      "values": "synthetic"
+    }
+  ],
+  "keys": "tests choose the keys; values are synthetic and never real exports",
+  "schema": "tokenbill/copilot-bill-fixtures@1",
+  "team_map": {
+    "octo-alice": "platform",
+    "octo-bob": "platform",
+    "octo-carol": "infra",
+    "tb-canary-login-7f3a91": "infra"
+  }
+}

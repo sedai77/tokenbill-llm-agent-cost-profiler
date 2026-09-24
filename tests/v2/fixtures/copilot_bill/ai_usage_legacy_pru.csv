@@ -1,0 +1,6 @@
+date,username,product,sku,model,quantity,unit_type,applied_cost_per_quantity,gross_amount,discount_amount,net_amount,exceeds_quota,total_monthly_quota,organization,cost_center_name,aic_quantity,aic_gross_amount
+2026-05-29,mona,copilot,copilot_premium_request,Auto: Claude Haiku 4.5,2,requests,0.04,0.08,0,0.08,False,300,example-org,Cost Center A,20,0.2
+2026-05-29,hubot,copilot,copilot_premium_request,Claude Sonnet 4,12,requests,0.04,0.48,0,0.48,True,300,example-org,Cost Center A,120,1.2
+2026-05-30,mona,copilot,coding_agent_premium_request,Coding Agent,1,requests,0.04,0.04,0,0.04,False,300,example-org,Cost Center A,10,0.1
+2026-05-30,hubot,spark,spark_premium_request,Claude Sonnet 4,3,requests,0.04,0.12,0,0.12,True,300,example-org,Cost Center A,30,0.3
+2026-05-31,,copilot,copilot_premium_request,Copilot Code Review,4,requests,0.04,0.16,0,0.16,False,300,example-org,Cost Center A,40,0.4

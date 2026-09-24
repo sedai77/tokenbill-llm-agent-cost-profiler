@@ -1,0 +1,7 @@
+date,product,sku,quantity,unit_type,applied_cost_per_quantity,gross_amount,discount_amount,net_amount,organization,repository,cost_center_name
+2026-09-01,copilot,copilot_for_business,40,user-months,19,760,0,760,acme-a,,Platform CC
+2026-09-01,copilot,copilot_enterprise,10,user-months,39,390,0,390,acme-b,,
+2026-09-05,actions,actions_linux,30,minutes,0.006,0.18,0,0.18,acme-a,acme-a/private-api,
+2026-09-08,sandbox,sandbox_linux,90,minutes,0.008,0.72,0,0.72,acme-a,,
+2026-09-09,copilot,copilot_ai_credit,1234.5,ai-credits,0.01,12.345,12.345,0,acme-a,,
+2026-09-01,code_quality,code_quality_licenses,3,user-months,10,30,0,30,acme-a,,

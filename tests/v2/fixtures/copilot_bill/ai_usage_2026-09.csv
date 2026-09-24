@@ -1,0 +1,41 @@
+﻿date,product,sku,quantity,unit_type,applied_cost_per_quantity,gross_amount,discount_amount,net_amount,username,organization,repository,cost_center_name,model,input,output,cache_read,cache_write,total_monthly_quota
+2026-08-25,copilot,copilot_ai_credit,10.5,ai-credits,0.01,0.105,0.105,0,octo-alice,acme-a,,,Claude Sonnet 5,12000,3000,180000,6000,Unknown
+2026-08-26,copilot,copilot_ai_credit,10.5,ai-credits,0.01,0.105,0.105,0,octo-alice,acme-a,,,Claude Sonnet 5,12000,3000,180000,6000,Unknown
+2026-08-27,copilot,copilot_ai_credit,10.5,ai-credits,0.01,0.105,0.105,0,octo-alice,acme-a,,,Claude Sonnet 5,12000,3000,180000,6000,Unknown
+2026-08-28,copilot,copilot_ai_credit,10.5,ai-credits,0.01,0.105,0.105,0,octo-alice,acme-a,,,Claude Sonnet 5,12000,3000,180000,6000,Unknown
+2026-08-29,copilot,copilot_ai_credit,10.5,ai-credits,0.01,0.105,0.105,0,octo-alice,acme-a,,,Claude Sonnet 5,12000,3000,180000,6000,Unknown
+2026-08-30,copilot,copilot_ai_credit,10.5,ai-credits,0.01,0.105,0.105,0,octo-alice,acme-a,,,Claude Sonnet 5,12000,3000,180000,6000,Unknown
+2026-08-31,copilot,copilot_ai_credit,10.5,ai-credits,0.01,0.105,0.105,0,octo-alice,acme-a,,,Claude Sonnet 5,12000,3000,180000,6000,Unknown
+2026-08-27,copilot,copilot_ai_credit,26,ai-credits,0.01,0.26,0,0.26,octo-dave,acme-a,,,GPT-5.5,20000,4000,80000,0,Unknown
+2026-08-30,copilot,copilot_ai_credit,9,ai-credits,0.01,0.090000000000001,0.090000000000001,0,octo-dave,acme-a,,,GPT-5.5,8000,1000,40000,0,Unknown
+2026-09-02,copilot,copilot_ai_credit,12.6,ai-credits,0.01,0.126,0.126,0,octo-bob,acme-a,,,Auto: Claude Haiku 4.5,50000,9000,300000,12000,Unknown
+2026-09-09,copilot,copilot_ai_credit,12.6,ai-credits,0.01,0.126,0.126,0,octo-bob,acme-a,,,Auto: Claude Haiku 4.5,50000,9000,300000,12000,Unknown
+2026-09-16,copilot,copilot_ai_credit,12.6,ai-credits,0.01,0.126,0.126,0,octo-bob,acme-a,,,Auto: Claude Haiku 4.5,50000,9000,300000,12000,Unknown
+2026-09-09,copilot,copilot_ai_credit,5,ai-credits,0.01,0.05,0.05,0,octo-bob,acme-a,,,Claude Haiku 4.5,20000,4000,100000,0,Unknown
+2026-09-03,copilot,copilot_ai_credit,19.25,ai-credits,0.01,0.1925,0.1925,0,octo-carol,acme-a,,,Claude Sonnet 5,30000,6000,250000,9000,Unknown
+2026-09-04,copilot,copilot_ai_credit,19.25,ai-credits,0.01,0.1925,0.1925,0,octo-carol,acme-a,,,Claude Sonnet 5,30000,6000,250000,9000,Unknown
+9/5/26,copilot,copilot_ai_credit,19.25,ai-credits,0.01,0.1925,0.1925,0,octo-carol,acme-a,,,Claude Sonnet 5,30000,6000,250000,9000,Unknown
+9/6/26,copilot,copilot_ai_credit,19.25,ai-credits,0.01,0.1925,0.1925,0,octo-carol,acme-a,,,Claude Sonnet 5,30000,6000,250000,9000,Unknown
+2026-09-07,copilot,copilot_ai_credit,19.25,ai-credits,0.01,0.1925,0.1925,0,octo-carol,acme-a,,,Claude Sonnet 5,30000,6000,250000,9000,Unknown
+2026-09-10T00:00:00Z,copilot,copilot_ai_credit,29,ai-credits,0.01,0.29,0.29,0,tb-canary-login-7f3a91,acme-a,,,Claude Opus 4.8 (fast mode),10000,2000,90000,0,Unknown
+2026-09-11,copilot,copilot_ai_credit,17.5,ai-credits,0.01,0.175,0.175,0,tb-canary-login-7f3a91,acme-a,acme-a/payments-api,,Claude Opus 4.8 (fast mode),6000,1000,40000,2000,Unknown
+2026-09-04,copilot,copilot_ai_credit,35,ai-credits,0.01,0.35,0,0.35,,acme-a,,,Copilot Code Review,40000,5000,200000,0,
+2026-09-08,copilot,copilot_ai_credit,120,ai-credits,0.01,1.2,0,1.2,,acme-a,,,Copilot Code Review,40000,5000,200000,0,
+2026-09-15,copilot,copilot_ai_credit,80,ai-credits,0.01,0.8,0,0.8,,acme-a,,,Copilot Code Review,40000,5000,200000,0,
+2026-09-19,copilot,copilot_ai_credit,42,ai-credits,0.01,0.42,0,0.42,,acme-a,,,Copilot Code Review,40000,5000,200000,0,
+2026-09-22,copilot,copilot_ai_credit,65,ai-credits,0.01,0.65,0,0.65,,acme-a,,,Copilot Code Review,40000,5000,200000,0,
+2026-09-12,copilot,coding_agent_ai_credit,40,ai-credits,0.01,0.4,0.4,0,octo-alice,acme-a,,,Claude Sonnet 5,60000,15000,400000,20000,Unknown
+2026-09-18,copilot,coding_agent_ai_credit,40,ai-credits,0.01,0.4,0.4,0,octo-alice,acme-a,,,Claude Sonnet 5,60000,15000,400000,20000,Unknown
+2026-09-14,copilot,copilot_ai_credit,18,ai-credits,0.01,0.18,0,0.18,octo-dave,acme-a,acme-a/web-app,,GPT-5.5,15000,2500,60000,0,Unknown
+2026-09-17,copilot,copilot_ai_credit,5.45,ai-credits,0.01,0.0545,0.0545,0,octo-alice,acme-a,,"Platform, EMEA",Claude Sonnet 5,9000,2000,70000,1000,Unknown
+2026-09-13,copilot,copilot_ai_credit,3.4,ai-credits,0.01,0.034,0.034,0,octo-dave,acme-b,,,Claude Sonnet 5,7000,1000,50000,0,Unknown
+2026-09-20,copilot,copilot_ai_credit,32,ai-credits,0.01,0.32,0.16,0.16,octo-eve,acme-b,,,GPT-5.5,25000,5000,90000,0,Unknown
+2026-09-21,spark,spark_ai_credit,2,ai-credits,0.01,0.02,0.02,0,octo-alice,acme-a,,,Claude Sonnet 5,4000,1000,10000,0,Unknown
+2026-09-19,copilot,copilot_ai_credit,90,ai-credits,0.01,0.9,0.9,0,octo-alice,acme-a,,,Copilot Coding Agent,30000,8000,150000,0,Unknown
+2026-09-22,copilot,copilot_ai_credit,17.4,ai-credits,0.01,0.1740000000000001,0,0.1740000000000001,octo-alice,acme-a,,,Claude Opus 5.5,12000,3000,180000,6000,Unknown
+2026-09-23,copilot,copilot_ai_credit,17.4,ai-credits,0.01,0.174,0,0.174,octo-alice,acme-a,,,Claude Opus 5.5,12000,3000,180000,6000,Unknown
+2026-09-22,copilot,copilot_ai_credit,17.4,ai-credits,0.01,0.174,0,0.174,octo-carol,acme-a,,,Claude Opus 5.5,12000,3000,180000,6000,Unknown
+2026-09-23,copilot,copilot_ai_credit,17.4,ai-credits,0.01,0.174,0,0.174,tb-canary-login-7f3a91,acme-a,,,Claude Opus 5.5,12000,3000,180000,6000,Unknown
+2026-09-23,copilot,copilot_ai_credit,17.4,ai-credits,0.01,0.174,0,0.174,octo-bob,acme-a,,,Claude Opus 5.5,12000,3000,180000,6000,Unknown
+2026-09-22,copilot,copilot_ai_credit,17.4,ai-credits,0.01,0.174,0,0.174,octo-dave,acme-a,,,Claude Opus 5.5,12000,3000,180000,6000,Unknown
+2026-09-22,copilot,copilot_ai_credit,17.4,ai-credits,0.01,0.174,0,0.174,octo-eve,acme-b,,,Claude Opus 5.5,12000,3000,180000,6000,Unknown
