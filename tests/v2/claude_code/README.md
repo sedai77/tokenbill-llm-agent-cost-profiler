@@ -119,3 +119,15 @@ the directory; the headless files are rejected by the transcript sniffer).
   directly (`message_inferences`, equal to `core.conventions.anthropic_inferences`); both
   shortcuts are property-tested against the core functions. A reused module-level decoder in
   `core.jsonl.parse_json_line` itself would help every adapter (suggestion for the contract owner).
+* **Per-file state.** Triggers and pending appended items are tracked per lane (in-file sidechain
+  entries of old versions get their own lane); the quota state that drives the billing path is
+  per file and session, so a subagent file does not see a `quotaLimits` change written only to
+  the main file.
+* **Secrets** (`dq.secrets_observed`, counts by type) are looked for in user text, tool results
+  and attachment values — where pasted keys and command output land.
+* **Headless residuals.** The resumed-session test compares result input totals with step inputs
+  on the models the stream has steps for (helper models such as Haiku background calls appear in
+  `modelUsage` without steps and would otherwise look "resumed"); a model without steps still gets
+  its full output as the residual (its inputs are not in the stream and stay uncounted).
+  Subagent lanes are keyed by `parent_tool_use_id` (`tool:<id>`), so a transcript of the same run
+  (keyed by agent id) merges through message ids, not lanes.
