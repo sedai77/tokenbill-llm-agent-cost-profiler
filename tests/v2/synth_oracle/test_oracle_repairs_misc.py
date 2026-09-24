@@ -147,6 +147,48 @@ def test_retry_backoff_cap_warms_the_final_attempt_and_drops_extra_attempts() ->
     assert request_costs(res)[rid] == (2 * failed_point + warm, warm, 2 * failed_point + warm)
 
 
+def _retried_warm(failed_at: int):
+    """Request 1 already reads E = 100k and appends 60k (≥ 0.5·E) after 5 attempts spanning
+    400 s; only attempt *failed_at* carries a (billable None) failed inference."""
+    attempts = []
+    for k in range(4):
+        infs = ()
+        if k == failed_at:
+            infs = (make_inference({"uncached_input": 1_000, "output": 10},
+                                   inference_id=f"inf_failed_{k}",
+                                   usage_source=UsageSource.PARTIAL_STREAM, billable=None),)
+        attempts.append(make_attempt(infs, ts_ms=EPOCH_MS + (30 + 100 * k) * 1000,
+                                     attempt_no=k, attempt_id=f"at_{k}",
+                                     outcome=Outcome.HTTP_ERROR, http_status=529))
+    serving = make_inference({"cache_read": 100_000, "cache_write_5m": 60_000},
+                             inference_id="inf_serving")
+    attempts.append(make_attempt((serving,), ts_ms=EPOCH_MS + 430_000, attempt_no=4,
+                                 attempt_id="at_4"))
+    retried = req("Lrw", 1, 30, None, request_id="rq_warm", attempts=attempts,
+                  attribution={"agent_product": "agent_sdk"})
+    first = req("Lrw", 0, 0, {"cache_write_5m": 100_000},
+                attribution={"agent_product": "agent_sdk"})
+    return lane_of([first, retried], kind=LaneKind.API_RUN)
+
+
+def test_retry_cap_dropping_attempts_without_billable_usage_is_no_change() -> None:
+    # attempts 2 and 3 are dropped but bill nothing: usage and cost are identical, so the
+    # request is unchanged and its failed-attempt range never enters the saving (§9.1 #1)
+    kept = replay([_retried_warm(failed_at=0)], "repair=retry_backoff_cap")
+    out = kept.outcomes[1]  # type: ignore[index]
+    serving = 100_000 * READ + 60_000 * W5
+    assert not out.changed
+    assert request_costs(kept)["rq_warm"] == (serving + 1_000 * IN + 10 * OUT, serving,
+                                              serving + 1_000 * IN + 10 * OUT)
+    assert bounds(kept.saving) == (0, 0, 0) and kept.saving.low_nano is None
+    # the same request whose dropped attempt carried the failed inference: a change, and the
+    # dropped range enters the saving crosswise
+    dropped = replay([_retried_warm(failed_at=2)], "repair=retry_backoff_cap")
+    assert dropped.outcomes[1].changed  # type: ignore[index]
+    assert request_costs(dropped)["rq_warm"] == (serving,) * 3
+    assert bounds(dropped.saving) == (1_000 * IN + 10 * OUT, 0, 1_000 * IN + 10 * OUT)
+
+
 def test_fallback_credit_reads_the_prefix_at_the_new_models_rate() -> None:
     declined = make_inference({"cache_read": 0, "output": 0}, model="claude-fable-5-1",
                               kind=InferenceKind.FALLBACK_DECLINED, inference_id="inf_dec",

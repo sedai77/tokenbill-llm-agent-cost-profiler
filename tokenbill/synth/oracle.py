@@ -1134,8 +1134,10 @@ class ReferenceReplay:
                   for e, sent in w.extras]
         extras = tuple(replace(e, usage=_rerate(e.usage, _class_for_ttl(plan.ttl_s)))
                        if plan.ttl_s else e for e, _sent in w.extras)
+        # dropping attempts (retry_backoff_cap) is a change only when they carried something
+        # billable: the request's billed usage and cost are otherwise identical (§9.1 #1)
         unchanged = (final == source.usage and serving.ctx == source.pricing and not w.extras
-                     and not batch_used and len(attempts) == len(req.attempts)
+                     and not batch_used and not _dropped_billable(req, attempts)
                      and all(item.usage == inf.usage and item.ctx == inf.pricing
                              for inf, item in w.others))
         figure = run.observed[req.request_id] if unchanged else self._price(items, run)
@@ -1359,6 +1361,13 @@ def _param_change(req: Request, prev: Request) -> str | None:
     if differs(req.attribution.cwd_key, prev.attribution.cwd_key):
         return "directory-change"
     return None
+
+
+def _dropped_billable(req: Request, kept: Sequence[Attempt]) -> bool:
+    """True when an attempt of *req* missing from *kept* carried a billable inference."""
+    kept_ids = {id(att) for att in kept}
+    return any(inf.billable is not False for att in req.attempts if id(att) not in kept_ids
+               for inf in att.inferences)
 
 
 def outcome_bounds(nano: int | None, low: int | None, high: int | None
