@@ -12,9 +12,9 @@ round-trips through ``parse_aggregate_spec``): ``copilot:auto=on@all``, one
 ``copilot:remap=<t>@model:<m>`` per remap pair whose source model has cells,
 ``copilot:fast=off@all``, the better of ``copilot:seats_idle=30d@all`` / ``60d@all``,
 ``copilot:seat_policy=assign_selected`` (``@org:<o>`` when one org is linked, else ``@all``),
-``copilot:plan=business@all`` and
-``copilot:runner=actions_linux@all``. A linked lever with nothing to act on (no fast cells, no
-readable seat counts, …) is not a player; the headline note names it.
+``copilot:plan=business@all`` and ``copilot:runner=actions_linux@all``. A linked lever with
+nothing to act on (no fast cells, no readable seat counts, …) is not a player; the headline note
+names it.
 
 **Transforms** (fixed order of addendum §9.2, per cell of the month): (1) model-policy remap —
 the cell's tokens priced at the target's Copilot rates on the cell's date (``Pricer.unit_rates``,
@@ -49,6 +49,13 @@ consumption saving that the pool rule does not turn into invoice dollars at ``S`
 ``ΔC − (overage(C₀, P_S) − overage(C_S, P_S))`` — plus the discount share of direct rows, so a seat
 change frees no headroom (Appendix C.P2 overage entity: seat lever invoice 0 and headroom 0).
 Direct (org-metered) cells save their net share in dollars.
+
+**Month and unknown pools.** The plan values *month*: with ``forecast`` an open month's forecast
+p10 / p50 / p90, without it the month-to-date consumption (noted); direct rows and Actions lines
+stay observed. An entity whose ``PoolMonth.regime`` is ``unknown`` (no pool or no observed day)
+cannot convert credits: its pooled cells and seats are left out and named in the notes ("unpriced,
+not zero"), its direct rows stay (metered dollars); when every entity's pool is unknown and
+pooled cells exist, every figure of the plan is unpriced (R2).
 
 **Uncertainty.** Each dimension that varies (consumption level p10 / p50 / p90, an unknown cap
 policy block / continue, unknown reach 0 / 1, the tokenizer band, the runner range) spans the
