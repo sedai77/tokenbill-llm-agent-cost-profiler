@@ -101,6 +101,7 @@ class OpenAIUsageBucketsAdapter(PageAdapter):
     source_kind = "openai.usage"
 
     def handle_page(self, ctx: ReadContext, kind: str, page: Page, loc: str) -> None:
+        """Completions usage rows → aggregate contributions (other usage kinds skipped)."""
         for start, end, rloc, result in iter_bucket_rows(ctx, page, loc, unix_seconds=True):
             if result.get("object", _COMPLETIONS) != _COMPLETIONS:
                 ctx.stat("results_skipped_other_kinds")  # embeddings, images, audio, …
@@ -133,6 +134,7 @@ class OpenAICostsAdapter(PageAdapter):
     source_kind = "openai.costs"
 
     def handle_page(self, ctx: ReadContext, kind: str, page: Page, loc: str) -> None:
+        """Costs rows → cost-line contributions."""
         for start, _end, rloc, result in iter_bucket_rows(ctx, page, loc, unix_seconds=True):
             guarded(ctx, rloc, lambda r=result, s=start: self._row(ctx, page, date_of(s), r))
 

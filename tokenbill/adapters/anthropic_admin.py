@@ -1254,6 +1254,7 @@ class UsageReportAdapter(PageAdapter):
     source_kind = "anthropic.usage_report"
 
     def handle_page(self, ctx: ReadContext, kind: str, page: Page, loc: str) -> None:
+        """Every result row of every bucket → one aggregate contribution."""
         for start, end, rloc, result in iter_bucket_rows(ctx, page, loc):
             guarded(ctx, rloc, lambda r=result, s=start, e=end: self._row(ctx, page, s, e, r))
 
@@ -1286,6 +1287,7 @@ class CostReportAdapter(PageAdapter):
     source_kind = "anthropic.cost_report"
 
     def handle_page(self, ctx: ReadContext, kind: str, page: Page, loc: str) -> None:
+        """Every result row of every daily bucket → one cost-line contribution."""
         for start, _end, rloc, result in iter_bucket_rows(ctx, page, loc):
             guarded(ctx, rloc, lambda r=result, s=start: cost_row(
                 ctx, self.source_kind, date_of(s), r, page.fetched_ms))
@@ -1414,9 +1416,11 @@ class ClaudeCodeAnalyticsAdapter(PageAdapter):
     source_kind = "anthropic.cc_analytics"
 
     def begin(self, ctx: ReadContext) -> None:
+        """Start the per-read (date, team) rollup."""
         ctx.state["rollup"] = TeamRollup(ctx)
 
     def handle_page(self, ctx: ReadContext, kind: str, page: Page, loc: str) -> None:
+        """Add every per-user day record to the rollup (nothing is emitted yet)."""
         for i, record in enumerate(page_items(page)):
             rloc = f"{loc}/record:{i}"
             if not isinstance(record, dict):
@@ -1436,6 +1440,7 @@ class ClaudeCodeAnalyticsAdapter(PageAdapter):
                                 cells=cells)
 
     def finish(self, ctx: ReadContext) -> None:
+        """Apply k-anonymity and emit team aggregates and outcomes."""
         no_ttl = [0, 0]
 
         def emit(day: str, team: str, n_users: int, outcome: tuple[int, ...] | None,
@@ -1505,10 +1510,12 @@ class EnterpriseAnalyticsAdapter(PageAdapter):
     team_cost_kind = "anthropic.enterprise_team_cost"
 
     def begin(self, ctx: ReadContext) -> None:
+        """Start the per-read team rollups of the two per-user endpoints."""
         ctx.state["usage"] = TeamRollup(ctx)
         ctx.state["cost"] = TeamRollup(ctx)
 
     def handle_page(self, ctx: ReadContext, kind: str, page: Page, loc: str) -> None:
+        """Organization pages → aggregates / cost lines; per-user pages → the rollups."""
         if kind == K_ENT_USAGE:
             for start, end, rloc, result in iter_bucket_rows(ctx, page, loc):
                 guarded(ctx, rloc, lambda r=result, s=start, e=end:
@@ -1559,6 +1566,7 @@ class EnterpriseAnalyticsAdapter(PageAdapter):
         rollup.add(date_of(start), ctx.team_of(*refs), identity, cells={cell_key(dims): cell})
 
     def finish(self, ctx: ReadContext) -> None:
+        """Apply k-anonymity to the per-user rollups and emit team aggregates."""
         for rollup, source_kind in ((ctx.state["usage"], self.team_usage_kind),
                                     (ctx.state["cost"], self.team_cost_kind)):
             def emit(day: str, team: str, n_users: int, outcome: tuple[int, ...] | None,
