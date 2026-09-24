@@ -97,15 +97,31 @@ toggles vary a non-key speed setting). §3.15 rule 4 counts every served-speed c
 - `shapley_exact` / `shapley_mc` make credits sum to `value(all) − value(∅)` (= `value(all)` for
   savings games). `scale_credits` splits the target equally when the credits sum to 0; an empty
   mapping scales only to 0.
-- `build_finding` also enforces: every figure on one basis; `LIST_EQUIVALENT` exactly when the scope
-  carries `billing_class=allowance` (D26, and it keeps allowance and billed finding ids distinct);
-  `PROVIDER_ESTIMATE` only on data-quality findings (R4); the SPEC value sets of category,
-  lever_class, audience and confidence; evidence ≤ 20.
+- `build_finding` also enforces: every figure on one basis; `PROVIDER_ESTIMATE` only on
+  data-quality findings (R4), in any cohort (a provider estimate is neither billed nor
+  list-equivalent, so the D26 rule below does not apply to it); otherwise `LIST_EQUIVALENT` exactly
+  when the scope carries `billing_class=allowance` (D26, and it keeps allowance and billed finding
+  ids distinct); the SPEC value sets of category, lever_class, audience and confidence;
+  evidence ≤ 20.
 - `top_evidence` magnitude = the first int among the `magnitude`, `nano`, `tokens` attrs, else 0.
 - `rate_nano` raises `PricingError` for an unpriceable context (unknown is never zero);
   `cache_write_unknown` is priced at the point rate (hint, else 5m) through `price_usage`.
 - `fit_cpt(lanes, family)` expects the lanes of one tokenizer family (the caller partitions with
   `Pricer.tokenizer_family`); the sample definition is in its docstring and the README.
+
+## 6a. Robustness and determinism (adversarial review)
+
+- `effort_change_keeps_cache(betas=…)` matches beta values exactly: a raw `anthropic-beta` header
+  string is split on commas (never a substring test) and `None` counts as no betas.
+- `parse_version` returns None (unknown) when a numeric component has more than 18 digits; a
+  model id whose `gpt-` version is not a short dotted number has no OpenAI TTL option. Client
+  versions and model ids come from transcripts and provider payloads, and `int()` of a digit run
+  above `sys.get_int_max_str_digits()` raises `ValueError`, which must never escape.
+- `plan_shards`, `stratified_sample` and `shapley_mc` use the plain-str values of lane kinds,
+  billing classes and players (a `TBEnum` member and its value plan, group and seed the RNG
+  identically), so a store that fills `LaneIndexRow.lane_kind` with `LaneKind` members gets the
+  same shards and the same seeded sample as one that stores strings. `ShardKey.lane_kind` is always
+  a plain str.
 
 ## 7. Additive public names (beyond the SPEC signatures)
 
