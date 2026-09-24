@@ -26,7 +26,9 @@ merge of this branch with `pkg/F-SEM` (kit, sem and gate tests green; never comm
 | `fsem_stubs.py` | area-local stand-ins for the F-SEM functions the kit calls (used only by `test_kit_internals.py`); installed in `sys.modules` and on the `tokenbill.core` package so they also apply once the real F-SEM modules are importable |
 
 `RULINGS.md` records the rulings and the interpretations F-KIT made where the SPEC was silent;
-`CONTRACT-CHANGE-KIT-*.md` are the contract gaps raised for the orchestrator (SPEC §21 #3).
+`CONTRACT-CHANGE-KIT-*.md` are the contract gaps raised for the orchestrator (SPEC §21 #3);
+`CONTRACT-CHANGE-KIT-C-1.md` (wave 1.5b) records the VERIFY assertion that ruling R-E28 flips, the
+R-E10 note representation and the record-store conformance factory CP-STORE needs (R-E21).
 
 ## Fixtures and provenance
 
@@ -52,3 +54,51 @@ in particular:
 
 Catalog decisions that are interpretations rather than facts (grid encodings, finding-kind links) are
 listed in `RULINGS.md`.
+
+## GitHub Copilot additions (F-KIT-C, wave 1.5b)
+
+CORE-AMENDMENTS K-1 … K-6 and rulings R-E10, R-E16, R-E21, R-E28, R-E31, R-E37 on F-KIT's files.
+The SPEC tables (`LEVERS`, `ALLOWLIST`, `PROMOTIONS`, `levers_for_kind(kind)`) and every wave-1 test
+above are unchanged; the Copilot data lives in separate tables. Gate F' (CORE-AMENDMENTS §4) is
+`tests/v2/gates/test_gateF_copilot_smoke.py`.
+
+Run: `uv run --python 3.12 --extra dev pytest -q tests/v2/kit tests/v2/gates` (also on 3.10).
+Coverage of `catalog.py` / `kanon.py` / `testing.py` over `tests/v2/kit` + `tests/v2/gates`: 100% /
+99% / 99% at hand-off (the lines left are defensive branches).
+
+| file | covers |
+|---|---|
+| `test_copilot_catalog.py` | `COPILOT_LEVERS` = addendum §11.1 in order (aggregate levers `replay="aggregate"`, `grid=()`; patch keys ⊆ `COPILOT_ALLOWLIST ∪ ADMIN_ACTIONS`); every `AGGREGATE_GRIDS` entry parses and round-trips; the aggregate grammar table, rejections, a hypothesis round-trip over every parameter × scope and a fuzz test (only `UsageError` escapes); `lever` / `levers_for_kind(…, family=)` (`idle-seat` → `()` by default, the seat-reclaim lever for `copilot`); `COPILOT_ALLOWLIST == facts.copilot.settings_keys`; `allowed` searches both tables; the 27 `ADMIN_ACTIONS` ids of the brief (where, docs URL, REST method/path, auth note); promotions, retirements, RR priors, `copilot_allowance` (promo months, `unknown` → `UsageError`), SKU / workload / category / remap / runner accessors, the `editor_family` table, `agent_family`; every `fix_for` entry targets `github-copilot` with allowlisted keys; `FAMILY_EXCLUSIONS` keys name registered detectors and declared kinds; `COUNT_SOURCE` |
+| `test_copilot_kanon.py` | `scope_counter`: a person in two teams counted once at the cost-center parent (5, never 6), team scopes over cost-line principals (not requests), seat scopes over licenses and, without licenses, the `seat_counts` rows; the scope → `where` mapping; R-E16 (entity scope with count source `entity` published with 3 users, a 3-user team scope re-scoped whatever its category, a re-scoped finding exempt once it reaches an entity scope, no duplicate finding ids, the exact R-E16 dim set); `plan_scenario` survives every level of `COPILOT_RESCOPE_LEVELS` and scenarios never merge; merged `headroom` sums; a `budget-*` finding with a `p_` dim → `PrivacyError`; Copilot and default chains never mix; one- and two-argument counters (arity); a hypothesis property over Copilot findings; R-E10 (`users_unknown` rows kept by model, suppressed with person-proxy keys, `audience="self"`); R-E37 pool through merged rows; R-E31 (short summaries byte-identical, labelling sentences always kept, the first sentence that does not fit cut between words — never dropped wholesale; property test) |
+| `test_copilot_fake_pricer.py` | Appendix C.G1–G17 to the nano with their labels (G1 range, G2–G4 modifiers, G5 EXACT, G5b A/B range, G6/G7 dated rows, G8/G8b fast premium, G9 promotion expiry, G10/G14, G11 nano-AIU parity, G12 utility call EXACT $0, G13 both paths in `PricedTotal.pool`, G15 folded writes, G16 unpriced, G17 string conversions); contracts never apply to Copilot; Anthropic / OpenAI prices unchanged; every Copilot row resolves and agrees with its unit rates; a band-hypothesis property test; `assert_pricer_conforms` runs the Copilot goldens |
+| `test_copilot_memory_store.py` | R-E21 adoption: keyless store adopts the first `copilot-export` key id A (`org_key_mode="adopted"`, audit row without identities), another adapter's `p_` values nulled (`dq.principal_key_mismatch`, never adopted), a second bundle key id → `UsageError` (atomic), `r_` principals need the own org key, an org-keyed store keeps both key spaces; default behaviour = wave 1 (`assert_store_conforms` also with `adopt_key_ids=True`); `h_` cost-line names (`repo`, `workflow`) nulled under a foreign name key; a keyless adopting store takes its name key id from the bundle only; `assert_store_copilot_conforms(MemoryStore)` and four broken stores it catches; `count_users(source="cost_lines")`; `source_stats`; pool / allowance split in `aggregate` and `cluster_days`; cluster kind `gateway` (R-E28); latest-fetch-wins for Copilot records only; `SOURCES_MASK_BITS` |
+| `test_copilot_record_store.py` | `MemoryRecordStore` passes `assert_record_store_conforms` (one- and two-argument factories; a store without an accepting ledger fails with guidance); the key-id check follows the ledger's `meta` incl. an adopted key id; configuration rows always stored; count filters, the `seat_counts` / `activity_counts` fallbacks; windows, `retain`, `purge`, audit; five broken stores the suite catches |
+| `test_copilot_conformance.py` | `assert_detector_conforms`: lane independence for `aggregate=True` detectors, Copilot fixes checked against `COPILOT_ALLOWLIST`, `headroom` only LIST_EQUIVALENT on Copilot scopes; `assert_adapter_conforms`: `CANARY_LOGIN` leaks and non-`p_` principals caught; `FakeReplayer` on `pool` lanes (mixed classes raise); `assert_replayer_conforms(pool=True)` |
+| `../gates/test_gateF_copilot_smoke.py` | **gate F'**: catalog contracts; `sniff_adapter` with every Copilot adapter module absent; the world reproduces the C.P9 consumption exactly; pool months C.P9 / C.P13 (`importorskip` F-POOL); FakePricer into `PricedTotal.pool`; the `run_detectors` aggregate phase (runs now) and the family filter and exclusions (needs F-SEM-C); `rescope_findings` with `count_users_fn` (F-EXT when merged, else `scope_counter`); R-E20 `build_finding` (F-SEM-C); the extension host with a fake extension defined in the test module (`importorskip` F-EXT); adoption, `users_unknown`, a `RunResult` with `copilot` set |
+
+### Fixtures and provenance (Copilot)
+
+No fixture files: every record is built in code with `core.builders` (`make_ai_usage_row`,
+`make_seat_line`, `make_license`, `make_config`, `make_pool_month`, …) and the kit's own builders
+(`_record_batches`, `_copilot_ledger_batch`, `lane_from_table_pool`). The C.P9 daily series of the
+gate test is the binding series of the F-POOL brief; the golden prices are addendum Appendix C.
+
+### Facts (Copilot)
+
+Every price, multiplier, plan, SKU, workflow path, editor pattern and settings key comes from
+`facts.copilot` (F-CORE-C; `verification: "research"`, R-E19). F-KIT-C added no fact to `facts.json`.
+Two data items are F-KIT-C's own and are listed here:
+
+- **`ADMIN_ACTIONS` docs URLs** were checked against the GitHub Docs sitemap and page copies the
+  research pass retrieved on 2026-09-23 (`copilot/raw/pagelist.txt` and the `copilot/raw/*.md` page
+  copies in the orchestrator's scratchpad); the REST methods and paths against GitHub's GHEC OpenAPI
+  description (`copilot/raw/ghec.json`); auth notes are addendum §19.4. UI click paths are not
+  given (addendum §19.5 #33, VERIFY).
+- **`fix_for` texts** paraphrase the addendum §10.1–§10.4 fix columns; they carry a docs URL and set a
+  `config_patch` only where a Copilot allowlisted key has an obvious value (`copilot.managed.model`
+  `"auto"`, `copilot.repo.effortLevel` `"medium"`, `copilot.repo.contextTier` `"default"`).
+
+Unverified items inherited from facts that F-KIT-C's behaviour depends on: the 1h write price of
+Claude models on Copilot (2 × input), the long-context thresholds (272,000 / 200,000) and the A/B band
+reading, K-dated effective dates, the `copilot_standalone` → Business mapping, the plan-quota map, the
+workflow paths and every non-VS Code editor pattern.

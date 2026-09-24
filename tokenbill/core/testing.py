@@ -27,6 +27,7 @@ import dataclasses
 import datetime as _dt
 import gzip
 import hashlib
+import inspect
 import itertools
 import json
 import random
@@ -38,6 +39,8 @@ from typing import Any
 
 from tokenbill.core import catalog
 from tokenbill.core.builders import (
+    CANARY_EMAIL,
+    CANARY_LOGIN,
     assert_no_canary,
     lane_from_table,
     make_request,
@@ -61,10 +64,23 @@ from tokenbill.core.labels import (
 )
 from tokenbill.core.lanes import group_lanes
 from tokenbill.core.money import EXACT_CTX, decimal_to_nano, ratio, token_nano
-from tokenbill.core.protocols import Adapter, Detector, LedgerStore, Pricer, Replayer
+from tokenbill.core.protocols import (
+    Adapter,
+    Detector,
+    ExtRecordStore,
+    LedgerStats,
+    LedgerStore,
+    Pricer,
+    Replayer,
+)
 from tokenbill.core.records import (
+    COPILOT_AGG_SOURCE_KINDS,
+    COPILOT_BILLING_PATHS,
+    COPILOT_CHANNELS,
+    ActivityDay,
     Attempt,
     Attribution,
+    ConfigSnapshot,
     ContentTier,
     CostLine,
     Fidelity,
@@ -72,6 +88,7 @@ from tokenbill.core.records import (
     Lane,
     LaneEvent,
     LaneKind,
+    LicenseSnapshot,
     OutcomeAggregate,
     PricingContext,
     Request,
@@ -85,6 +102,7 @@ from tokenbill.core.records import (
     WorkloadClass,
     billing_class,
     from_json,
+    record_key,
     to_json,
 )
 from tokenbill.core.types import (
@@ -116,17 +134,27 @@ from tokenbill.core.types import (
 )
 
 __all__ = [
+    "ADOPTABLE_ADAPTER",
+    "DQ_COPILOT_BAND_HYPOTHESIS",
+    "DQ_COPILOT_WRITE_FOLDED",
+    "DQ_PRINCIPAL_KEY_MISMATCH",
+    "RECORD_STORE_ORG_KEY",
+    "RECORD_WHERE_KEYS",
     "SOURCES_MASK_BITS",
     "UNPRICED_DQ",
     "FakePricer",
     "FakeReplayer",
+    "MemoryRecordStore",
     "MemoryStore",
     "assert_adapter_conforms",
     "assert_detector_conforms",
     "assert_pricer_conforms",
+    "assert_record_store_conforms",
     "assert_replayer_conforms",
     "assert_store_conforms",
+    "assert_store_copilot_conforms",
     "fake_price_total",
+    "lane_from_table_pool",
     "published_for_tests",
     "smoke_pipeline_on_fakes",
 ]
@@ -187,7 +215,13 @@ _BUCKET_TO_KEY = {"uncached_input": "input", "input": "input", "uncached": "inpu
                   "cache_write_5m": "cache_write_5m", "cache_write_1h": "cache_write_1h",
                   "cache_write_other": "cache_write_other"}
 _PREDICATES = frozenset({"service_tier", "speed", "inference_geo", "endpoint_scope", "channel_in",
-                         "model_in", "generation_gte"})
+                         "model_in", "generation_gte", "routing", "compliance_in"})
+#: The Copilot channel (addendum §6): its rows never fall back to provider rows.
+_COPILOT_CHANNEL = "github_copilot"
+#: Data-quality codes FakePricer names in the notes of Copilot figures (addendum §6.2).
+DQ_COPILOT_BAND_HYPOTHESIS = "dq.copilot_band_hypothesis"
+DQ_COPILOT_WRITE_FOLDED = "dq.copilot_write_folded_to_input"
+_WRITE_BUCKETS = ("cache_write_5m", "cache_write_1h", "cache_write_other")
 _FALLBACK_CHANNELS = ("claude_platform_aws", "foundry")
 
 
@@ -233,12 +267,27 @@ class FakePricer:
     Multiply modifiers scale token buckets; per-request server-tool prices are not scaled by them
     (a contract multiplier scales every bucket, per-request prices included; per-model contract
     overrides are final prices).
+
+    GitHub Copilot (K-5, addendum §6.2): every ``facts.copilot.rates`` row (channel
+    ``github_copilot``, current and history, promotional rows and their expiry) and the Copilot
+    modifiers (``github.auto`` ×0.9 on ``routing="auto"``, ``github.compliance`` ×1.1, the Opus 4.8
+    fast base) with the predicate keys ``routing`` and ``compliance_in``. Both Copilot billing paths
+    price on basis LIST_EQUIVALENT and contract overlays never apply to them. Claude-model
+    unknown-TTL writes are the range [published write, 2 × input] (the row's 1h multiplier), point
+    at ``write_ttl_hint``; rows without a write price fold every write bucket into input as a
+    zero-width ESTIMATED line (:data:`DQ_COPILOT_WRITE_FOLDED`). Long-context bands: hypothesis A
+    (request input above the threshold) prices; when ``ctx.context_tier`` is known and hypothesis B
+    (``context_tier == "long_context"``) disagrees, every line is the range of both with point A,
+    ESTIMATED (:data:`DQ_COPILOT_BAND_HYPOTHESIS`). A non-billable Copilot call (a utility call with
+    nano-AIU 0) is EXACT $0 even for a model without a row. The Anthropic / OpenAI behaviour is
+    unchanged.
     """
 
     def __init__(self, contract: ContractOverlay | None = None) -> None:
         facts = load_facts()
-        self._rows = facts.rate_rows
-        self._mods = facts.modifiers
+        copilot = getattr(facts, "copilot", None)  # absent on reduced facts stand-ins
+        self._rows = tuple(facts.rate_rows) + (tuple(copilot.rate_rows) if copilot else ())
+        self._mods = tuple(facts.modifiers) + (tuple(copilot.modifiers) if copilot else ())
         for m in self._mods:
             unknown = {k for k, _ in m.when} - _PREDICATES
             if unknown:
@@ -250,6 +299,9 @@ class FakePricer:
             "modifiers": facts.modifiers_json(),
             "contract": to_json(contract) if contract is not None else None,
         }
+        if copilot is not None:
+            payload["copilot_rates"] = facts.copilot_rate_rows_json()
+            payload["copilot_modifiers"] = [to_json(m) for m in copilot.modifiers]
         self.rate_card_sha256: str = hashlib.sha256(_canonical(payload).encode()).hexdigest()
 
     def with_contract(self, overlay: ContractOverlay) -> FakePricer:
@@ -309,6 +361,10 @@ class FakePricer:
                 ok = ctx.channel in value.split(",")
             elif key == "model_in":
                 ok = row.model in value.split(",")
+            elif key == "routing":
+                ok = ctx.routing == value
+            elif key == "compliance_in":
+                ok = ctx.compliance is not None and ctx.compliance in value.split(",")
             else:  # generation_gte (predicates validated in __init__)
                 ok = _generation(row.generation) >= _generation(value)
             if not ok:
@@ -319,6 +375,8 @@ class FakePricer:
         c = self._contract
         if c is None or ctx.billing_path == "subscription":
             return False
+        if ctx.billing_path in COPILOT_BILLING_PATHS or ctx.channel == _COPILOT_CHANNEL:
+            return False  # contract overlays never apply to Copilot credits (addendum §6.2 #3)
         if c.channels and ctx.channel not in c.channels:
             return False
         return c.effective_from <= date and (c.effective_to is None or date < c.effective_to)
@@ -405,13 +463,17 @@ class FakePricer:
             long_context_band=band,
         )
 
-    def _resolve(self, ctx: PricingContext, ts_ms: int,
-                 total_input: int = 0) -> tuple[ResolvedRates | None, str | None]:
+    def _resolve(self, ctx: PricingContext, ts_ms: int, total_input: int = 0, *,
+                 band: bool | None = None) -> tuple[ResolvedRates | None, str | None]:
         date = _date_of(ts_ms)
         row, reason = self._row(ctx, date)
         if row is None:
             return None, reason
-        band = row.long_context_threshold is not None and total_input > row.long_context_threshold
+        if band is None:
+            band = (row.long_context_threshold is not None
+                    and total_input > row.long_context_threshold)
+        else:
+            band = band and row.long_context_threshold is not None
         if self._scope_priced(ctx.channel) and ctx.endpoint_scope == "unknown":
             low = self._build(row, ctx, date, scope="global", band=band)
             high = self._build(row, ctx, date, scope="regional", band=band)
@@ -459,7 +521,7 @@ class FakePricer:
     # ---------- pricing ----------
 
     def _basis(self, ctx: PricingContext, rates: ResolvedRates | None) -> Basis:
-        if ctx.billing_path == "subscription":
+        if ctx.billing_path == "subscription" or ctx.billing_path in COPILOT_BILLING_PATHS:
             return Basis.LIST_EQUIVALENT
         if rates is not None and rates.layer == "contract":
             return Basis.CONTRACT
@@ -471,19 +533,55 @@ class FakePricer:
                                   usage_source=inf.usage_source, output_upper=inf.output_upper)
         return dataclasses.replace(priced, inference_id=inf.inference_id)
 
+    def _band_hypothesis_b(self, ctx: PricingContext, ts_ms: int, total_input: int) -> bool | None:
+        """Band hypothesis B when it disagrees with A on a Copilot row (addendum §6.2 #4), else
+        None."""
+        if ctx.channel != _COPILOT_CHANNEL or ctx.context_tier is None:
+            return None
+        row, _ = self._row(ctx, _date_of(ts_ms))
+        if row is None or row.long_context_threshold is None:
+            return None
+        a = total_input > row.long_context_threshold
+        b = ctx.context_tier == "long_context"
+        return b if a != b else None
+
     def price_usage(self, usage: UsageBuckets, ctx: PricingContext, *, ts_ms: int,
                     billable: bool | None = True, usage_source: UsageSource = UsageSource.FINAL,
                     output_upper: int | None = None) -> PricedInference:
         """One PricedLine per non-zero bucket and server-tool counter, each rounded once; exactness
-        per line (SPEC §6.3 table, R5, R9)."""
+        per line (SPEC §6.3 table, R5, R9); Copilot band hypotheses and folded writes per the
+        class docstring."""
         source = UsageSource(usage_source)
         rates, reason = self._resolve(ctx, ts_ms, usage.total_input)
         basis = self._basis(ctx, rates)
         if rates is None:
+            if billable is False and ctx.channel == _COPILOT_CHANNEL:
+                # a non-billable Copilot call (utility model, nano-AIU 0): EXACT $0, not a gap
+                return PricedInference(inference_id=None, lines=(), figure=exact(0, basis),
+                                       exact_nano=0, estimated=None, unpriced_reason=None)
             why = reason or "no rate row"
             return PricedInference(inference_id=None, lines=(), figure=unpriced(why, basis),
                                    exact_nano=0, estimated=None, unpriced_reason=why)
+        lines, notes = self._lines(usage, ctx, rates, billable=billable, source=source,
+                                   output_upper=output_upper)
+        band_b = self._band_hypothesis_b(ctx, ts_ms, usage.total_input)
+        if band_b is not None:
+            alt, _ = self._resolve(ctx, ts_ms, usage.total_input, band=band_b)
+            assert alt is not None
+            alt_lines, _ = self._lines(usage, ctx, alt, billable=billable, source=source,
+                                       output_upper=output_upper)
+            lines = [_hypothesis_range(a, b) for a, b in zip(lines, alt_lines, strict=True)]
+            notes.append("long-context band hypotheses A/B differ: range, point A "
+                         f"({DQ_COPILOT_BAND_HYPOTHESIS})")
+        return _assemble(lines, basis, (rates.row_id,), "; ".join(dict.fromkeys(notes)))
+
+    def _lines(self, usage: UsageBuckets, ctx: PricingContext, rates: ResolvedRates, *,
+               billable: bool | None, source: UsageSource,
+               output_upper: int | None) -> tuple[list[PricedLine], list[str]]:
+        """The priced lines of *usage* at *rates* and their notes (one rounding per line)."""
         high_rates = rates.scope_range
+        folded = (ctx.channel == _COPILOT_CHANNEL and rates.cache_write_5m is None
+                  and rates.cache_write_1h is None and rates.cache_write_other is None)
         notes: list[str] = []
         lines: list[PricedLine] = []
 
@@ -523,10 +621,15 @@ class FakePricer:
         if high_rates is not None:
             notes.append("endpoint scope unknown: priced [global, regional]")
         for bucket, qty in qty_of.items():
-            if qty:
+            if qty and folded and bucket in _WRITE_BUCKETS:
+                rate = _effective_rate(rates, bucket)  # = input: the row prices no writes
+                emit(bucket, qty, rate, low=(qty, rate), high=(qty, rate))
+                notes.append(f"writes folded to input ({DQ_COPILOT_WRITE_FOLDED})")
+            elif qty:
                 emit(bucket, qty, _effective_rate(rates, bucket), **scoped(bucket))
         if usage.cache_write_unknown:
-            notes.append("unknown-TTL cache writes priced [5m, 1h]")
+            notes.append(f"writes folded to input ({DQ_COPILOT_WRITE_FOLDED})" if folded
+                         else "unknown-TTL cache writes priced [5m, 1h]")
             q = usage.cache_write_unknown
             low_rate = _effective_rate(rates, "cache_write_5m")
             top = high_rates if high_rates is not None else rates
@@ -557,7 +660,15 @@ class FakePricer:
             notes.append("reconstructed usage (estimated)")
         elif source is UsageSource.PARTIAL_STREAM:
             notes.append("partial stream: billing unknown [0, full]")
-        return _assemble(lines, basis, (rates.row_id,), "; ".join(dict.fromkeys(notes)))
+        return lines, notes
+
+
+def _hypothesis_range(a: PricedLine, b: PricedLine) -> PricedLine:
+    """Line *a* (hypothesis A) widened to cover line *b* (hypothesis B): point A, range over both,
+    never exact."""
+    lows = [x.low_nano if x.low_nano is not None else x.amount_nano for x in (a, b)]
+    highs = [x.high_nano if x.high_nano is not None else x.amount_nano for x in (a, b)]
+    return dataclasses.replace(a, low_nano=min(lows), high_nano=max(highs), exact=False)
 
 
 def _assemble(lines: list[PricedLine], basis: Basis, provenance: tuple[str, ...],
@@ -585,12 +696,38 @@ def _assemble(lines: list[PricedLine], basis: Basis, provenance: tuple[str, ...]
 def fake_price_total(pricer: Pricer, items: Iterable[tuple[Inference, int]]) -> PricedTotal:
     """A :class:`~tokenbill.core.types.PricedTotal` over ``(inference, ts_ms)`` pairs (the fake of
     ``rates.engine.price_total``, SPEC §6.3): exact lines on billed bases into ``exact``, range
-    lines on billed bases into ``estimated``, every LIST_EQUIVALENT line into ``allowance``;
-    unpriced inferences counted with their tokens; coverage = priced billable tokens / all billable
-    tokens. Inferences with ``billable False`` are not billable and are skipped."""
+    lines on billed bases into ``estimated``, LIST_EQUIVALENT lines on the Copilot billing paths
+    into ``pool`` and every other LIST_EQUIVALENT line (the ``subscription`` path) into
+    ``allowance`` (C-15); unpriced inferences counted with their tokens; coverage = priced billable
+    tokens / all billable tokens. Inferences with ``billable False`` are not billable and are
+    skipped."""
     billed_basis = pricer.basis if pricer.basis in (Basis.LIST, Basis.CONTRACT) else Basis.LIST
     return _price_total(((inf, pricer.price_inference(inf, ts_ms=ts_ms))
                          for inf, ts_ms in items if inf.billable is not False), billed_basis)
+
+
+class _ListEquivalentSum:
+    """Σ of LIST_EQUIVALENT figures (allowance or pool): EXACT iff every figure is."""
+
+    def __init__(self) -> None:
+        self.n = self.point = self.low = self.high = 0
+        self.exact = True
+
+    def add(self, fig: Figure) -> None:
+        assert fig.nano is not None
+        self.n += 1
+        self.point += fig.nano
+        self.low += fig.low_nano if fig.low_nano is not None else fig.nano
+        self.high += fig.high_nano if fig.high_nano is not None else fig.nano
+        self.exact = self.exact and fig.evidence is Evidence.EXACT
+
+    def figure(self) -> Figure | None:
+        if self.n == 0:
+            return None
+        if self.exact:
+            return exact(self.point, Basis.LIST_EQUIVALENT)
+        return Figure(nano=self.point, evidence=Evidence.ESTIMATED, basis=Basis.LIST_EQUIVALENT,
+                      low_nano=self.low, high_nano=self.high, note="range lines")
 
 
 def _price_total(priced_items: Iterable[tuple[Inference, PricedInference]],
@@ -599,9 +736,8 @@ def _price_total(priced_items: Iterable[tuple[Inference, PricedInference]],
     inferences; the exact and estimated totals carry *billed_basis*."""
     exact_nano = est_point = est_low = est_high = 0
     has_est = False
-    allow_point = allow_low = allow_high = 0
-    allow_n = 0
-    allow_exact = True
+    allowance = _ListEquivalentSum()
+    pool = _ListEquivalentSum()
     priced = unpriced_n = unpriced_tokens = all_tokens = 0
     for inf, p in priced_items:
         tokens = inf.usage.total_input + inf.usage.output
@@ -612,13 +748,8 @@ def _price_total(priced_items: Iterable[tuple[Inference, PricedInference]],
             continue
         priced += 1
         if p.figure.basis is Basis.LIST_EQUIVALENT:
-            allow_n += 1
-            allow_point += p.figure.nano
-            lo = p.figure.low_nano if p.figure.low_nano is not None else p.figure.nano
-            hi = p.figure.high_nano if p.figure.high_nano is not None else p.figure.nano
-            allow_low += lo
-            allow_high += hi
-            allow_exact = allow_exact and p.figure.evidence is Evidence.EXACT
+            target = pool if inf.pricing.billing_path in COPILOT_BILLING_PATHS else allowance
+            target.add(p.figure)
             continue
         exact_nano += p.exact_nano
         if p.estimated is not None and p.estimated.nano is not None:
@@ -629,22 +760,15 @@ def _price_total(priced_items: Iterable[tuple[Inference, PricedInference]],
     est_fig = (Figure(nano=est_point, evidence=Evidence.ESTIMATED, basis=billed_basis,
                       low_nano=est_low, high_nano=est_high, note="range lines")
                if has_est else None)
-    if allow_n == 0:
-        allowance = None
-    elif allow_exact:
-        allowance = exact(allow_point, Basis.LIST_EQUIVALENT)
-    else:
-        allowance = Figure(nano=allow_point, evidence=Evidence.ESTIMATED,
-                           basis=Basis.LIST_EQUIVALENT, low_nano=allow_low, high_nano=allow_high,
-                           note="range lines")
     return PricedTotal(
         exact=exact(exact_nano, billed_basis),
         estimated=est_fig,
-        allowance=allowance,
+        allowance=allowance.figure(),
         priced_inferences=priced,
         unpriced_inferences=unpriced_n,
         unpriced_tokens=unpriced_tokens,
         coverage=_coverage(all_tokens - unpriced_tokens, all_tokens),
+        pool=pool.figure(),
     )
 
 
@@ -668,10 +792,13 @@ def published_for_tests(raw: RawAggregate, k: int = 5) -> PublishedAggregate:
 # MemoryStore (SPEC §7)
 # =============================================================================================
 
-#: ``sources_mask`` bit per adapter (SPEC §7.3); other adapters contribute no bit.
+#: ``sources_mask`` bit per adapter (SPEC §7.3; Copilot bits per C-30 / R-E37); other adapters
+#: contribute no bit.
 SOURCES_MASK_BITS: Mapping[str, int] = {
     "claude-code": 1, "trace@1": 2, "trace@2": 4, "otlp": 8, "openai": 16, "bedrock": 32,
     "anthropic-responses": 64, "claude-code-headless": 128,
+    "copilot-cli": 256, "copilot-otel": 512, "copilot-vscode-traces": 1024,
+    "gh-aw-token-usage": 2048, "copilot-export": 4096,
 }
 _AGG_DIMS = ("date", "team", "cost_center", "workspace_id", "workload_class", "lane_kind", "model",
              "agent_type", "agent_product", "repo", "arm", "wave", "skill", "mcp_server",
@@ -680,8 +807,29 @@ _COST_DIMS = ("date", "provider", "channel", "model", "team", "cost_center", "pr
               "workspace_id", "lane_kind", "workload_class", "agent_product", "billing_path")
 _WHERE_KEYS = frozenset(_AGG_DIMS) | {"billing_class", "provider", "project"}
 _HASHED_ATTR = ("repo", "workspace_id", "api_key_id", "skill", "mcp_server", "plugin", "cwd_key")
+#: ``CostLine`` fields that may carry ``h_`` values (name key): the wave-1 workspace / account and
+#: the GitHub repository and agentic-workflow names (C-4).
+_COST_LINE_HASHED = ("workspace_id", "repo", "workflow")
 _HASH_RE = re.compile(r"h_[0-9a-f]{20}\Z")
-_CLUSTER_KINDS = ("team", "workspace", "mdm_group")
+_STORE_P_RE = re.compile(r"p_[0-9a-f]{20}\Z")
+_CLUSTER_KINDS = ("team", "workspace", "mdm_group", "gateway")  # "gateway": R-E28
+#: ``count_users(source="cost_lines")`` filter keys (C-27).
+_COST_LINE_WHERE_KEYS = frozenset({"team", "cost_center", "channel", "model", "sku",
+                                   "workspace_id", "cost_type"})
+#: The only adapter whose key ids a store opened with ``adopt_key_ids=True`` adopts (R-E21).
+ADOPTABLE_ADAPTER = "copilot-export"
+DQ_PRINCIPAL_KEY_MISMATCH = "dq.principal_key_mismatch"
+
+
+def _latest_fetch_wins(rec: object) -> bool:
+    """Copilot provider records: the version with the latest ``fetched_ms`` wins (addendum §7.1);
+    every other record keeps the SPEC rule (final, then latest)."""
+    if isinstance(rec, CostLine):
+        return rec.channel in COPILOT_CHANNELS
+    if isinstance(rec, UsageAggregate):
+        return rec.source_kind in COPILOT_AGG_SOURCE_KINDS or dict(rec.dims).get(
+            "channel") in COPILOT_CHANNELS
+    return isinstance(rec, OutcomeAggregate) and rec.source_kind == "github.copilot_metrics"
 
 
 def _is_hash(value: object) -> bool:
@@ -822,10 +970,11 @@ def _first_by_priority(group: list[_Contribution], getter: Callable[[Request], A
 
 
 class MemoryStore:
-    """Dict-backed reference :class:`~tokenbill.core.protocols.LedgerStore` (SPEC §7).
+    """Dict-backed reference :class:`~tokenbill.core.protocols.LedgerStore` (SPEC §7), also a
+    :class:`~tokenbill.core.protocols.LedgerStats`.
 
-    ``MemoryStore(*, org_key=None, name_key_id=None, pricer=None, now_ms=0)`` mirrors
-    ``SqliteStore``'s keyword arguments. Semantics:
+    ``MemoryStore(*, org_key=None, name_key_id=None, pricer=None, now_ms=0, adopt_key_ids=False)``
+    mirrors ``SqliteStore``'s keyword arguments. Semantics:
 
     * **Privacy at write time** (§7.2, §7.6): ``r_<ref>`` principals become
       ``pseudonym(org_key, "p", ref)`` and ``c_<hex>`` become ``pseudonym(org_key, "p", "c:"+hex)``;
@@ -850,12 +999,35 @@ class MemoryStore:
     * ``where`` filters accept the empty string to match a missing (NULL) value. ``cluster_days``
       windows are half-open ``[since, until)`` dates. ``cost_rows`` fills dimensions that are not
       grouped with ``""`` (string fields) or None.
+
+    GitHub Copilot (K-5):
+
+    * **Key-id adoption** (ruling R-E21) with ``adopt_key_ids=True``: the first ingested source of
+      adapter ``copilot-export`` whose ``principal_key_id`` is not the store's own is adopted —
+      ``meta()`` gains ``adopted_key_id`` / ``adopted_name_key_id`` (a store without an org key also
+      takes them as ``org_key_id`` / ``name_key_id`` — never the name key id of an earlier source —
+      and ``org_key_mode == "adopted"``) and an ``adopt_key_id`` audit row; ``p_`` / ``h_`` values
+      (cost-line ``repo`` / ``workflow`` included) under the own or the adopted key id are kept,
+      others nulled (``dq.principal_key_mismatch`` / ``dq.name_key_mismatch``); a second
+      bundle under another key id → ``UsageError`` (nothing stored); another adapter's key id is
+      never adopted; ``r_`` / ``c_`` principals still need the store's own org key. Without the
+      flag the wave-1 behaviour is unchanged. ``meta()`` always reports ``org_key_mode`` (``own`` |
+      ``adopted`` | ``none``).
+    * ``count_users(…, source="cost_lines")`` counts distinct ``CostLine.principal``;
+      :meth:`source_stats` sums the integer ``IngestResult.stats`` of every stored source.
+    * LIST_EQUIVALENT lines on the Copilot billing paths go to ``PricedTotal.pool`` and
+      ``ClusterDay.pool_nano`` (``allowance`` keeps the subscription path); cluster kind
+      ``gateway`` (R-E28) groups by ``Attribution.extra["gateway"]``.
+    * Copilot cost lines and aggregates (channels ``COPILOT_CHANNELS``, Copilot source kinds) keep
+      the version with the latest ``fetched_ms`` per id (ties: canonical order).
     """
 
     def __init__(self, *, org_key: bytes | None = None, name_key_id: str | None = None,
-                 pricer: Pricer | None = None, now_ms: int = 0) -> None:
+                 pricer: Pricer | None = None, now_ms: int = 0,
+                 adopt_key_ids: bool = False) -> None:
         self._org_key = org_key
         self._now_ms = now_ms
+        self._adopt = bool(adopt_key_ids)
         # pricers in use; strong references keep id() stable for the index
         self._pricers: list[Pricer] = []
         self._pricer_ids: dict[int, int] = {}
@@ -867,6 +1039,9 @@ class MemoryStore:
             "name_key_id": name_key_id or "",
             "content_tier": "none",
             "created_ms": str(now_ms),
+            "org_key_mode": "own" if org_key else "none",
+            "adopted_key_id": "",
+            "adopted_name_key_id": "",
         }
         self._contribs: dict[tuple[str, str], _Contribution] = {}
         self._shells: dict[str, dict[str, Lane]] = {}
@@ -881,6 +1056,8 @@ class MemoryStore:
         self._receipts: dict[str, ReceiptRow] = {}
         self._audit: list[tuple[int, str, str, str]] = []
         self._name_mismatch = 0
+        self._principal_mismatch = 0
+        self._stats: dict[tuple[str, str], tuple[str, dict[str, int]]] = {}
         self._state: _State | None = None
         # keyed by (pricer index, the hashable frozen inference itself, ts): two inferences may
         # share an id
@@ -953,11 +1130,22 @@ class MemoryStore:
         if mark in self._ingested:
             counts["skipped"] = 1
             counts["dq.name_key_mismatch"] = 0
+            counts[DQ_PRINCIPAL_KEY_MISMATCH] = 0
             return counts
-        store_name = self._meta["name_key_id"] or src.name_key_id or ""
-        names_ok = src.name_key_id is not None and src.name_key_id == store_name
+        adopting = self._adoption(src)
+        # a keyless store opened for adoption takes its name key id from the bundle only (R-E21),
+        # never from whichever source comes first (the SPEC §7.2 rule of every other store)
+        keyless_adopt = self._adopt and self._org_key is None
+        store_name = (self._meta["name_key_id"] if keyless_adopt
+                      else self._meta["name_key_id"] or src.name_key_id or "")
+        name_ids = {store_name, self._meta["adopted_name_key_id"]} - {""}
+        principal_ids = {self._meta["org_key_id"], self._meta["adopted_key_id"]} - {""}
+        if adopting:
+            name_ids.add(src.name_key_id or "")
+            principal_ids.add(src.principal_key_id or "")
+        names_ok = src.name_key_id is not None and src.name_key_id in name_ids
         principals_ok = (src.principal_key_id is not None
-                         and src.principal_key_id == self._meta["org_key_id"])
+                         and src.principal_key_id in principal_ids)
         loose = list(result.requests)
         events = list(result.events)
         shells: list[Lane] = []
@@ -973,9 +1161,13 @@ class MemoryStore:
             principal = self._pseudonymize(line.principal, principals_ok, counts)
             if principal != line.principal:
                 changes["principal"] = principal
-            if _is_hash(line.workspace_id) and not names_ok:
-                changes["workspace_id"] = None
-                counts["names_nulled"] += 1
+            if not names_ok:
+                # h_ values under a name key id that is neither the store's nor the adopted one
+                # (R-E21); repo / workflow are the GitHub cost-line names (C-4)
+                for name in _COST_LINE_HASHED:
+                    if _is_hash(getattr(line, name)):
+                        changes[name] = None
+                        counts["names_nulled"] += 1
             cost_lines.append(dataclasses.replace(line, **changes) if changes else line)
         aggregates = []
         for agg in result.aggregates:
@@ -985,7 +1177,9 @@ class MemoryStore:
                                                           if not _is_hash(v)))
             aggregates.append(agg)
         # --- commit (nothing above has mutated the store) ---
-        if not self._meta["name_key_id"] and src.name_key_id:
+        if adopting:
+            self._adopt_from(src)
+        if not self._meta["name_key_id"] and src.name_key_id and not keyless_adopt:
             self._meta["name_key_id"] = src.name_key_id
         ingest_pricer = self._pidx(pricer) if pricer is not None else self._default
         self._ingested.add(mark)
@@ -1017,16 +1211,56 @@ class MemoryStore:
                       aggregates=len(aggregates), cost_lines=len(cost_lines),
                       outcomes=len(result.outcomes))
         counts["dq.name_key_mismatch"] = counts["names_nulled"] + counts["principals_nulled"]
+        counts[DQ_PRINCIPAL_KEY_MISMATCH] = counts["principals_nulled"]
         self._name_mismatch += counts["dq.name_key_mismatch"]
+        self._principal_mismatch += counts["principals_nulled"]
+        self._stats[mark] = (src.adapter, {k: v for k, v in result.stats.items()
+                                           if type(v) is int})
         self._state = None
         return counts
+
+    def _adoption(self, src: SourceInfo) -> bool:
+        """Whether ingesting *src* adopts its key ids (R-E21); a second bundle key id raises."""
+        if not self._adopt or src.adapter != ADOPTABLE_ADAPTER or not src.principal_key_id:
+            return False
+        if src.principal_key_id in (self._meta["org_key_id"], self._meta["adopted_key_id"]):
+            return False
+        if self._meta["adopted_key_id"]:
+            raise UsageError("this store already adopted another export key id; use the same "
+                             "export key every month")
+        return True
+
+    def _adopt_from(self, src: SourceInfo) -> None:
+        key = src.principal_key_id or ""
+        name = src.name_key_id or ""
+        self._meta["adopted_key_id"] = key
+        self._meta["adopted_name_key_id"] = name
+        if not self._meta["org_key_id"]:
+            self._meta["org_key_id"] = key
+            self._meta["org_key_mode"] = "adopted"
+            if not self._meta["name_key_id"] and name:
+                self._meta["name_key_id"] = name
+        self.audit("store", "adopt_key_id", {"key_id": key, "name_key_id": name,
+                                             "adapter": src.adapter})
 
     def dq_counts(self) -> dict[str, int]:
         """Store-wide data-quality counts (MemoryStore extension, not part of the protocol)."""
         state = self._merged()
         return {"dq.name_key_mismatch": self._name_mismatch,
                 "dq.request_id_collision": state.collisions,
-                "dq.cross_source_usage_mismatch": state.mismatches}
+                "dq.cross_source_usage_mismatch": state.mismatches,
+                DQ_PRINCIPAL_KEY_MISMATCH: self._principal_mismatch}
+
+    def source_stats(self, *, adapter: str | None = None) -> dict[str, int]:
+        """Σ of the integer ``IngestResult.stats`` values by key over every stored source, or over
+        one adapter's (``LedgerStats``, C-27); sorted by key."""
+        totals: dict[str, int] = {}
+        for src_adapter, stats in self._stats.values():
+            if adapter is not None and src_adapter != adapter:
+                continue
+            for key, value in stats.items():
+                totals[key] = totals.get(key, 0) + value
+        return dict(sorted(totals.items()))
 
     # ---------- the merged ledger ----------
 
@@ -1132,6 +1366,7 @@ class MemoryStore:
             "billing_class": billing_class(a.billing_path or (
                 ctx.billing_path if ctx is not None else None)),
             "principal": a.principal, "mdm_group": extra.get("mdm_group"),
+            "gateway": extra.get("gateway"),
         }
 
     @staticmethod
@@ -1298,8 +1533,24 @@ class MemoryStore:
                     yield (lane.cache_scope_key, req.model, si.usage.cache_read)
                     break
 
-    def count_users(self, *, since_ms: int, until_ms: int, where: Mapping[str, str]) -> int:
-        """Distinct principals over requests matching *where* (never returns ids)."""
+    def count_users(self, *, since_ms: int, until_ms: int, where: Mapping[str, str],
+                    source: str = "requests") -> int:
+        """Distinct principals (never ids) over requests matching *where*, or with
+        ``source="cost_lines"`` over the stored cost lines dated in the window (``where`` keys
+        team, cost_center, channel, model, sku, workspace_id, cost_type; ``""`` matches None)."""
+        if source == "cost_lines":
+            clause = dict(where or {})
+            person = sorted(set(clause) & PERSON_DIMS)
+            if person:
+                raise PrivacyError(f"filtering by {', '.join(person)} is not allowed")
+            unknown = sorted(set(clause) - _COST_LINE_WHERE_KEYS)
+            if unknown:
+                raise UsageError(f"unknown cost-line filter key(s): {', '.join(unknown)}")
+            lines = self.cost_lines(since_ms=since_ms, until_ms=until_ms)
+            return len({c.principal for c in lines if c.principal is not None and self._match(
+                {k: getattr(c, k) for k in _COST_LINE_WHERE_KEYS}, clause)})
+        if source != "requests":
+            raise UsageError(f"unknown count source {source!r} (requests | cost_lines)")
         clause = self._check_where(where)
         users = {m.request.attribution.principal for m in self._in_window(since_ms, until_ms)
                  if m.request.attribution.principal is not None
@@ -1320,9 +1571,13 @@ class MemoryStore:
     @staticmethod
     def _choose(cands: Mapping[str, Any]) -> Any:
         """One stored version per provider id: a ``final`` version over a provisional one, then the
-        most recently fetched, then the canonically largest (deterministic, order-independent)."""
-        best = max(cands, key=lambda canon: (getattr(cands[canon], "finality", "") == "final",
-                                             getattr(cands[canon], "fetched_ms", 0), canon))
+        most recently fetched, then the canonically largest (deterministic, order-independent).
+        Copilot records: the most recently fetched, then the canonically largest (addendum §7.1)."""
+        if any(_latest_fetch_wins(c) for c in cands.values()):
+            best = max(cands, key=lambda canon: (getattr(cands[canon], "fetched_ms", 0), canon))
+        else:
+            best = max(cands, key=lambda canon: (getattr(cands[canon], "finality", "") == "final",
+                                                 getattr(cands[canon], "fetched_ms", 0), canon))
         return cands[best]
 
     def aggregates(self, source_kind: str | None = None, **window: int) -> list[UsageAggregate]:
@@ -1399,12 +1654,13 @@ class MemoryStore:
 
     def cluster_days(self, *, cluster_kind: str, since: str, until: str) -> list[ClusterDay]:
         """Per (date, cluster, arm, wave) over ``[since, until)``: active users (distinct principals
-        of requests with a billable inference), requests, billed-basis exact nano and
-        list-equivalent point nano. Cluster kinds: ``team``, ``workspace``, ``mdm_group``."""
+        of requests with a billable inference), requests, billed-basis exact nano, list-equivalent
+        point nano of the subscription path (``allowance_nano``) and of the Copilot paths
+        (``pool_nano``). Cluster kinds: ``team``, ``workspace``, ``mdm_group``, ``gateway``."""
         if cluster_kind not in _CLUSTER_KINDS:
             raise UsageError(f"unknown cluster kind {cluster_kind!r}")
-        field = {"team": "team", "workspace": "workspace_id", "mdm_group": "mdm_group"}[
-            cluster_kind]
+        field = {"team": "team", "workspace": "workspace_id", "mdm_group": "mdm_group",
+                 "gateway": "gateway"}[cluster_kind]
         cells: dict[tuple[str, str, str | None, str | None], dict[str, Any]] = {}
         for m in self._in_window(_date_start_ms(since), _date_start_ms(until)):
             billable = list(self._billable(m))
@@ -1416,7 +1672,8 @@ class MemoryStore:
                 continue
             a = m.request.attribution
             cell = cells.setdefault((_date_of(m.request.ts_start_ms), cid, a.arm, a.wave),
-                                    {"users": set(), "requests": 0, "exact": 0, "allow": 0})
+                                    {"users": set(), "requests": 0, "exact": 0, "allow": 0,
+                                     "pool": 0})
             if a.principal is not None:
                 cell["users"].add(a.principal)
             cell["requests"] += 1
@@ -1425,12 +1682,13 @@ class MemoryStore:
                 if p.figure.nano is None:
                     continue
                 if p.figure.basis is Basis.LIST_EQUIVALENT:
-                    cell["allow"] += p.figure.nano
+                    slot = "pool" if inf.pricing.billing_path in COPILOT_BILLING_PATHS else "allow"
+                    cell[slot] += p.figure.nano
                 else:
                     cell["exact"] += p.exact_nano
         return [ClusterDay(date_utc=d, cluster_kind=cluster_kind, cluster_id=cid, arm=arm,
                            wave=wave, active_users=len(c["users"]), requests=c["requests"],
-                           exact_nano=c["exact"], allowance_nano=c["allow"])
+                           exact_nano=c["exact"], allowance_nano=c["allow"], pool_nano=c["pool"])
                 for (d, cid, arm, wave), c in sorted(
                     cells.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or "",
                                                    kv[0][3] or ""))]
@@ -1580,7 +1838,8 @@ class MemoryStore:
         return list(self._audit)
 
     def meta(self) -> dict[str, str]:
-        """``schema_version``, ``org_key_id``, ``name_key_id``, ``content_tier``, ``created_ms``."""
+        """``schema_version``, ``org_key_id``, ``name_key_id``, ``content_tier``, ``created_ms``,
+        ``org_key_mode``, ``adopted_key_id`` and ``adopted_name_key_id`` (``""`` when none)."""
         return dict(self._meta)
 
 
@@ -1641,13 +1900,13 @@ class FakeReplayer:
         """See the class docstring."""
         classes = {lane.billing_class for lane in lanes if lane.requests}
         if len(classes) > 1:
-            raise UsageError("replay: lanes of one billing class only (billed | allowance)")
+            raise UsageError("replay: lanes of one billing class only (billed | allowance | pool)")
         if mode not in ("documented", "calibrated"):
             raise UsageError(f"unknown replay mode {mode!r}")
         calibrated = (mode == "calibrated" and calibration is not None
                       and calibration.status == "pass")
         cal = Calibration.CALIBRATED if calibrated else Calibration.UNCALIBRATED
-        basis = Basis.LIST_EQUIVALENT if classes == {"allowance"} else (
+        basis = Basis.LIST_EQUIVALENT if classes in ({"allowance"}, {"pool"}) else (
             pricer.basis if pricer.basis in (Basis.LIST, Basis.CONTRACT) else Basis.LIST)
         observed = policy.is_observed()
         baseline = zero(basis)
@@ -1822,7 +2081,93 @@ def _golden_cases(pricer: Pricer) -> list[str]:
         _check(price(big, sol, _ts("2026-11-22")).figure.nano is None,
                "§6.9 case 21 (promotion expired)")
         checked += ["10", "11", "21"]
+    checked += _copilot_golden_cases(pricer)
     return checked
+
+
+def _copilot_row_matches(pricer: Pricer, model: str, date: str) -> bool:
+    """Whether *pricer* resolves the Copilot row of *model* on *date* at the facts rates."""
+    rows = [r for r in load_facts().copilot.rate_rows if r.model == model and r.enabled
+            and r.effective_from <= date and (r.effective_to is None or date < r.effective_to)]
+    if not rows:  # pragma: no cover - facts carry every model the goldens use
+        return False
+    resolved = pricer.resolve(_copilot_ctx(model), ts_ms=_ts(date))
+    return (resolved is not None and resolved.input == rows[0].input_usd_per_mtok
+            and resolved.output == rows[0].output_usd_per_mtok)
+
+
+def _copilot_ctx(model: str, **kw: Any) -> PricingContext:
+    return PricingContext(provider="github", channel=_COPILOT_CHANNEL, model=model,
+                          model_raw=model, billing_path=kw.pop("billing_path", "copilot_pool"),
+                          **kw)
+
+
+def _copilot_golden_cases(pricer: Pricer) -> list[str]:
+    """Copilot addendum Appendix C.G1–G10, G14–G16 for a pricer that carries the Copilot rows at
+    the facts rates (every figure LIST_EQUIVALENT); returns the case ids checked. A contract card
+    (basis CONTRACT) skips them like the SPEC cases."""
+    if pricer.basis is not Basis.LIST or not _copilot_row_matches(pricer, "claude-opus-5-5",
+                                                                     "2026-09-23"):
+        return []
+
+    def price(usage: UsageBuckets, model: str, date: str, **kw: Any) -> Figure:
+        p = pricer.price_usage(usage, _copilot_ctx(model, **kw), ts_ms=_ts(date))
+        _check(p.figure.basis is Basis.LIST_EQUIVALENT, "Copilot figures are LIST_EQUIVALENT")
+        return p.figure
+
+    def rng(f: Figure) -> tuple[int | None, int | None, int | None]:
+        return (f.nano, f.low_nano, f.high_nano)
+
+    g1 = UsageBuckets(uncached_input=12_000, cache_read=180_000, cache_write_unknown=6000,
+                      output=3000)
+    f = price(g1, "claude-opus-5-5", "2026-09-23")
+    _check(rng(f) == (174_000_000, 174_000_000, 192_000_000)
+           and f.evidence is Evidence.ESTIMATED, "C.G1")
+    _check(price(g1, "claude-opus-5-5", "2026-09-23", write_ttl_hint="1h").nano == 192_000_000,
+           "C.G1 (1h hint)")
+    _check(rng(price(g1, "claude-opus-5-5", "2026-09-23", routing="auto"))
+           == (156_600_000, 156_600_000, 172_800_000), "C.G2")
+    g3 = price(g1, "claude-opus-5-5", "2026-09-23", compliance="data_residency")
+    _check((g3.nano, g3.high_nano) == (191_400_000, 211_200_000), "C.G3")
+    g4 = price(g1, "claude-opus-5-5", "2026-09-23", routing="auto", compliance="data_residency")
+    _check((g4.nano, g4.high_nano) == (172_260_000, 190_080_000), "C.G4")
+    big = UsageBuckets(uncached_input=20_000, cache_read=280_000, output=4000)
+    small = UsageBuckets(uncached_input=20_000, cache_read=250_000, output=4000)
+    g5 = price(big, "gpt-5.5", "2026-09-10")
+    g5s = price(small, "gpt-5.5", "2026-09-10")
+    _check(g5.nano == 660_000_000 and g5.evidence is Evidence.EXACT
+           and g5s.nano == 345_000_000 and g5s.evidence is Evidence.EXACT, "C.G5")
+    g5b = price(small, "gpt-5.5", "2026-09-10", context_tier="long_context")
+    _check(rng(g5b) == (345_000_000, 345_000_000, 630_000_000)
+           and g5b.evidence is Evidence.ESTIMATED, "C.G5b")
+    g6 = UsageBuckets(uncached_input=2000, cache_read=6000, cache_write_unknown=2000, output=1000)
+    _check(price(g6, "gpt-5.6-sol", "2026-09-10").nano == 40_400_000
+           and price(g6, "gpt-5.6-sol", "2026-08-25").nano == 20_200_000, "C.G6")
+    _check(price(g6, "gpt-5.6-sol", "2026-08-20").nano == 27_750_000, "C.G7")
+    g8 = UsageBuckets(uncached_input=10_000, cache_read=90_000, output=2000)
+    fast = price(g8, "claude-opus-4-8", "2026-09-23", speed="fast")
+    std = price(g8, "claude-opus-4-8", "2026-09-23")
+    _check((fast.nano, std.nano) == (290_000_000, 145_000_000)
+           and fast.evidence is Evidence.EXACT, "C.G8")
+    g8b = dataclasses.replace(g8, cache_write_unknown=5000)
+    # the same unknown TTL on both sides: the premium range is taken bound by bound
+    fb = rng(price(g8b, "claude-opus-4-8", "2026-09-23", speed="fast"))
+    sb = rng(price(g8b, "claude-opus-4-8", "2026-09-23"))
+    _check(tuple((x or 0) - (y or 0) for x, y in zip(fb, sb, strict=True))
+           == (176_250_000, 176_250_000, 195_000_000), "C.G8b")
+    g9 = UsageBuckets(uncached_input=100_000, cache_read=400_000, output=10_000)
+    _check(price(g9, "gemini-3.8-flash", "2026-09-23").nano == 142_500_000
+           and price(g9, "gemini-3.8-flash", "2027-01-01").nano is None, "C.G9")
+    g10 = price(UsageBuckets(uncached_input=50_000, cache_read=160_000, output=5000), "grok-4.7",
+                "2026-09-23")
+    _check(g10.nano == 420_000_000 and g10.evidence is Evidence.EXACT, "C.G10")
+    _check(price(UsageBuckets(cache_read=1_000_000), "kimi-k2.7-code", "2026-09-23").nano
+           == 190_000_000, "C.G14")
+    g15 = price(UsageBuckets(cache_write_unknown=1000), "gpt-5.3-codex", "2026-09-23")
+    _check(g15.nano == 1_750_000 and g15.evidence is Evidence.ESTIMATED, "C.G15")
+    _check(price(g1, "claude-opus-5-5", "2026-09-21").nano is None, "C.G16")
+    return ["C.G1", "C.G2", "C.G3", "C.G4", "C.G5", "C.G5b", "C.G6", "C.G7", "C.G8", "C.G8b",
+            "C.G9", "C.G10", "C.G14", "C.G15", "C.G16"]
 
 
 def _rule_checks(pricer: Pricer, ctx: PricingContext, ts: int) -> None:
@@ -2093,7 +2438,9 @@ def assert_adapter_conforms(adapter: Adapter, fixture_path: Path, *,
     totals; in content tier ``none`` no string field carries more than 64 bytes of source text
     (``raw_usage_json`` excepted: numbers and allowlisted enums only); every ``h_`` value appears
     only with ``SourceInfo.name_key_id`` equal to the options' name key id and every ``p_``/``c_``
-    value only with the matching ``principal_key_id``. Returns the first result.
+    value only with the matching ``principal_key_id``; every ``LicenseSnapshot`` / ``ActivityDay``
+    / ``CostLine`` principal is a ``p_`` pseudonym and neither ``CANARY_LOGIN`` nor
+    ``CANARY_EMAIL`` appears anywhere (GitHub sources, K-5). Returns the first result.
     """
     fixture_path = Path(fixture_path)
     _check(isinstance(adapter, Adapter), "not an Adapter (protocol surface)")
@@ -2113,6 +2460,13 @@ def assert_adapter_conforms(adapter: Adapter, fixture_path: Path, *,
     _check(first.capabilities <= adapter.capabilities,
            "result capabilities exceed the adapter's declared capabilities")
     assert_no_canary(repr(first), one)
+    for blob in (repr(first), one):
+        _check(CANARY_LOGIN.lower() not in blob.lower() and CANARY_EMAIL.lower() not in
+               blob.lower(), "a canary login or e-mail leaked into the result")
+    for rec in (*first.licenses, *first.activity, *first.cost_lines):
+        principal = rec.principal
+        _check(principal is None or bool(_STORE_P_RE.match(principal)),
+               f"{type(rec).__name__}.principal must be a p_ pseudonym")
     for usage in _walk_usage(first):
         for f in dataclasses.fields(UsageBuckets):
             v = getattr(usage, f.name)
@@ -2615,14 +2969,16 @@ def _priced_request(pricer: Pricer, req: Request, basis: Basis) -> Figure:
 
 
 def assert_replayer_conforms(replayer: Replayer, pricer: Pricer, *,
-                             rules: Any = None) -> dict[str, Any]:
+                             rules: Any = None, pool: bool = False) -> dict[str, Any]:
     """Conformance of a :class:`~tokenbill.core.protocols.Replayer` (SPEC §3.18, §9.1).
 
     The observed policy returns ``cost == baseline`` to the nano (point and range) with every
     outcome ``changed=False`` and zero saving; ``baseline`` equals Σ ``PricedInference.figure`` over
     the billable inferences; under ``ttl=1h`` scoped to main lanes, requests of the other lanes are
     unchanged (cost equal to their priced point); replay is deterministic; mixed billing classes
-    raise ``UsageError``. *rules* defaults to F-SEM's ``RulesTable`` when importable."""
+    raise ``UsageError``. *rules* defaults to F-SEM's ``RulesTable`` when importable. With
+    *pool* (GitHub Copilot, CORE-AMENDMENTS A-6) also: Copilot ``pool`` lanes replay on
+    LIST_EQUIVALENT (observed cost == baseline), and ``pool`` mixed with billed lanes raises."""
     _check(isinstance(replayer, Replayer), "not a Replayer (protocol surface)")
     if rules is None:
         try:
@@ -2669,13 +3025,39 @@ def assert_replayer_conforms(replayer: Replayer, pricer: Pricer, *,
         pass
     else:
         raise AssertionError("mixed billing classes must raise UsageError")
-    return {"baseline_nano": res.baseline.nano, "ttl_saving_nano": a.saving.nano}
+    out = {"baseline_nano": res.baseline.nano, "ttl_saving_nano": a.saving.nano}
+    if pool:
+        pooled = lane_from_table_pool()
+        pres = replayer.replay([pooled], Policy.observed(), **kw)
+        expected_pool = zero(Basis.LIST_EQUIVALENT)
+        for req in pooled.requests:
+            expected_pool = add(expected_pool, _priced_request(pricer, req,
+                                                               Basis.LIST_EQUIVALENT))
+        _check(pres.baseline.basis is Basis.LIST_EQUIVALENT
+               and pres.cost.nano == pres.baseline.nano == expected_pool.nano,
+               "a pool (Copilot) lane replays on LIST_EQUIVALENT")
+        try:
+            replayer.replay([lanes[0], pooled], ttl, **kw)
+        except UsageError:
+            pass
+        else:
+            raise AssertionError("pool lanes mixed with billed lanes must raise UsageError")
+        out["pool_baseline_nano"] = pres.baseline.nano
+    return out
 
 
 def lane_from_table_allowance() -> Lane:
     """A one-request subscription (allowance) lane, for mixed-billing-class checks."""
     return lane_from_table(_shifted([(0, 0, 10_000, 0, 0, 100)]), lane_key="R-allow",
                            billing_path="subscription")
+
+
+def lane_from_table_pool() -> Lane:
+    """A two-request GitHub Copilot lane (channel ``github_copilot``, billing path
+    ``copilot_pool``: billing class ``pool``), for Copilot replay checks."""
+    return lane_from_table(_shifted([(0, 0, 10_000, 0, 0, 100), (30, 10_000, 500, 0, 0, 100)]),
+                           lane_key="R-pool", provider="github", channel="github_copilot",
+                           billing_path="copilot_pool")
 
 
 # =============================================================================================
@@ -2730,9 +3112,16 @@ def _check_finding(detector: Detector, f: Finding, ctx: AnalysisContext) -> None
         _check(f.title.startswith("Allowance headroom:"), f"{tag}: allowance title")
         _check(all(fig is None or fig.basis is Basis.LIST_EQUIVALENT for _, fig in _figures(f)),
                f"{tag}: allowance figures must be list-equivalent")
+    dims = dict(f.scope.dims)
+    copilot_scope = dims.get("product") == "copilot" or dims.get("billing_class") == "pool"
+    if f.headroom is not None:  # R-E20: pool headroom only on Copilot scopes, list-equivalent
+        _check(copilot_scope and isinstance(f.headroom, Figure)
+               and f.headroom.basis is Basis.LIST_EQUIVALENT,
+               f"{tag}: headroom must be LIST_EQUIVALENT on a product=copilot / pool scope")
     if f.fix is not None and f.fix.config_patch:
+        table = catalog.COPILOT_ALLOWLIST if f.fix.target == "github-copilot" else catalog.ALLOWLIST
         for key, _ in f.fix.config_patch:
-            _check(key in catalog.ALLOWLIST, f"{tag}: config key {key!r} not allowlisted")
+            _check(key in table, f"{tag}: config key {key!r} not allowlisted")
     for lever_id in f.lever_ids:
         catalog.lever(lever_id)
 
@@ -2749,10 +3138,14 @@ def assert_detector_conforms(detector: Detector, lanes: Sequence[Lane],
     "no mechanical fix" summary; labeled Figures; ``finding_id == finding_id(detector_id, kind,
     scope)``; sorted scope; audience rules (no principal in org scopes, sessions only with
     break-glass, self findings only with a self principal); allowance findings list-equivalent with
-    the "Allowance headroom:" title; allowlisted config keys and catalog lever ids. Runs are
-    deterministic, and **shard invariance** holds: running separately on each ``(team, lane_kind)``
-    group of *lanes* (with ``ctx.shard`` set) and concatenating equals one run over all lanes
-    (skipped for aggregate detectors, which ignore lanes). Returns the findings of the full run.
+    the "Allowance headroom:" title; allowlisted config keys (``COPILOT_ALLOWLIST`` for fixes
+    targeting ``github-copilot``) and catalog lever ids (both lever tables); ``headroom`` only on
+    ``product=copilot`` / ``pool`` scopes and LIST_EQUIVALENT (R-E20). Runs are deterministic, and
+    **shard invariance** holds: running separately on each ``(team, lane_kind)`` group of *lanes*
+    (with ``ctx.shard`` set) and concatenating equals one run over all lanes (skipped for
+    detectors requiring ``aggregates``, which ignore lanes). Detectors with ``aggregate=True``
+    (run once per run, ruling R-E17) are checked for **lane independence** instead: the findings
+    for ``lanes=[]`` equal those for *lanes*. Returns the findings of the full run.
     """
     _check(isinstance(detector, Detector), "not a Detector (protocol surface)")
     _check(isinstance(detector.id, str) and isinstance(detector.version, str),
@@ -2769,7 +3162,11 @@ def assert_detector_conforms(detector: Detector, lanes: Sequence[Lane],
         _check_finding(detector, f, ctx)
     again = detector.detect(lanes, ctx)
     _check(_by_id(again) == _by_id(findings), "detect is not deterministic")
-    if "aggregates" not in detector.requires:
+    if getattr(detector, "aggregate", False):
+        alone = detector.detect([], ctx)
+        _check(_by_id(alone) == _by_id(findings),
+               "lane independence: an aggregate=True detector's findings depend on the lanes")
+    elif "aggregates" not in detector.requires:
         groups: dict[tuple[str | None, str], list[Lane]] = {}
         for lane in lanes:
             groups.setdefault((lane.team, lane.kind.value), []).append(lane)
@@ -3057,3 +3454,623 @@ def smoke_pipeline_on_fakes(*, seed: int = 0) -> Any:
         bill=bill, findings=tuple(findings), action_plan=plan, replays=(joint,),
         notes=(f"miss events: {misses}", f"lanes: {len(lanes)}"))
 
+
+
+# =============================================================================================
+# MemoryRecordStore (GitHub Copilot record store fake, K-5; addendum §7.2)
+# =============================================================================================
+
+#: Where keys of ``ExtRecordStore.count_users`` for licenses / activity (CP-STORE; ``surface`` and
+#: ``editor_family`` both name the seat's last activity surface).
+RECORD_WHERE_KEYS = frozenset({"team", "cost_center", "org", "plan", "bucket", "product",
+                               "editor_family", "surface", "date_from", "date_to"})
+_RECORD_SOURCES = ("licenses", "activity")
+
+
+def _day_in(date: str, lo: int, hi: int) -> bool:
+    return _day_overlaps(date, lo, hi)
+
+
+def _dates_ok(date: str, clause: Mapping[str, str]) -> bool:
+    lo, hi = clause.get("date_from"), clause.get("date_to")
+    return (lo is None or date >= lo) and (hi is None or date <= hi)
+
+
+def _eq(actual: object, wanted: str) -> bool:
+    """``where`` equality: ``""`` matches a missing (None) value."""
+    return actual is None if wanted == "" else actual == wanted
+
+
+def _rec_window(window: Mapping[str, int]) -> tuple[int, int]:
+    unknown = set(window) - {"since_ms", "until_ms"}
+    if unknown:
+        raise UsageError(f"unknown window key(s): {', '.join(sorted(unknown))}")
+    lo, hi = window.get("since_ms"), window.get("until_ms")
+    return (lo if lo is not None else 0, hi if hi is not None else _FOREVER_MS)
+
+
+def _newer(new: Any, old: Any) -> bool:
+    """Latest-fetch-wins upsert; ties go to the canonically larger version (order independent)."""
+    return (new.fetched_ms, _canonical(to_json(new))) > (old.fetched_ms, _canonical(to_json(old)))
+
+
+class MemoryRecordStore:
+    """Dict-backed :class:`~tokenbill.core.protocols.ExtRecordStore` for ``LicenseSnapshot`` /
+    ``ActivityDay`` / ``ConfigSnapshot`` (the fake of CP-STORE's ``CopilotRecordStore``).
+
+    ``MemoryRecordStore(ledger=None, *, name="copilot", org_key_id=None, now_ms=0)``:
+
+    * **Key-id check** (R-E21): ``put(result, *, principal_key_id)`` stores licenses and activity
+      only when *principal_key_id* is one of the ledger's accepted key ids — ``meta()``
+      ``org_key_id`` or ``adopted_key_id`` (read at every ``put``, so a key id the ledger adopted
+      is accepted afterwards) — or the constructor's *org_key_id*; otherwise they are skipped and
+      counted as ``dq.principal_key_mismatch``. Configuration rows carry no person and are always
+      stored. Every stored row keeps its key id (:meth:`principal_key_id_of`), so per-person joins
+      stay inside one key id.
+    * Natural keys are ``core.records.record_key``; an upsert keeps the version with the latest
+      ``fetched_ms`` (ties: canonical order), so re-ingest is idempotent — also with ``org=None`` —
+      and order independent.
+    * ``count_users(source="licenses" | "activity")``: distinct principals (never ids) over the
+      rows in the window matching *where* (:data:`RECORD_WHERE_KEYS`; ``""`` matches None;
+      ``date_from`` / ``date_to`` inclusive). Only when no license (activity) row exists in the
+      window does it fall back to the ``n_people`` of the ``seat_counts`` (``activity_counts``)
+      configuration rows of aggregate-only bundles: seat-count rows are summed per entity and
+      snapshot day (they partition that entity's seats) and the largest such sum is returned;
+      activity-count rows give their largest ``n_people`` — both lower bounds.
+    * ``retain`` deletes license and activity rows dated before the cut (configuration rows are
+      team-level and kept); ``purge`` deletes a principal's rows and / or everything before a time,
+      with an audit row that names no person.
+    """
+
+    def __init__(self, ledger: LedgerStore | None = None, *, name: str = "copilot",
+                 org_key_id: str | None = None, now_ms: int = 0) -> None:
+        self.name = name
+        self._ledger = ledger
+        self._org_key_id = org_key_id
+        self._now_ms = now_ms
+        self._licenses: dict[str, tuple[LicenseSnapshot, str]] = {}
+        self._activity: dict[str, tuple[ActivityDay, str]] = {}
+        self._config: dict[str, ConfigSnapshot] = {}
+        self._audit: list[tuple[int, str, str, str]] = []
+
+    # ---------- writes ----------
+
+    def accepted_key_ids(self) -> frozenset[str]:
+        """The principal key ids ``put`` accepts now: the ledger's own and adopted key ids and the
+        constructor's *org_key_id*."""
+        ids: set[str] = set()
+        if self._ledger is not None:
+            meta = self._ledger.meta()
+            ids.update((meta.get("org_key_id", ""), meta.get("adopted_key_id", "")))
+        if self._org_key_id:
+            ids.add(self._org_key_id)
+        return frozenset(ids - {""})
+
+    @staticmethod
+    def _upsert(table: dict[str, Any], rec: Any, value: Any) -> None:
+        key = record_key(rec)
+        old = table.get(key)
+        if old is None or _newer(rec, old[0] if isinstance(old, tuple) else old):
+            table[key] = value
+
+    def put(self, result: IngestResult, *, principal_key_id: str | None) -> dict[str, int]:
+        """Store the licenses, activity days and configuration rows of *result*; returns counts
+        ``licenses``, ``activity``, ``config``, ``skipped`` and ``dq.principal_key_mismatch``."""
+        if not isinstance(result, IngestResult):
+            raise UsageError("put expects an IngestResult")
+        counts = {"licenses": 0, "activity": 0, "config": 0, "skipped": 0,
+                  DQ_PRINCIPAL_KEY_MISMATCH: 0}
+        people = [*result.licenses, *result.activity]
+        if people and (principal_key_id is None
+                       or principal_key_id not in self.accepted_key_ids()):
+            counts["skipped"] = counts[DQ_PRINCIPAL_KEY_MISMATCH] = len(people)
+        else:
+            kid = principal_key_id or ""
+            for lic in result.licenses:
+                self._upsert(self._licenses, lic, (lic, kid))
+            for day in result.activity:
+                self._upsert(self._activity, day, (day, kid))
+            counts["licenses"], counts["activity"] = len(result.licenses), len(result.activity)
+        for cfg in result.config:
+            self._upsert(self._config, cfg, cfg)
+        counts["config"] = len(result.config)
+        return counts
+
+    # ---------- reads ----------
+
+    def licenses(self, **window: int) -> list[LicenseSnapshot]:
+        """Stored seat snapshots dated in the window, by (snapshot date, natural key)."""
+        lo, hi = _rec_window(window)
+        return [rec for key, (rec, _) in sorted(self._licenses.items(),
+                                                key=lambda kv: (kv[1][0].snapshot_date, kv[0]))
+                if _day_in(rec.snapshot_date, lo, hi)]
+
+    def activity(self, **window: int) -> list[ActivityDay]:
+        """Stored activity days dated in the window, by (date, natural key)."""
+        lo, hi = _rec_window(window)
+        return [rec for key, (rec, _) in sorted(self._activity.items(),
+                                                key=lambda kv: (kv[1][0].date_utc, kv[0]))
+                if _day_in(rec.date_utc, lo, hi)]
+
+    def config(self, **window: int) -> list[ConfigSnapshot]:
+        """Stored configuration rows whose ``snapshot_ms`` is in the window, by (time, key)."""
+        lo, hi = _rec_window(window)
+        return [rec for key, rec in sorted(self._config.items(),
+                                           key=lambda kv: (kv[1].snapshot_ms, kv[0]))
+                if lo <= rec.snapshot_ms < hi]
+
+    def principal_key_id_of(self, rec: LicenseSnapshot | ActivityDay) -> str | None:
+        """The principal key id a stored license / activity row was accepted under (None when the
+        row is not stored)."""
+        table = self._licenses if isinstance(rec, LicenseSnapshot) else self._activity
+        stored = table.get(record_key(rec))
+        return stored[1] if stored is not None and stored[0] == rec else None
+
+    # ---------- counting people ----------
+
+    @staticmethod
+    def _check_record_where(where: Mapping[str, str]) -> dict[str, str]:
+        clause = dict(where or {})
+        person = sorted(set(clause) & PERSON_DIMS)
+        if person:
+            raise PrivacyError(f"filtering by {', '.join(person)} is not allowed")
+        unknown = sorted(set(clause) - RECORD_WHERE_KEYS)
+        if unknown:
+            raise UsageError(f"unknown record filter key(s): {', '.join(unknown)}")
+        return clause
+
+    @staticmethod
+    def _license_match(rec: LicenseSnapshot, clause: Mapping[str, str]) -> bool:
+        values = {"team": rec.team, "cost_center": rec.cost_center, "org": rec.org,
+                  "plan": rec.plan, "bucket": rec.last_activity_bucket, "product": rec.product,
+                  "editor_family": rec.last_activity_surface,
+                  "surface": rec.last_activity_surface}
+        return _dates_ok(rec.snapshot_date, clause) and all(
+            _eq(values[k], v) for k, v in clause.items() if k in values)
+
+    @staticmethod
+    def _activity_match(rec: ActivityDay, clause: Mapping[str, str]) -> bool:
+        values: dict[str, object] = {"team": rec.team, "cost_center": rec.cost_center,
+                                     "product": rec.product}
+        for k, v in clause.items():
+            if k in ("date_from", "date_to"):
+                continue
+            if k not in values:
+                if v != "":
+                    return False  # activity days carry no org / plan / bucket / surface
+                continue
+            if not _eq(values[k], v):
+                return False
+        return _dates_ok(rec.date_utc, clause)
+
+    @staticmethod
+    def _config_match(cfg: ConfigSnapshot, clause: Mapping[str, str]) -> bool:
+        attrs = dict(cfg.attrs)
+        for k, v in clause.items():
+            if k in ("date_from", "date_to"):
+                continue
+            if k == "org":
+                ok = cfg.entity_id == f"org:{v}"
+            elif k == "cost_center":
+                ok = cfg.entity_id == f"cc:{v}"
+            elif k == "product":
+                ok = v == "github_copilot"
+            elif k in ("editor_family", "surface"):
+                ok = _eq(attrs.get("surface"), v)
+            else:
+                ok = _eq(attrs.get(k), v)
+            if not ok:
+                return False
+        return _dates_ok(_date_of(cfg.snapshot_ms), clause)
+
+    def count_users(self, *, since_ms: int, until_ms: int, where: Mapping[str, str],
+                    source: str) -> int:
+        """Distinct people (never ids) of *source* (``licenses`` | ``activity``) matching *where*;
+        see the class docstring for the count-row fallback."""
+        if source not in _RECORD_SOURCES:
+            raise UsageError(f"unknown record count source {source!r} (licenses | activity)")
+        clause = self._check_record_where(where)
+        w = {"since_ms": since_ms, "until_ms": until_ms}
+        if source == "licenses":
+            rows: list[Any] = self.licenses(**w)
+            match = self._license_match
+            kind = "seat_counts"
+        else:
+            rows = self.activity(**w)
+            match = self._activity_match
+            kind = "activity_counts"
+        if rows:
+            return len({r.principal for r in rows if match(r, clause)})
+        summary = [c for c in self.config(**w) if c.kind == kind and self._config_match(c, clause)]
+        if kind == "activity_counts":
+            return max((int(dict(c.attrs).get("n_people") or 0) for c in summary), default=0)
+        per_snapshot: dict[tuple[str, str], int] = {}
+        for c in summary:
+            key = (c.entity_id, _date_of(c.snapshot_ms))
+            per_snapshot[key] = per_snapshot.get(key, 0) + int(dict(c.attrs).get("n_people") or 0)
+        return max(per_snapshot.values(), default=0)
+
+    # ---------- retention, purge, audit ----------
+
+    def retain(self, *, identity_before_ms: int) -> int:
+        """Delete license and activity rows dated before the UTC day of *identity_before_ms*;
+        returns the number of rows deleted."""
+        cut = _date_of(identity_before_ms)
+        doomed_l = [k for k, (rec, _) in self._licenses.items() if rec.snapshot_date < cut]
+        doomed_a = [k for k, (rec, _) in self._activity.items() if rec.date_utc < cut]
+        for k in doomed_l:
+            del self._licenses[k]
+        for k in doomed_a:
+            del self._activity[k]
+        return len(doomed_l) + len(doomed_a)
+
+    def purge(self, *, principal: str | None, before_ms: int | None, actor: str) -> int:
+        """Delete a principal's license and activity rows and / or every row before *before_ms*;
+        returns the number of rows deleted and writes an audit row without the identity."""
+        if principal is None and before_ms is None:
+            raise UsageError("purge needs principal or before_ms")
+        cut = _date_of(before_ms) if before_ms is not None else None
+        removed = 0
+        for table, date_of in ((self._licenses, lambda r: r.snapshot_date),
+                               (self._activity, lambda r: r.date_utc)):
+            for key, (rec, _) in list(table.items()):
+                if rec.principal == principal or (cut is not None and date_of(rec) < cut):
+                    del table[key]
+                    removed += 1
+        if before_ms is not None:
+            for key, cfg in list(self._config.items()):
+                if cfg.snapshot_ms < before_ms:
+                    del self._config[key]
+                    removed += 1
+        detail: dict[str, object] = {"by": "principal" if principal is not None else "before_ms",
+                                     "rows": removed}
+        if before_ms is not None:
+            detail["before_ms"] = before_ms
+        self._audit.append((self._now_ms, actor, "purge", _canonical(detail)))
+        return removed
+
+    def audit_log(self) -> list[tuple[int, str, str, str]]:
+        """The audit rows ``(ts_ms, actor, action, detail_json)`` (extension, not protocol)."""
+        return list(self._audit)
+
+
+# =============================================================================================
+# conformance: record store (K-5)
+# =============================================================================================
+
+#: The org key the record-store conformance suite pseudonymizes its people with; the store under
+#: test must accept ``p_`` values under ``key_id(RECORD_STORE_ORG_KEY)``.
+RECORD_STORE_ORG_KEY = bytes(range(224, 256))
+_RS_DAY = "2026-09-20"
+
+
+def _rs_p(name: str) -> str:
+    return pseudonym(RECORD_STORE_ORG_KEY, "p", name)
+
+
+def _rs_result(licenses: Sequence[LicenseSnapshot] = (), activity: Sequence[ActivityDay] = (),
+               config: Sequence[ConfigSnapshot] = (), *, source_id: str = "rs") -> IngestResult:
+    src = SourceInfo(source_id=source_id, adapter="github-copilot-seats",
+                     name_hmac=_h(source_id), sha256=hashlib.sha256(source_id.encode()).hexdigest(),
+                     bytes=1, name_key_id=None, principal_key_id=key_id(RECORD_STORE_ORG_KEY))
+    result = _result(src, [])
+    result.licenses, result.activity, result.config = list(licenses), list(activity), list(config)
+    return result
+
+
+def _record_batches() -> list[IngestResult]:
+    """Five batches: two orgs (one person seated in both), a revised and a stale license version,
+    an activity-report seat without an org, activity days, count and budget rows, old rows."""
+    from tokenbill.core.builders import make_activity, make_config, make_license
+
+    t0 = _date_start_ms(_RS_DAY)
+    lic = make_license
+    b1 = _rs_result([lic(_rs_p("u1"), snapshot_date=_RS_DAY, team="a", org="org-a", fetched_ms=1),
+                     lic(_rs_p("u2"), snapshot_date=_RS_DAY, team="a", org="org-a",
+                         last_activity_bucket="none_90d", fetched_ms=1),
+                     lic(_rs_p("u3"), snapshot_date=_RS_DAY, team="b", org="org-a",
+                         plan="enterprise", fetched_ms=1),
+                     lic(_rs_p("u1"), snapshot_date=_RS_DAY, team="a", org="org-b",
+                         fetched_ms=1)],
+                    [make_activity(_rs_p("u1"), date_utc=_RS_DAY, team="a"),
+                     make_activity(_rs_p("u2"), date_utc=_RS_DAY, team="a")], source_id="rs1")
+    b2 = _rs_result([lic(_rs_p("u2"), snapshot_date=_RS_DAY, team="a", org="org-a",
+                         last_activity_bucket="31-90", fetched_ms=5),
+                     lic(_rs_p("u1"), snapshot_date=_RS_DAY, team="a", org="org-a",
+                         last_activity_bucket="8-30", fetched_ms=0)], source_id="rs2")
+    b3 = _rs_result([lic(_rs_p("u4"), snapshot_date=_RS_DAY, team="b", org=None, plan="unknown",
+                         assigned_via_team=None, source_kind="github.copilot_activity_report",
+                         fetched_ms=2)],
+                    config=[make_config("seat_counts", {"team": "c", "plan": "business",
+                                                        "bucket": "0-7", "n": 7, "n_people": 7},
+                                        entity_id="org:org-c", snapshot_ms=t0),
+                            make_config("run_flags", {"promo_eligible": True}, snapshot_ms=t0)],
+                    source_id="rs3")
+    b4 = _rs_result(activity=[make_activity(_rs_p("u3"), date_utc=_RS_DAY, team="b",
+                                            counts={"interactions": 4, "ide:intellij": 2}),
+                              make_activity(_rs_p("u4"), date_utc=_RS_DAY, team="b")],
+                    config=[make_config("budget", {"scope": "user", "amount_nano": 0,
+                                                   "team": "a"},
+                                        entity_id="budget:b1", snapshot_ms=t0)],
+                    source_id="rs4")
+    b5 = _rs_result([lic(_rs_p("u5"), snapshot_date="2026-06-01", team="a", org="org-a")],
+                    [make_activity(_rs_p("u5"), date_utc="2026-06-01", team="a")],
+                    source_id="rs5")
+    return [b1, b2, b3, b4, b5]
+
+
+def _record_dump(store: ExtRecordStore) -> str:
+    w = {"since_ms": 0, "until_ms": _FOREVER_MS}
+    return _canonical({name: sorted(_canonical(to_json(r)) for r in getattr(store, name)(**w))
+                       for name in ("licenses", "activity", "config")})
+
+
+def _call_record_factory(factory: Callable[..., ExtRecordStore], path: Path) -> ExtRecordStore:
+    try:
+        params = [p for p in inspect.signature(factory).parameters.values()
+                  if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+    except (TypeError, ValueError):  # pragma: no cover - builtins
+        params = []
+    return factory(path, RECORD_STORE_ORG_KEY) if len(params) >= 2 else factory(path)
+
+
+def assert_record_store_conforms(factory: Callable[..., ExtRecordStore], *,
+                                 permutations: int = 12, seed: int = 0) -> dict[str, Any]:
+    """Conformance of an :class:`~tokenbill.core.protocols.ExtRecordStore` (K-5, addendum §7.2).
+
+    *factory* is called with a fresh database path (``factory(path)``, or ``factory(path,
+    org_key)`` when it takes two positional parameters) and must return an empty record store
+    that accepts ``p_`` values under ``key_id(RECORD_STORE_ORG_KEY)`` (e.g. through its ledger's
+    ``meta``). Checks: the five batches of :func:`_record_batches` round-trip; re-ingest is
+    idempotent (incl. a license with ``org=None``); latest-fetch-wins per natural key; order
+    independence over *permutations* orders; a batch under another key id stores no person
+    (``dq.principal_key_mismatch``); windows; ``count_users`` for licenses and activity equals a
+    brute-force distinct count (a person seated through two orgs counted once) and falls back to
+    ``seat_counts`` / ``activity_counts`` rows only without person rows; person filters raise
+    ``PrivacyError``; ``retain`` deletes old license / activity rows and keeps configuration;
+    ``purge(principal=…)`` deletes that person's rows only. Returns a summary."""
+    import tempfile
+
+    batches = _record_batches()
+    w = {"since_ms": 0, "until_ms": _FOREVER_MS}
+    kid = key_id(RECORD_STORE_ORG_KEY)
+    with tempfile.TemporaryDirectory(prefix="tb-record-store-") as tmp:
+        paths = (Path(tmp) / f"rs{i}.db" for i in itertools.count())
+        store = _call_record_factory(factory, next(paths))
+        _check(isinstance(store, ExtRecordStore), "not an ExtRecordStore (protocol surface)")
+        _check(isinstance(store.name, str) and bool(store.name), "name must be a non-empty str")
+        for b in batches:
+            counts = store.put(b, principal_key_id=kid)
+            _check(isinstance(counts, dict), "put returns counts")
+            _check(not counts.get(DQ_PRINCIPAL_KEY_MISMATCH),
+                   "the store refused p_ values under key_id(RECORD_STORE_ORG_KEY): the factory "
+                   "must return a store whose ledger accepts that key id (e.g. take "
+                   "(path, org_key) and open the ledger with org_key first)")
+        reference = _record_dump(store)
+        lics = store.licenses(**w)
+        _check(len(lics) == 6, f"expected 6 stored licenses, got {len(lics)}")
+        u2 = [x for x in lics if x.principal == _rs_p("u2")]
+        _check(len(u2) == 1 and u2[0].last_activity_bucket == "31-90",
+               "latest-fetch-wins: the revised license replaces the older version")
+        u1a = [x for x in lics if x.principal == _rs_p("u1") and x.org == "org-a"]
+        _check(len(u1a) == 1 and u1a[0].last_activity_bucket == "0-7",
+               "an older fetch never replaces a newer one")
+        _check(any(x.org is None and x.assigned_via_team is None for x in lics),
+               "an activity-report seat (org None, assignment unknown) round-trips")
+        _check(len(store.activity(**w)) == 5 and len(store.config(**w)) == 3,
+               "activity days and configuration rows stored")
+        for b in batches:
+            store.put(b, principal_key_id=kid)
+        _check(_record_dump(store) == reference, "re-ingesting the same batches changed the store")
+        orders = _permutations(len(batches), permutations, seed)
+        for order in orders:
+            other = _call_record_factory(factory, next(paths))
+            for i in order:
+                other.put(batches[i], principal_key_id=kid)
+            _check(_record_dump(other) == reference, f"put order {order} changed the store")
+        # --- key-id check ---
+        foreign = _rs_result([_rs_license("stranger")], source_id="rs-x")
+        counts = store.put(foreign, principal_key_id="k_not_accepted")
+        _check(counts.get(DQ_PRINCIPAL_KEY_MISMATCH, 0) >= 1 and _record_dump(store) == reference,
+               "a batch under another principal key id stores no person (dq code)")
+        # --- windows ---
+        recent = {"since_ms": _date_start_ms("2026-09-01"), "until_ms": _FOREVER_MS}
+        _check(len(store.licenses(**recent)) == 5 and len(store.activity(**recent)) == 4,
+               "license / activity windows filter by date")
+        # --- counting people ---
+        lic_now = store.licenses(**recent)
+        for where in ({}, {"team": "a"}, {"org": "org-a"}, {"plan": "business"},
+                      {"bucket": "none_90d"}, {"team": "b", "plan": "enterprise"}, {"org": ""},
+                      {"product": "github_copilot"}, {"date_from": _RS_DAY, "date_to": _RS_DAY}):
+            brute = {x.principal for x in lic_now if all(
+                (getattr(x, {"bucket": "last_activity_bucket"}.get(k, k)) == (v or None))
+                for k, v in where.items() if k not in ("date_from", "date_to"))}
+            got = store.count_users(where=where, source="licenses", **recent)
+            _check(got == len(brute), f"count_users(licenses, {where}) = {got} != {len(brute)}")
+        _check(store.count_users(where={}, source="licenses", **recent) == 4,
+               "a person seated through two organizations is counted once")
+        act = store.activity(**recent)
+        for where in ({}, {"team": "b"}, {"team": "a"}):
+            brute = {x.principal for x in act if all(getattr(x, k) == v for k, v in where.items())}
+            _check(store.count_users(where=where, source="activity", **recent) == len(brute),
+                   f"count_users(activity, {where}) differs from a brute-force count")
+        for bad in ({"principal": _rs_p("u1")}, {"session_key": "s"}):
+            try:
+                store.count_users(where=bad, source="licenses", **recent)
+            except PrivacyError:
+                pass
+            else:
+                raise AssertionError(f"count_users(where={bad}) must raise PrivacyError")
+        summary_only = _call_record_factory(factory, next(paths))
+        summary_only.put(dataclasses.replace(batches[2], licenses=[], activity=[]),
+                         principal_key_id=kid)
+        _check(summary_only.count_users(where={"team": "c"}, source="licenses", **recent) == 7,
+               "without licenses, seat_counts n_people rows count the team's people")
+        # --- retention and purge ---
+        removed = store.retain(identity_before_ms=_date_start_ms("2026-08-01"))
+        _check(removed == 2 and len(store.config(**w)) == 3 and len(store.licenses(**w)) == 5,
+               "retain deletes old license / activity rows only")
+        gone = store.purge(principal=_rs_p("u1"), before_ms=None, actor="conformance")
+        _check(gone == 3 and all(x.principal != _rs_p("u1") for x in store.licenses(**w))
+               and all(x.principal != _rs_p("u1") for x in store.activity(**w))
+               and len(store.licenses(**w)) == 3,
+               "purge(principal) deletes that person's rows only")
+    return {"batches": len(batches), "orders": len(orders)}
+
+
+def _rs_license(name: str) -> LicenseSnapshot:
+    """A seat snapshot of *name* (pseudonymized under ``RECORD_STORE_ORG_KEY``) on the suite's
+    day, for record-store checks."""
+    from tokenbill.core.builders import make_license
+
+    return make_license(_rs_p(name), snapshot_date=_RS_DAY, team="z", org="org-z")
+
+
+# =============================================================================================
+# conformance: Copilot additions of a LedgerStore (K-5; STORE amendment A-2)
+# =============================================================================================
+
+ADOPTED_EXPORT_KEY = bytes(range(0, 64, 2))
+_OTHER_EXPORT_KEY = bytes(range(1, 64, 2))
+
+
+def _copilot_source(source_id: str, adapter: str, principal_key: bytes | None,
+                    name_key: bytes | None = None) -> SourceInfo:
+    return SourceInfo(source_id=source_id, adapter=adapter, name_hmac=_h(source_id),
+                      sha256=hashlib.sha256(source_id.encode()).hexdigest(), bytes=1,
+                      name_key_id=key_id(name_key) if name_key is not None else None,
+                      principal_key_id=key_id(principal_key) if principal_key else None)
+
+
+def _copilot_ledger_batch(source: SourceInfo, principal_key: bytes | None, *,
+                          users: Sequence[str] = ("u1", "u2"), fetched_ms: int = 0,
+                          finality: str = "final", day: str = "2026-09-10",
+                          name_key: bytes | None = None) -> IngestResult:
+    """Copilot requests and AI-usage cost lines of *users* (``p_`` under *principal_key*, or ``r_``
+    refs when it is None); with *name_key* the cost lines carry an ``h_`` repository name."""
+    from tokenbill.core.builders import make_ai_usage_row
+
+    requests, lines, aggs = [], [], []
+    for i, user in enumerate(users):
+        who = pseudonym(principal_key, "p", user) if principal_key else f"r_{user}"
+        req = make_request(f"CP-{source.source_id}-{i}", 0, _ts(day) + i * 60_000,
+                           {"uncached_input": 1000, "output": 100}, "claude-sonnet-5",
+                           provider="github", channel="github_copilot",
+                           billing_path="copilot_pool",
+                           request_id=stable_id("rq", source.source_id, i),
+                           attribution={"principal": who, "team": "t1",
+                                        "billing_path": "copilot_pool",
+                                        "extra": (("gateway", "gw-1"),)})
+        requests.append(req)
+        if principal_key:
+            repo = pseudonym(name_key, "h", f"repo-{i}") if name_key else None
+            line, agg = make_ai_usage_row(date_utc=day, principal=who, credits=str(10 + i),
+                                          team="t1", fetched_ms=fetched_ms, finality=finality,
+                                          repo=repo)
+            lines.append(line)
+            aggs.append(agg)
+    result = _result(source, requests, aggregates=aggs, cost_lines=lines)
+    result.stats = {"records": len(requests), "rounding_remainders": len(users)}
+    return result
+
+
+def assert_store_copilot_conforms(factory: Callable[..., LedgerStore]) -> dict[str, Any]:
+    """The Copilot additions of a :class:`~tokenbill.core.protocols.LedgerStore` (K-5, STORE A-2).
+
+    *factory* is called like :func:`assert_store_conforms`'s, plus the keyword ``adopt_key_ids``.
+    Checks: ``source_stats`` (``LedgerStats``) sums the ingested stats, per adapter too;
+    ``count_users(source="cost_lines")`` equals a brute-force distinct count; LIST_EQUIVALENT
+    Copilot lines land in ``PricedTotal.pool`` (``allowance`` stays empty) and
+    ``ClusterDay.pool_nano``; cluster kind ``gateway``; a Copilot cost line re-fetched later
+    replaces the earlier version even when that one was final; key-id adoption (R-E21) — a keyless
+    store adopts the first ``copilot-export`` key id (``meta`` ``adopted_key_id``, ``org_key_mode
+    == "adopted"``), keeps the bundle's ``h_`` cost-line names (adopted name key id), nulls
+    another adapter's ``p_`` values (``dq.principal_key_mismatch``) and ``h_`` names, refuses a
+    second bundle key id (``UsageError``) and ``r_`` principals (``PrivacyError``); an
+    org-keyed store keeps its own pseudonyms and the adopted ones side by side. Returns a
+    summary."""
+    pricer = FakePricer()
+    w = {"since_ms": 0, "until_ms": _FOREVER_MS}
+    kw = {"name_key_id": key_id(STORE_NAME_KEY), "pricer": pricer}
+    # --- org-keyed store: stats, cost-line users, pool, clusters, latest fetch ---
+    store = factory(org_key=STORE_ORG_KEY, adopt_key_ids=False, **kw)
+    _check(isinstance(store, LedgerStats), "the store implements LedgerStats (source_stats)")
+    own = _copilot_source("cp-own", "github-ai-usage", STORE_ORG_KEY)
+    store.ingest(_copilot_ledger_batch(own, STORE_ORG_KEY, users=("u1", "u2", "u3")),
+                 pricer=pricer)
+    stats = store.source_stats()
+    _check(stats.get("records") == 3 and stats.get("rounding_remainders") == 3,
+           "source_stats sums the ingested stats")
+    _check(store.source_stats(adapter="otlp") == {}, "source_stats(adapter=…) filters")
+    lines = store.cost_lines(**w)
+    _check(len(lines) == 3, "Copilot cost lines stored")
+    for where in ({}, {"team": "t1"}, {"channel": "github_copilot"}, {"team": "other"}):
+        brute = {c.principal for c in lines if c.principal
+                 and all(getattr(c, k) == v for k, v in where.items())}
+        _check(store.count_users(where=where, source="cost_lines", **w) == len(brute),
+               f"count_users(cost_lines, {where}) differs from a brute-force count")
+    total = store.aggregate(group_by=[], **w)
+    priced = total.rows[0].priced
+    _check(priced.pool is not None and priced.pool.nano and priced.allowance is None
+           and priced.exact.nano == 0, "Copilot LIST_EQUIVALENT lines go to PricedTotal.pool")
+    days = store.cluster_days(cluster_kind="team", since="2026-09-01", until="2026-10-01")
+    _check(sum(d.pool_nano for d in days) == priced.pool.nano
+           and sum(d.allowance_nano for d in days) == 0, "ClusterDay.pool_nano")
+    gw = store.cluster_days(cluster_kind="gateway", since="2026-09-01", until="2026-10-01")
+    _check([d.cluster_id for d in gw] == ["gw-1"], "cluster kind gateway (R-E28)")
+    newer = _copilot_ledger_batch(_copilot_source("cp-own-2", "github-ai-usage", STORE_ORG_KEY),
+                                  STORE_ORG_KEY, users=("u1",), fetched_ms=9,
+                                  finality="provisional")
+    newer.cost_lines = [dataclasses.replace(newer.cost_lines[0], amount_nano=1)]
+    store.ingest(newer, pricer=pricer)
+    ids = {c.line_id: c for c in store.cost_lines(**w)}
+    _check(ids[newer.cost_lines[0].line_id].amount_nano == 1,
+           "latest-fetch-wins for Copilot cost lines")
+    # --- keyless adoption ---
+    keyless = factory(org_key=None, adopt_key_ids=True, **kw)
+    bundle = _copilot_source("bundle-1", ADOPTABLE_ADAPTER, ADOPTED_EXPORT_KEY, ADOPTED_EXPORT_KEY)
+    keyless.ingest(_copilot_ledger_batch(bundle, ADOPTED_EXPORT_KEY, name_key=ADOPTED_EXPORT_KEY),
+                   pricer=pricer)
+    meta = keyless.meta()
+    adopted = key_id(ADOPTED_EXPORT_KEY)
+    _check(meta.get("adopted_key_id") == adopted and meta.get("org_key_mode") == "adopted"
+           and meta.get("org_key_id") == adopted, "a keyless store adopts the bundle key id")
+    kept = {r.attribution.principal for r in keyless.iter_requests(**w)}
+    _check(kept == {pseudonym(ADOPTED_EXPORT_KEY, "p", u) for u in ("u1", "u2")},
+           "the adopted bundle's p_ values are kept")
+    other = _copilot_source("vendor-x", "github-ai-usage", _OTHER_EXPORT_KEY, _OTHER_EXPORT_KEY)
+    counts = keyless.ingest(_copilot_ledger_batch(other, _OTHER_EXPORT_KEY, users=("u9",),
+                                                  name_key=_OTHER_EXPORT_KEY), pricer=pricer)
+    _check(counts.get(DQ_PRINCIPAL_KEY_MISMATCH, 0) >= 1
+           and keyless.meta().get("adopted_key_id") == adopted,
+           "another adapter's key id is never adopted; its p_ values are nulled")
+    repos = {c.principal: c.repo for c in keyless.cost_lines(**w)}
+    _check(repos.get(None, "") is None
+           and all(r is not None for p, r in repos.items() if p is not None),
+           "h_ cost-line names are kept under the adopted name key id, nulled under another")
+    second = _copilot_source("bundle-2", ADOPTABLE_ADAPTER, _OTHER_EXPORT_KEY, _OTHER_EXPORT_KEY)
+    try:
+        keyless.ingest(_copilot_ledger_batch(second, _OTHER_EXPORT_KEY), pricer=pricer)
+    except UsageError:
+        pass
+    else:
+        raise AssertionError("a second bundle key id must raise UsageError")
+    collector = _copilot_source("collector", "copilot-cli", None)
+    try:
+        keyless.ingest(_copilot_ledger_batch(collector, None), pricer=pricer)
+    except PrivacyError:
+        pass
+    else:
+        raise AssertionError("r_ principals in a keyless store must raise PrivacyError")
+    # --- org-keyed store with adoption: both key spaces side by side ---
+    both = factory(org_key=STORE_ORG_KEY, adopt_key_ids=True, **kw)
+    both.ingest(_copilot_ledger_batch(bundle, ADOPTED_EXPORT_KEY), pricer=pricer)
+    both.ingest(_copilot_ledger_batch(_copilot_source("collector", "copilot-cli", None), None,
+                                      users=("u7",)), pricer=pricer)
+    principals = {r.attribution.principal for r in both.iter_requests(**w)}
+    _check(pseudonym(STORE_ORG_KEY, "p", "u7") in principals
+           and pseudonym(ADOPTED_EXPORT_KEY, "p", "u1") in principals
+           and both.meta().get("org_key_id") == key_id(STORE_ORG_KEY)
+           and both.meta().get("adopted_key_id") == adopted,
+           "an org-keyed store keeps its own and the adopted pseudonyms side by side")
+    return {"cost_line_users": len({c.principal for c in lines}), "adopted_key_id": adopted}
