@@ -125,3 +125,96 @@ to `policy.name` (`FakeReplayer.policy_key`). Its savings sit on the last reques
   `tests/v2/fixtures/copilot_handoff/README.md`.
 - **G-3 (R-E23):** TELEM and REPLAY started on the gate-F core; after gate F' they rebase and apply A-4 / A-6
   (recorded as `tests/v2/kit/CONTRACT-CHANGE-COPILOT-TELEM.md` / `-REPLAY.md`).
+
+## Interpretations implemented in wave 1.5b (F-KIT-C, GitHub Copilot)
+
+**KC-1 — separate Copilot tables.** `COPILOT_LEVERS`, `COPILOT_ALLOWLIST`, `COPILOT_PROMOTIONS` beside the
+pinned SPEC tables. `lever()`, `allowed()` and `promotion_for()` search the SPEC table first, then the
+Copilot one (addendum CA-35 / CA-36); `copilot_allowed()` / `copilot_promotion_for()` search only the
+Copilot table. Levers without an aggregate grid (behavioural, `replay none` rows of §11.1) have
+`replay="none"`; `selector` is `all` (cell levers touch no lane); `upper_bound` is True for trajectory
+levers (SPEC §9.1 #4) and for `copilot.mcp_trim` (`static-overhead` is an upper bound).
+`copilot.seat_reclaim_team` links no finding kind (the brief's acceptance test requires
+`levers_for_kind("idle-seat", family="copilot")` to be the seat-reclaim lever alone; `idle-seat`
+findings name it by id). `copilot.vscode_traces_optin` delivers through the brief's
+`admin:vscode_db_exporter_optin` (the addendum's `admin:communicate_vscode_traces_optin` is not an id
+of the brief). `copilot.telemetry_on`'s `copilot.managed.telemetry.*` is the eight telemetry keys.
+
+**KC-2 — aggregate grammar.** `copilot:<param>=<value>[@<scope>]`; the canonical form always writes the
+scope (`@all` included, as the addendum's grids do), so `to_aggregate_spec(parse_aggregate_spec(s)) ==
+s` for canonical strings and `parse(to(x)) == x` always. Value domains: `auto`/`fast` on|off,
+`auto_tier` efficiency|balance|intelligence, `seat_policy` assign_selected|disabled, `plan`
+business|enterprise, `context_tier` default|long_context, `mcp` trim|off, `seats_idle`/`seats_team`
+`<n>d`, `aw_cap` a positive int, `remap` a model id, `runner` a runner SKU known to `runner_rate`.
+Scope values contain no whitespace, `@` or `;`; `entity:` takes `enterprise | org:<o> | cc:<n>`.
+Per-team / per-org candidates (`@team:<t>`, `@org:<o>`) are built by CP-PLAN; the static grids use
+`@all` (the seat-policy grid too).
+
+**KC-3 — `copilot_allowance`.** `(credits per seat, promo label)`; the label is
+`copilot.promo.<plan>.<YYYY-MM of promo_from>` (the facts carry no promotion id for the seat promo).
+`unknown` / `mixed` raise `UsageError` (K-3 overrides CA-36's `ContractViolation`).
+
+**KC-4 — `agent_family(agent_product)`** returns the product family (`copilot` for every `copilot_*`
+agent product, else `default`), the vocabulary of `levers_for_kind`, `fix_for` and
+`FAMILY_EXCLUSIONS`.
+
+**KC-5 — `fix_for`** covers the §10.4 generic detectors with Copilot text **and** the Copilot
+detectors' own kinds (§10.1–§10.3 fix columns): F-SEM-C's `build_finding` replaces the fix of every
+`product=copilot` finding with `fix_for(…)` when one exists, so the Copilot detectors need entries too.
+Generic kinds without a Copilot text (`failure.path`, `context.size-tax`, `cache.unread-write`,
+`rebaseline`) return None (F-SEM-C then strips non-Copilot keys and appends "(no Copilot setting
+known)").
+
+**KC-6 — Copilot parent chain.** `COPILOT_RESCOPE_LEVELS`: first every dim outside the chain is dropped
+(e.g. `lane_kind`, `workload`, `surface`, `sku`), then `team`, `bucket`, `plan`, `model`,
+`cost_center`; the root keeps `product`, `entity`, `org`, `plan_scenario` **and `billing_class`** (so
+pool and billed figures never add, as in SPEC's chain). Complementary suppression only absorbs peers
+of the same chain. The R-E16 exemption set also admits `billing_class` (it names no people).
+
+**KC-7 — `scope_counter`.** `entity`-source findings that R-E16 does not exempt (e.g. a team-scoped
+`agentic-workflow-cost`) are counted over cost lines. A scope dim the source cannot filter (e.g. `plan`
+on cost lines), an unknown source or a missing store counts 0 — an unknown count can only suppress
+more. Licenses / activity: the largest per-record-store count (stores never share people across key
+ids). `requests` counts call `ledger.count_users` without the `source` keyword (older stores).
+
+**KC-8 — R-E10 note.** `PublishedAggregate` / `AggRow` have no notes field (frozen F-CORE types), so a
+kept users-unknown row is recognisable by `n_users == 0` and `kanon.row_notes(row, group_by=…)`
+returns `("users_unknown",)` for it; renderers print "users unknown". Person-proxy keys:
+`principal`, `session`, `session_key`, `api_key_id`, `api_key`, `cwd_key`. `audience` ∈ {org, self}.
+
+**KC-9 — R-E31.** A merged summary keeps the whole original summary whenever it fits beside the
+re-scoping prefix (the prefix shortens to `[re-scoped for k-anonymity] ` or `[re-scoped] ` first);
+otherwise whole trailing sentences are dropped (ending "…") while labelling sentences (list-equivalent,
+not invoice, estimated, upper bound, unpriced, provider estimate, no mechanical fix, scenario) are always
+kept; only if those alone overflow is the text cut at a word boundary. Summaries that fitted before are
+byte-identical.
+
+**KC-10 — FakePricer on Copilot.** Band hypothesis B applies only on channel `github_copilot`; a
+disagreeing B widens **every** line (point A). Rows without a write price fold every write bucket (5m,
+1h, other, unknown TTL) into input as zero-width ESTIMATED lines. A non-billable Copilot call is EXACT $0
+even without a rate row (G12); elsewhere a missing row stays unpriced. Contracts never apply to the
+Copilot paths nor to channel `github_copilot`. `rate_card_sha256` also covers the Copilot rows and
+modifiers. The Copilot goldens run in `assert_pricer_conforms` only for a LIST card carrying the facts'
+Copilot rows (a contract card skips them, like the SPEC cases).
+
+**KC-11 — MemoryStore.** Adoption follows R-E21 (only `SourceInfo.adapter == "copilot-export"`, one
+adopted key id, a second → `UsageError` before anything is stored). `meta()` always reports
+`org_key_mode` (`own` | `adopted` | `none`), `adopted_key_id`, `adopted_name_key_id`. The ingest
+counts gain `dq.principal_key_mismatch` (principals nulled); `dq.name_key_mismatch` keeps its wave-1
+meaning (names + principals). Latest-fetch-wins (addendum §7.1) applies to Copilot records (cost lines
+on `COPILOT_CHANNELS`, aggregates of Copilot source kinds or channels, `github.copilot_metrics`
+outcomes); other records keep "final, then latest" (pinned by `test_memory_store.py`).
+
+**KC-12 — MemoryRecordStore.** Accepted key ids are read from the ledger's `meta()` at every `put`
+(`org_key_id`, `adopted_key_id`) plus an optional constructor key id. Person records under another key
+id are skipped (counted); configuration rows are always stored (no person). The count-row fallback
+applies only when the window holds no person row of that source: `seat_counts` are summed per entity
+and snapshot day (they partition that entity's seats) and the largest sum wins; `activity_counts` give
+their largest `n_people`. `date_from` / `date_to` are inclusive dates. `assert_record_store_conforms`
+calls `factory(path)` or `factory(path, org_key)`; the store must accept `p_` values under
+`key_id(RECORD_STORE_ORG_KEY)`.
+
+**KC-13 — additional conformance helpers** (additive, for STORE A-2 and REPLAY A-6):
+`assert_store_copilot_conforms(factory)` (factory also takes `adopt_key_ids`) and
+`assert_replayer_conforms(…, pool=False)` (opt-in, so REPLAY's merged conformance test is unaffected
+until it applies A-6).
