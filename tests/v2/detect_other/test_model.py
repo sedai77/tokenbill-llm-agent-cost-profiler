@@ -88,7 +88,7 @@ def test_same_tier_exact_arithmetic_labeled_estimated() -> None:
     f = one(Routing().detect([ln], ctx(thresholds={"min_usd": "0.01"})), "same-tier-upgrade")
     assert f.cost_observed.nano == 110_000_000 and f.cost_observed.evidence is Evidence.EXACT
     assert f.recoverable.nano == 42_000_000
-    assert f.recoverable.evidence is Evidence.ESTIMATED and not f.recoverable.upper_bound
+    assert f.recoverable.evidence is Evidence.ESTIMATED and f.recoverable.upper_bound
     assert "behavior unvalidated" in f.recoverable.note and f.needs_eval
     assert dict(f.scope.dims)["model"] == OPUS5
     assert f.fix.config_patch == (("env.ANTHROPIC_DEFAULT_OPUS_MODEL", '"claude-opus-5-5"'),)

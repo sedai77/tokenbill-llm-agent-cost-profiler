@@ -7,7 +7,8 @@
   the replayer; Explore agents also on Haiku 4.5, in the evidence, with its retirement date).
 * ``same-tier-upgrade`` — lanes on a model with a ``core.catalog.successor`` (same tier, same
   tokenizer): rate arithmetic on identical tokens, exact to the nano but labeled ESTIMATED
-  ("behavior unvalidated"). Never a cross-family move (no Opus 4.8 → Opus 5.5).
+  ("behavior unvalidated") and ``upper_bound`` (as the lever and the model-remap replay). Never
+  a cross-family move (no Opus 4.8 → Opus 5.5).
 * ``default-model`` — Claude Code MAIN lanes where Opus/Fable/Mythos-class models serve at least
   half of the cohort's main spend: ``model=claude-sonnet-5@agent_product:claude_code,
   lane_kind:main`` (the ``cc.default_model`` lever).
@@ -334,8 +335,10 @@ class Routing:
         if saving is None:
             recoverable = unpriced(f"{succ} is not priced on this channel", basis)
         else:
+            # upper bound like the lever (core.catalog model.same_tier_upgrade) and the
+            # model-remap replay it equals: price-only, the successor's behavior is unvalidated
             recoverable = saving.estimate(basis, "rate arithmetic exact on identical tokens; "
-                                                 "behavior unvalidated")
+                                                 "behavior unvalidated", upper_bound=True)
         family = model_family(model) or ""
         key = _ENV_DEFAULT_MODEL.get(family)
         claude_code = any(is_claude_code(lane) for lane in lanes)

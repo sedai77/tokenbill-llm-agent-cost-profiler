@@ -218,7 +218,13 @@ def test_static_prefix_harness_cost_with_s_known() -> None:
     assert f.cost_observed.nano == 50_000_000 + 2_000_000 + 50_000_000
     assert f.cost_observed.evidence is Evidence.ESTIMATED and f.recoverable is None
     assert dict(f.scope.dims)["model"] == OPUS55 and dict(f.scope.dims)["cache_scope"] == "ws:w1"
-    assert evidence(f, "static-prefix:floor")["tokens"] == 10_000
+    item = evidence(f, "static-prefix:floor")
+    assert item["tokens"] == 10_000
+    # spend: 30,000 × 5,000 + 500 × 20,000 = 160M; 30,000 × 200 + 2,000 × 5,000 + 10M = 26M;
+    # 34,000 × 5,000 + 10M = 180M → 366,000,000 (one group: its spend is the cohort's);
+    # 102M / 366M = 27.9%
+    assert item["spend_nano"] == item["cohort_spend_nano"] == 366_000_000
+    assert item["cohort_share_pct"] == item["share_pct"] == "27.9"
     assert f.lever_ids == ("cc.tool_search",)
 
 

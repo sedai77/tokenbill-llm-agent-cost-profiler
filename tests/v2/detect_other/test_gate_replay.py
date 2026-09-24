@@ -45,6 +45,7 @@ def test_same_tier_arithmetic_equals_the_replay() -> None:
         [ln], parse_policy(f"model={OPUS55}@model:{OPUS5}"), mode="documented", pricer=PRICER,
         rules=RULES, calibration=None)
     assert f.recoverable.nano == result.saving.nano
+    assert f.recoverable.upper_bound == result.saving.upper_bound
 
 
 def test_default_effort_halves_thinking() -> None:

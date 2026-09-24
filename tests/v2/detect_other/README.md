@@ -73,8 +73,9 @@ but `verified: true` in facts.json (the patches use them; PLAN emits unverified 
 
 ## Thresholds (SPEC §10.1: every default is overridable)
 
-`min_usd` (default `"1.00"`) and, as `ctx.thresholds["<detector id>.<name>"]` (decimal strings;
-shares in [0, 1], counts non-negative, magnitudes ≤ 2**53, else `UsageError`):
+`min_usd` (default `"1.00"`) and, as `ctx.thresholds["<detector id>.<name>"]` (decimal strings
+read at nano resolution — finer digits round half-even, so `"1e-999999"` cannot stall the
+arithmetic; shares in [0, 1], counts non-negative, magnitudes ≤ 2**53, else `UsageError`):
 
 | key | default | meaning |
 |---|---|---|
@@ -106,14 +107,17 @@ Policy values read raw (not decimals): `defaults.effort` (a level, default `medi
 
 - **Cohorts and scopes.** Findings aggregate per `core.findings.cohort_key` cohort at (team, lane
   kind[, `billing_class` unless `billed`]); `same-tier-upgrade` adds `model`; `static-prefix` adds
-  `model` and `cache_scope`; tail findings drop `lane_kind` for main lanes and add `session` only
-  under break-glass (`CONTRACT-CHANGE-DETECT-OTHER.md` §3). List-equivalent billing classes are a
-  table (`allowance`, Copilot's `pool`).
+  `model` and `cache_scope` (its evidence gives the share of the group's and of the cohort's
+  spend); tail findings drop `lane_kind` for main lanes and add `session` only under break-glass
+  (`CONTRACT-CHANGE-DETECT-OTHER.md` §3). List-equivalent billing classes are a table
+  (`allowance`, Copilot's `pool`); only the seat allowance carries the D26 labels — core labels
+  `pool` findings (`CONTRACT-CHANGE-DETECT-OTHER.md` §7).
 - **Exactness.** A priced line is exact exactly when the pricer prices it exactly (R9); a bucket
   takes the integer unit-rate path only after two probes (alone and beside 1M input tokens, so a
   long-context band cannot hide) proved `price_usage` agrees. Premiums and the same-tier saving
-  are rate arithmetic on identical tokens (the same-tier figure is labeled ESTIMATED, with the
-  replay's min-prefix gate on the successor). Unpriceable events are counted and disclosed, never
+  are rate arithmetic on identical tokens (the same-tier figure is labeled ESTIMATED and
+  `upper_bound`, like the `model.same_tier_upgrade` lever and the model-remap replay it equals,
+  with the replay's min-prefix gate on the successor). Unpriceable events are counted and disclosed, never
   priced as zero; an unpriced successor gives an "unpriced" recoverable.
 - **`min_usd`.** Info and triage kinds (size tax, static prefix, carry, sticky escalation, effort
   mix, rebaseline, retry storm, never-succeeding 400, tool-error loop, ci-run-cost, tail) gate on
@@ -148,7 +152,9 @@ Policy values read raw (not decimals): `defaults.effort` (a level, default `medi
   of the lane before the next reset (COMPACTION / CLEAR / CONTEXT_EDIT event or an edited request);
   a context injection lands on the first request at or after it.
 - **Tail.** Sessions are the lanes of one session key inside the cohort; rolling-hour spend uses
-  request start times; p95 / p99 are nearest rank inside the cohort (shard-invariant).
+  request start times; p95 / p99 are nearest rank inside the cohort (shard-invariant), the
+  session itself included — so a cohort of fewer than 100 sessions never reports a runaway
+  (`CONTRACT-CHANGE-DETECT-OTHER.md` §6).
 - **Capabilities.** `requires` is one frozenset, so per-kind needs are gated internally and
   reported by the lane-free call (`CONTRACT-CHANGE-DETECT-OTHER.md` §4).
 - **Generated text.** Summaries stay within 330 chars and keep the D26 statement whole at the end

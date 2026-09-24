@@ -1225,7 +1225,7 @@ class StaticPrefix:
     * ``static-prefix`` (info): per (team, lane kind, model, cache scope) with ``S =
       ctx.static_prefix_floor[(scope, model)]`` known, the harness cost ``Σ min(S, R_i)·r +
       Σ_{lane-first or miss} min(S, W_i)·wτ`` — ESTIMATED (``S`` is an estimate) — and its share
-      of the group's spend; no recoverable (links ``cc.tool_search``).
+      of the group's and of the cohort's spend; no recoverable (links ``cc.tool_search``).
     * ``tool-defs-bloat`` (needs ``blocks``: request fingerprints): requests whose non-deferred
       tool definitions (tools-tier ``tool_def`` blocks) exceed ``TOOL_DEFS_DEFER_THRESHOLD_TOKENS``
       (10,000; ``context.static-prefix.tool_defs_threshold``) after rescaling the blocks'
@@ -1267,6 +1267,11 @@ class StaticPrefix:
         floor = ctx.static_prefix_floor
         groups: dict[tuple[str, str], Tally] = {}
         spends: dict[tuple[str, str], int] = {}
+        cohort_spend = 0
+        for lane in cohort.lanes:
+            for req in lane.requests:
+                money = prices.request(req)
+                cohort_spend += money.point if money is not None else 0
         for lane in cohort.lanes:
             misses = {t.request_id for t in transitions(lane, ctx) if t.is_miss_event}
             for pos, req in enumerate(serving_steps(lane)):
@@ -1300,8 +1305,10 @@ class StaticPrefix:
             share = pct(tally.cost.point, spend)
             cost = tally.cost.estimate(basis, "S is the static-prefix floor (median lane-first "
                                               "read), an estimate")
+            cohort_share = pct(tally.cost.point, cohort_spend)
             item = evidence_item("aggregate", "static-prefix:floor", tokens=s,
-                                 nano=tally.cost.point, spend_nano=spend, share_pct=share)
+                                 nano=tally.cost.point, spend_nano=spend, share_pct=share,
+                                 cohort_spend_nano=cohort_spend, cohort_share_pct=cohort_share)
             claude_code = any(is_claude_code(lane) for lane in tally.lanes.values())
             text = ("Attribution: the harness prefix (system prompt, tool definitions, CLAUDE.md, "
                     "skills) is re-sent on every call. Fewer always-on MCP servers, "
@@ -1313,7 +1320,8 @@ class StaticPrefix:
                 kind="static-prefix", category="attribution", lever_class="none",
                 title=f"Static prefix of {s:,} tokens in {cohort.label()} lanes",
                 summary=(f"The static prefix (S = {s:,} tokens, estimated) is read or written on "
-                         f"every call of {model}: {share}% of this group's spend."),
+                         f"every call of {model}: {share}% of this group's spend, "
+                         f"{cohort_share}% of the cohort's."),
                 references=_STATIC_REFS, fix=fix, triage=True, confidence="low",
                 lever_ids=applicable_levers("static-prefix", tally.lane_list()),
                 scope_extra={"model": model, "cache_scope": scope_key})

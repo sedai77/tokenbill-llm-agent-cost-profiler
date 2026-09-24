@@ -1,4 +1,4 @@
-# CONTRACT-CHANGE-DETECT-OTHER — compaction summary size, the compaction-window plant, tail scopes, per-kind capability notes
+# CONTRACT-CHANGE-DETECT-OTHER — compaction summary size, the compaction-window plant, tail scopes, per-kind capability notes, small-cohort runaways, pool labels
 
 Raised by DETECT-OTHER (wave 2) under SPEC §21 #3. Nothing here blocks the package: the code
 implements the current contract (SPEC + Appendix E) with the interpretations below. The contract
@@ -72,3 +72,34 @@ Proposed: fold this pattern (or `Detector.requires_by_kind`, see CONTRACT-CHANGE
 Like DETECT-CACHE's `policy.ttl.<team>` (CONTRACT-CHANGE-DETECT-CACHE-1 §2), two §10.2 inputs are
 not decimals and are read raw: `defaults.effort` (an effort level, default `medium`; an unknown
 level raises `UsageError`) and `policy.residency_required[.<team>]` (`1`/`true`/`yes`/`on`).
+
+## 6. `tail.runaway` cannot fire in a cohort of fewer than 100 sessions
+
+§10.2: "session rolling-1h exact $ > max($50, 5 × cohort p99 hourly session cost)". With a
+nearest-rank p99 over the cohort's sessions (SYNTH-FLEET's truth computes it the same way, the
+session itself included), a cohort of n < 100 sessions has p99 = its maximum — the candidate
+session itself when it is the heaviest — so `5 × p99` always exceeds its own peak hour and a
+runaway loop in a small team (say 20 sessions in a week) is never reported. For 100 ≤ n < 200 the
+threshold is the second-heaviest session's peak.
+
+Implemented: the SPEC reading (inclusive nearest-rank p99), pinned by
+`test_tail.py::test_runaway_limits` ("a small cohort: the loop is its own p99").
+
+Proposed: compute the p99 over the **other** sessions of the cohort (leave-one-out; still
+shard-invariant) or fall back to the `$50` floor below a minimum cohort size (e.g. 100 sessions),
+and align SYNTH-FLEET's `truth.runaway` in the same fixup.
+
+## 7. Copilot `pool` cohorts: basis without the seat-allowance labels
+
+R-E20 makes `pool` figures list-equivalent; CORE-AMENDMENTS S-2 has `core.findings.build_finding`
+label `pool` findings of generic detectors ("Copilot credits: " title prefix, "list-equivalent
+AI-credit value" in the summary). A pooled AI credit is not a seat allowance, so the D26 labels
+("Allowance headroom:", "list-equivalent, not invoice dollars") would mislabel it and stack with
+the core prefix.
+
+Implemented: `pool` cohorts carry basis LIST_EQUIVALENT (table `LIST_EQUIVALENT_CLASSES`) and
+leave the title 20 characters of room for the core prefix; the D26 labels apply to the classes of
+`ALLOWANCE_LABEL_CLASSES` (`allowance`) only. Until F-SEM-C's S-2 is merged, `build_finding`
+rejects a LIST_EQUIVALENT `pool` finding (the D26 check), so a `pool` lane reaching these
+detectors before that merge raises `ContractViolation`; no v0.2 adapter produces `pool` lanes
+yet.
