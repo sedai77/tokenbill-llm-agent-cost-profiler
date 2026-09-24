@@ -381,6 +381,8 @@ def _set(path: str, value: object):  # noqa: ANN202
         _set("cache_ttl_statement/text", 3),
         _set("plans/0/source", ""),
         _set("dates/0/verification", "guess"),
+        _set("skus/0/verified", "false"),
+        _set("vscode_traces/verified", 0),
     ],
 )
 def test_parse_rejects_malformed_copilot_sections(mutation: object) -> None:

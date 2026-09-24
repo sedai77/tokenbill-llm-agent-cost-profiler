@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from tokenbill.core.errors import SourceError, UsageError
+from tokenbill.core.errors import ContractViolation, SourceError, UsageError
 from tokenbill.core.ids import stable_id
 from tokenbill.core.labels import unpriced
 from tokenbill.core.protocols import Adapter, Detector
@@ -450,9 +450,9 @@ class ArgvAlias:
 
     def __post_init__(self) -> None:
         if self.position not in ("first", "any"):
-            raise UsageError("ArgvAlias.position must be 'first' or 'any'")
+            raise ContractViolation("ArgvAlias.position must be 'first' or 'any'")
         if not self.target or not all(isinstance(t, str) and t for t in self.target):
-            raise UsageError("ArgvAlias.target must be a non-empty tuple of tokens")
+            raise ContractViolation("ArgvAlias.target must be a non-empty tuple of tokens")
 
 
 @dataclass(frozen=True)

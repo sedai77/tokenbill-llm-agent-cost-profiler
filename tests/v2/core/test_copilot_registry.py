@@ -13,7 +13,7 @@ import pytest
 
 from tokenbill.core import registry as reg
 from tokenbill.core.builders import FlatRates, make_lane, make_request, make_usage
-from tokenbill.core.errors import UsageError
+from tokenbill.core.errors import ContractViolation
 from tokenbill.core.labels import Basis, estimated
 from tokenbill.core.protocols import (
     ChannelReconciler,
@@ -315,11 +315,11 @@ def test_extension_spec() -> None:
                  spec.focus_rows, spec.showback, spec.panel_builder, spec.rate_verifier):
         module, _, attr = (hook or "").partition(":")
         assert module.startswith("tokenbill.") and attr
-    with pytest.raises(UsageError):
+    with pytest.raises(ContractViolation):
         reg.ArgvAlias("scan", "--x", "middle", ("x",))
-    with pytest.raises(UsageError):
+    with pytest.raises(ContractViolation):
         reg.ArgvAlias("scan", "--x", "any", ())
-    with pytest.raises(UsageError):
+    with pytest.raises(ContractViolation):
         reg.ArgvAlias("scan", "--x", "any", ("",))
 
 

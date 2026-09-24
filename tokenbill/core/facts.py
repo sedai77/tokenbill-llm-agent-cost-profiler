@@ -745,6 +745,11 @@ def _int_value(value: Any, what: str) -> int:
     return value
 
 
+def _b(value: Any) -> bool:
+    _check(type(value) is bool, "flags must be JSON booleans")
+    return value
+
+
 def _date_str(value: Any, what: str) -> str:
     _check(isinstance(value, str) and len(value) == 10 and value[4] == "-" and value[7] == "-",
            f"{what} must be a YYYY-MM-DD string")
@@ -789,13 +794,13 @@ def _copilot(c: Mapping[str, Any]) -> CopilotFacts:
     wr = c["write_1h_rule"]
     write_rule = CopilotWriteRuleFact(model_prefix=wr["model_prefix"],
                                       multiplier_of_input=_dec(wr["multiplier_of_input"], "rule"),
-                                      verified=bool(wr["verified"]), **_meta(wr))
+                                      verified=_b(wr["verified"]), **_meta(wr))
     bands = [CopilotBandRuleFact(model=b["model"], threshold=_int_value(b["threshold"], "band"),
-                                 measure=b["measure"], verified=bool(b["verified"]), **_meta(b))
+                                 measure=b["measure"], verified=_b(b["verified"]), **_meta(b))
              for b in c["band_rules"]]
     skus = [CopilotSkuFact(sku=k["sku"], product=k["product"], cost_type=k["cost_type"],
                            cost_type_unattributed=k["cost_type_unattributed"], plan=k["plan"],
-                           workload=k["workload"], verified=bool(k["verified"]), **_meta(k))
+                           workload=k["workload"], verified=_b(k["verified"]), **_meta(k))
             for k in c["skus"]]
     for k in skus:
         _check(k.cost_type in GITHUB_COST_TYPES and k.cost_type_unattributed in GITHUB_COST_TYPES,
@@ -803,11 +808,11 @@ def _copilot(c: Mapping[str, Any]) -> CopilotFacts:
         _check(k.plan is None or k.plan in LICENSE_PLANS[:2], "skus: unknown plan")
         _check(k.workload is None or k.workload in COPILOT_WORKLOADS, "skus: unknown workload")
     quotas = [CopilotQuotaFact(quota=_int_value(q["quota"], "quota"), plan=q["plan"],
-                               months=tuple(q["months"]), verified=bool(q["verified"]), **_meta(q))
+                               months=tuple(q["months"]), verified=_b(q["verified"]), **_meta(q))
               for q in c["plan_quota_map"]]
     _check(all(q.plan in LICENSE_PLANS[:2] for q in quotas), "plan_quota_map: unknown plan")
     paths = tuple(CopilotWorkflowPathFact(pattern=w["pattern"], match=w["match"],
-                                          workload=w["workload"], verified=bool(w["verified"]),
+                                          workload=w["workload"], verified=_b(w["verified"]),
                                           **_meta(w)) for w in c["workflow_paths"])
     _check(all(w.match in ("exact", "glob") and w.workload in COPILOT_WORKLOADS for w in paths),
            "workflow_paths: bad match or workload")
@@ -816,12 +821,12 @@ def _copilot(c: Mapping[str, Any]) -> CopilotFacts:
                                          successor=r["successor"], **_meta(r))
                    for r in c["retirements"]]
     remaps = [CopilotRemapFact(model=r["model"], target=r["target"],
-                               tokenizer_same=bool(r["tokenizer_same"]), **_meta(r))
+                               tokenizer_same=_b(r["tokenizer_same"]), **_meta(r))
               for r in c["remaps"]]
     runners = [CopilotRunnerRateFact(sku=r["sku"], label=r["label"], arch=r["arch"],
                                      runner_class=r["runner_class"],
                                      usd_per_minute=_dec(r["usd_per_minute"], "runner rate"),
-                                     included_minutes_apply=bool(r["included_minutes_apply"]),
+                                     included_minutes_apply=_b(r["included_minutes_apply"]),
                                      **_meta(r)) for r in c["runner_rates"]]
     included = [CopilotIncludedMinutesFact(plan=m["plan"],
                                            minutes_per_month=_int_value(m["minutes_per_month"],
@@ -829,7 +834,7 @@ def _copilot(c: Mapping[str, Any]) -> CopilotFacts:
                 for m in c["included_minutes"]]
     reviews = [CopilotReviewEstimateFact(effort=r["effort"], low_usd=_dec(r["low_usd"], "review"),
                                          high_usd=_dec(r["high_usd"], "review"),
-                                         display_only=bool(r["display_only"]), **_meta(r))
+                                         display_only=_b(r["display_only"]), **_meta(r))
                for r in c["review_estimates"]]
     dates = {d["name"]: _date_str(d["date"], "dates") for d in c["dates"]}
     _check(len(dates) == len(c["dates"]), "dates: duplicate name")
@@ -838,7 +843,7 @@ def _copilot(c: Mapping[str, Any]) -> CopilotFacts:
            "settings_keys: target must be github-copilot")
     families = tuple(CopilotEditorFamilyFact(origin=e["origin"], match=e["match"],
                                              pattern=e["pattern"], family=e["family"],
-                                             verified=bool(e["verified"]), **_meta(e))
+                                             verified=_b(e["verified"]), **_meta(e))
                      for e in c["editor_families"])
     _check(all(e.family in EDITOR_FAMILIES and e.match in ("prefix", "exact") for e in families),
            "editor_families: bad family or match")
@@ -852,7 +857,7 @@ def _copilot(c: Mapping[str, Any]) -> CopilotFacts:
         retention_days=_int_value(v["retention_days"], "retention"),
         retention_sessions=_int_value(v["retention_sessions"], "retention"),
         paths=types.MappingProxyType({k: tuple(p) for k, p in v["paths"].items()}),
-        verified=bool(v["verified"]), **_meta(v))
+        verified=_b(v["verified"]), **_meta(v))
     _check(not set(traces.attribute_allowlist) & set(traces.content_keys),
            "vscode_traces: a content key is allowlisted")
     ttl, lag, cap = c["cache_ttl_statement"], c["report_lag_days"], c["aic_default_cap_per_run"]
