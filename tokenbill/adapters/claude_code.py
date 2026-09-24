@@ -140,6 +140,8 @@ RETENTION_MARGIN_DAYS = 3
 FALLBACK_DEDUPE_MS = 60_000
 #: Largest ``*.meta.json`` read (bytes); meta files are a few hundred bytes.
 _META_MAX_BYTES = 64 * 1024
+#: Longest source string kept as a cache key (hostile input never pins large strings).
+_CACHE_MAX_LEN = 1024
 _DAY_MS = 86_400_000
 _DETAIL_MAX = 256
 
@@ -163,9 +165,8 @@ _ENDPOINT_SCOPES = frozenset({"global", "regional", "multi_region"})
 #: HTTP status → API_ERROR ``error_type`` (SPEC §5.3.8); ``error.connection`` → ``connection``.
 _ERROR_TYPE_BY_STATUS = {429: "rate_limit", 529: "overloaded", 408: "timeout", 401: "auth",
                          403: "auth", 400: "invalid_request", 413: "prompt_too_long"}
-#: Entry types that are read; every other type is counted in ``dq.unknown_entry_type`` unless it
-#: is a known bookkeeping type.
-_CONVERSATION_TYPES = frozenset({"user", "attachment", "system"})
+#: Entry types that are recognized but carry nothing to import (never counted as unknown; they
+#: do not close message groups either — only user, attachment and system entries do).
 _BOOKKEEPING_TYPES = frozenset({"summary", "file-history-snapshot", "queue-operation", "progress",
                                 "custom-title", "tag", "agent-name", "ai-title", "last-prompt",
                                 "mode", "worktree-state", "pr-link"})
@@ -230,19 +231,19 @@ def token(value: object, limit: int = 64) -> str | None:
     and brackets, no spaces or ``@``), else None. Every provider string copied into a record goes
     through this guard, so no record carries free text (SPEC §8.1). Repeated values (models,
     versions, stop reasons) come back as one shared string object."""
-    if type(value) is not str:
+    if type(value) is not str or len(value) > 64:
         return None
     canon = _TOKENS.get(value)
     if canon is None:
-        canon = value if len(value) <= 64 and _TOKEN_RE.match(value) is not None else ""
+        canon = value if _TOKEN_RE.match(value) is not None else ""
         if len(_TOKENS) < 8192:
             _TOKENS[value] = canon
     return canon if canon and len(canon) <= limit else None
 
 
 _TS_RE = re.compile(
-    r"(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:[.,](\d{1,9}))?"
-    r"(Z|z|[+-]\d{2}(?::?\d{2})?)?\Z")
+    r"([0-9]{4})-([0-9]{2})-([0-9]{2})[T ]([0-9]{2}):([0-9]{2}):([0-9]{2})(?:[.,]([0-9]{1,9}))?"
+    r"(Z|z|[+-][0-9]{2}(?::?[0-9]{2})?)?\Z")
 
 
 _DAYS: dict[str, int] = {}
@@ -367,7 +368,7 @@ class NameHasher:
         hit = self._hashed.get(value)
         if hit is None:
             hit = pseudonym(self.key, "h", value)
-            if len(self._hashed) < 4096:
+            if len(self._hashed) < 4096 and len(value) <= _CACHE_MAX_LEN:
                 self._hashed[value] = hit
         return hit
 
@@ -384,7 +385,7 @@ class NameHasher:
             out: str | None = value
         else:
             out = self.hashed(value)
-        if len(self._cache) < 4096:
+        if len(self._cache) < 4096 and len(value) <= _CACHE_MAX_LEN:
             self._cache[value] = out
         return out
 
@@ -1685,7 +1686,8 @@ class _FileParser:
         skill, mcp, plugin = (obj.get("attributionSkill"), obj.get("attributionMcpServer"),
                               obj.get("attributionPlugin"))
         entry = obj.get("entrypoint")
-        cacheable = all(x is None or type(x) is str for x in (skill, mcp, plugin, entry, cwd))
+        cacheable = all(x is None or (type(x) is str and len(x) <= _CACHE_MAX_LEN)
+                        for x in (skill, mcp, plugin, entry, cwd))
         key = (agent_type, ref.kind, skill, mcp, plugin, entry, version, billing, cwd)
         attr = g.attr
         if attr is None and cacheable:

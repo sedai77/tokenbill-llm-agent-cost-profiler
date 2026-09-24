@@ -138,7 +138,7 @@ def test_truncated_array_keeps_complete_messages(tmp_path: Path) -> None:
 def test_json_output_alone_is_an_aggregate_only(tmp_path: Path) -> None:
     text = json.dumps(bf.headless_result_only(), default=lambda o: float(o.literal), indent=2)
     r = read_headless(tmp_path, text, name="result.json")
-    assert r.requests == [] and r.events == []
+    assert r.requests == [] and r.events == [] and r.sessions == []
     [agg] = r.aggregates
     assert agg.source_kind == "claude_code.headless_result"
     assert dict(agg.dims) == {"channel": "anthropic_api", "model": OPUS}

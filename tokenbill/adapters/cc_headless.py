@@ -510,12 +510,12 @@ class _Reader:
         per_model = _model_usage(msg.get("modelUsage"))
         usage = msg.get("usage") if isinstance(msg.get("usage"), dict) else {}
         billing = self.billing()
-        main_key, _k, _p = self.lane(sid, None)
         session_key = stable_id("ses", "claude-code", sid)
         cost_nano = decimal_usd_to_nano(msg.get("total_cost_usd"))
         if not steps:
             self.result_aggregates(sid, ts, per_model, usage, cost_nano, billing)
             return
+        main_key, _k, _p = self.lane(sid, None)
         step_usage = {s.mid: _step_buckets(s) for s in steps}
         logged: dict[str, int] = {}
         step_in: dict[str, int] = {}
