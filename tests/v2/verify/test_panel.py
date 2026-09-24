@@ -126,9 +126,8 @@ def test_mdm_group_and_workspace_clusters() -> None:
     assert [r.cluster_id for r in mdm] == ["g1", "g2"]
     ws = P.build_panel(store, cluster_kind="workspace", **kw)
     assert [(r.cluster_id, r.date_utc, r.active_dev_days) for r in ws] == [("ws-a", DAYS[1], 1)]
-    # the store decides which cluster kinds it can count developer-days for
-    with pytest.raises(UsageError):
-        P.build_panel(store, cluster_kind="gateway", **kw)
+    # gateway IdP groups are a cluster kind since ruling R-E28; these requests carry no gateway
+    assert P.build_panel(store, cluster_kind="gateway", **kw) == []
 
 
 def test_validation() -> None:
