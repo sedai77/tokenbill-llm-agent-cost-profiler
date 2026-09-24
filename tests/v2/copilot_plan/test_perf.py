@@ -1,9 +1,12 @@
 """Addendum §17 budget: the aggregate plan (≤ 6 levers, 64 joint evaluations per state, ≤ 50k
 monthly cells) ≤ 10 s. Full size under the ``perf`` marker (nightly); the PR variant runs a tenth
-of the cells against a tenth of the budget (plus a fixed allowance for pricing-cache warm-up)."""
+of the cells against a tenth of the budget plus a fixed allowance for pricing-cache warm-up.
+Budgets are process CPU time (best of three for the PR variant, so parallel builds on a shared
+machine do not flake) and are not measured under coverage or a tracer (the F-POOL convention)."""
 
 from __future__ import annotations
 
+import sys
 import time
 
 import pytest
@@ -63,10 +66,27 @@ def _run(n: int) -> float:
     return elapsed
 
 
+def _traced() -> bool:
+    """True under a tracer or coverage measurement, where CPU budgets are not meaningful."""
+    if sys.gettrace() is not None:
+        return True
+    cov = sys.modules.get("coverage")
+    current = getattr(getattr(cov, "Coverage", None), "current", None)
+    return bool(current and current() is not None)
+
+
+def test_large_plan_is_efficient_and_uses_exact_shapley() -> None:
+    _run(2_000)          # the assertions inside _run, without a budget
+
+
 @pytest.mark.perf
 def test_aggregate_plan_50k_cells_within_10s() -> None:
-    assert _run(50_000) <= 10.0
+    if _traced():
+        pytest.skip("CPU budgets are not measured under coverage or a tracer")
+    assert _run(50_000) <= 10
 
 
 def test_aggregate_plan_pr_variant_5k_cells() -> None:
-    assert _run(5_000) <= 1.0 + 1.0
+    if _traced():
+        pytest.skip("CPU budgets are not measured under coverage or a tracer")
+    assert min(_run(5_000) for _ in range(3)) <= 1 + 1
