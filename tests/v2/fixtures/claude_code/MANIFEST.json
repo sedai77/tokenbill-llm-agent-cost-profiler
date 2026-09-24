@@ -1,0 +1,247 @@
+{
+ "files": [
+  {
+   "adapter": "claude-code",
+   "description": "main lane: every \u00a75.3 mechanism",
+   "expected": {
+    "assistant_lines": 12,
+    "compaction_estimated": {
+     "post": 2100,
+     "pre": 18000
+    },
+    "dedup_usage": {
+     "cache_read": 20850,
+     "cache_write_1h": 6000,
+     "cache_write_5m": 5530,
+     "cache_write_unknown": 1000,
+     "output": 1803,
+     "uncached_input": 947
+    },
+    "inference_usage": {
+     "cache_read": 20850,
+     "cache_write_1h": 6000,
+     "cache_write_5m": 5530,
+     "cache_write_unknown": 1000,
+     "output": 1803,
+     "uncached_input": 1847
+    },
+    "messages": 7,
+    "naive_usage": {
+     "cache_read": 29150,
+     "cache_write_1h": 15000,
+     "cache_write_5m": 11680,
+     "cache_write_unknown": 2000,
+     "output": 2062,
+     "uncached_input": 989
+    },
+    "requests": 8
+   },
+   "kind": "transcript",
+   "path": "projects/-home-dev-alpha/5b7c1f0e-0000-4000-8000-00000000a11a.jsonl"
+  },
+  {
+   "adapter": "claude-code",
+   "description": "subagent lane (Explore)",
+   "expected": {
+    "assistant_lines": 4,
+    "dedup_usage": {
+     "cache_read": 8000,
+     "cache_write_1h": 0,
+     "cache_write_5m": 8600,
+     "cache_write_unknown": 0,
+     "output": 275,
+     "uncached_input": 10
+    },
+    "inference_usage": {
+     "cache_read": 8000,
+     "cache_write_1h": 0,
+     "cache_write_5m": 8600,
+     "cache_write_unknown": 0,
+     "output": 275,
+     "uncached_input": 10
+    },
+    "messages": 2,
+    "naive_usage": {
+     "cache_read": 16000,
+     "cache_write_1h": 0,
+     "cache_write_5m": 17200,
+     "cache_write_unknown": 0,
+     "output": 281,
+     "uncached_input": 20
+    },
+    "requests": 2
+   },
+   "kind": "transcript",
+   "path": "projects/-home-dev-alpha/5b7c1f0e-0000-4000-8000-00000000a11a/subagents/agent-a1b2c3.jsonl"
+  },
+  {
+   "adapter": null,
+   "description": "subagent meta (read: agentType, model, parentAgentId, spawnDepth, toolUseId)",
+   "expected": {},
+   "kind": "meta",
+   "path": "projects/-home-dev-alpha/5b7c1f0e-0000-4000-8000-00000000a11a/subagents/agent-a1b2c3.meta.json"
+  },
+  {
+   "adapter": "claude-code",
+   "description": "workflow agent lane",
+   "expected": {
+    "assistant_lines": 2,
+    "dedup_usage": {
+     "cache_read": 0,
+     "cache_write_1h": 0,
+     "cache_write_5m": 4500,
+     "cache_write_unknown": 0,
+     "output": 70,
+     "uncached_input": 20
+    },
+    "inference_usage": {
+     "cache_read": 0,
+     "cache_write_1h": 0,
+     "cache_write_5m": 4500,
+     "cache_write_unknown": 0,
+     "output": 70,
+     "uncached_input": 20
+    },
+    "messages": 1,
+    "naive_usage": {
+     "cache_read": 0,
+     "cache_write_1h": 0,
+     "cache_write_5m": 9000,
+     "cache_write_unknown": 0,
+     "output": 73,
+     "uncached_input": 40
+    },
+    "requests": 1
+   },
+   "kind": "transcript",
+   "path": "projects/-home-dev-alpha/5b7c1f0e-0000-4000-8000-00000000a11a/workflows/run-1/agent-wf01.jsonl"
+  },
+  {
+   "adapter": null,
+   "description": "workflow agent meta",
+   "expected": {},
+   "kind": "meta",
+   "path": "projects/-home-dev-alpha/5b7c1f0e-0000-4000-8000-00000000a11a/workflows/run-1/agent-wf01.meta.json"
+  },
+  {
+   "adapter": null,
+   "description": "journal.jsonl is always skipped",
+   "expected": {},
+   "kind": "journal",
+   "path": "projects/-home-dev-alpha/journal.jsonl"
+  },
+  {
+   "adapter": "claude-code",
+   "description": "subscription session: quotaLimits.isUsingOverage flips to true on the second call",
+   "expected": {
+    "assistant_lines": 6,
+    "dedup_usage": {
+     "cache_read": 24500,
+     "cache_write_1h": 12800,
+     "cache_write_5m": 0,
+     "cache_write_unknown": 0,
+     "output": 650,
+     "uncached_input": 36
+    },
+    "inference_usage": {
+     "cache_read": 24500,
+     "cache_write_1h": 12800,
+     "cache_write_5m": 0,
+     "cache_write_unknown": 0,
+     "output": 650,
+     "uncached_input": 36
+    },
+    "messages": 3,
+    "naive_usage": {
+     "cache_read": 49000,
+     "cache_write_1h": 25600,
+     "cache_write_5m": 0,
+     "cache_write_unknown": 0,
+     "output": 659,
+     "uncached_input": 72
+    },
+    "requests": 3
+   },
+   "kind": "transcript",
+   "path": "projects/-home-dev-beta/5b7c1f0e-0000-4000-8000-00000000be7a.jsonl"
+  },
+  {
+   "adapter": "claude-code",
+   "description": "last line cut mid-write (quarantined)",
+   "expected": {
+    "assistant_lines": 2,
+    "dedup_usage": {
+     "cache_read": 0,
+     "cache_write_1h": 0,
+     "cache_write_5m": 1000,
+     "cache_write_unknown": 0,
+     "output": 50,
+     "uncached_input": 10
+    },
+    "inference_usage": {
+     "cache_read": 0,
+     "cache_write_1h": 0,
+     "cache_write_5m": 1000,
+     "cache_write_unknown": 0,
+     "output": 50,
+     "uncached_input": 10
+    },
+    "messages": 1,
+    "naive_usage": {
+     "cache_read": 0,
+     "cache_write_1h": 0,
+     "cache_write_5m": 2000,
+     "cache_write_unknown": 0,
+     "output": 53,
+     "uncached_input": 20
+    },
+    "quarantined": 1,
+    "requests": 1
+   },
+   "kind": "transcript",
+   "path": "cases/truncated-last-line.jsonl"
+  },
+  {
+   "adapter": "claude-code-headless",
+   "description": "stream-json: parallel tool calls, subagent lane, placeholders, modelUsage result",
+   "expected": {
+    "logged_output": {
+     "claude-opus-5-5": 4,
+     "claude-sonnet-5": 1
+    },
+    "residual_output": {
+     "claude-opus-5-5": 1396,
+     "claude-sonnet-5": 599
+    },
+    "steps": 4,
+    "total_cost_nano": 421000000
+   },
+   "kind": "headless",
+   "path": "headless/stream.jsonl"
+  },
+  {
+   "adapter": "claude-code-headless",
+   "description": "execution file (JSON array, no timestamps)",
+   "expected": {
+    "residual_output": {
+     "claude-opus-5-5": 517
+    },
+    "steps": 2
+   },
+   "kind": "headless",
+   "path": "headless/claude-execution-output.json"
+  },
+  {
+   "adapter": "claude-code-headless",
+   "description": "--output-format json: aggregates only",
+   "expected": {
+    "aggregates": 1,
+    "steps": 0
+   },
+   "kind": "headless",
+   "path": "headless/result-only.json"
+  }
+ ],
+ "note": "synthetic, schema-true per SPEC \u00a719.4; never real transcripts; CANARY planted in content fields",
+ "schema": "tokenbill/cc-fixtures@1"
+}
