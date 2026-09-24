@@ -135,6 +135,15 @@ def test_retirements_and_announcements() -> None:
     assert catalog.ANNOUNCED_UNPRICED == ("claude-haiku-5-5", "claude-sonnet-5-5")
 
 
+@settings(max_examples=200, deadline=None)
+@given(ts_ms=st.integers(-(2**80), 2**80), days=st.integers(-(10**12), 10**12))
+def test_retiring_within_never_overflows(ts_ms: int, days: int) -> None:
+    got = catalog.retiring_within("claude-haiku-4-5", ts_ms, days)
+    horizon = ts_ms // 86_400_000 + days
+    floor = (catalog._dt.date(2026, 10, 15) - catalog._EPOCH).days
+    assert got == ("2026-10-15" if floor <= horizon else None)
+
+
 def test_promotions() -> None:
     promo = catalog.promotion_for("gpt-5.6-sol", "openai_api", "2026-10-01")
     assert promo is not None and promo.promotion_id == "openai.gpt-5.6-sol.2026-08"

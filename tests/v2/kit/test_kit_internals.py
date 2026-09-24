@@ -122,7 +122,7 @@ def test_sum_check_with_a_conventions_stub(monkeypatch: pytest.MonkeyPatch,
             return res
 
     path = fixture(tmp_path)
-    monkeypatch.setitem(sys.modules, "tokenbill.core.conventions", fsem_stubs.conventions())
+    fsem_stubs.put(monkeypatch, fsem_stubs.conventions())
     kit.assert_adapter_conforms(WithRaw({}), path, expect_capabilities=EXPECT)
     for skipped in (WithRaw({"iterations": [1]}), WithRaw({}, convention="unknown")):
         kit.assert_adapter_conforms(skipped, path, expect_capabilities=EXPECT)
@@ -132,8 +132,7 @@ def test_sum_check_with_a_conventions_stub(monkeypatch: pytest.MonkeyPatch,
     with pytest.raises(AssertionError, match="long strings"):
         kit.assert_adapter_conforms(WithRaw({"model": "m" * 70}), path,
                                     expect_capabilities=EXPECT)
-    monkeypatch.setitem(sys.modules, "tokenbill.core.conventions",
-                        fsem_stubs.conventions(enabled=False))
+    fsem_stubs.put(monkeypatch, fsem_stubs.conventions(enabled=False))
     kit.assert_adapter_conforms(WithRaw({"input_tokens": 999_999}), path,
                                 expect_capabilities=EXPECT)
 

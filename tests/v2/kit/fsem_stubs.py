@@ -152,11 +152,18 @@ def conventions(normalize_to: Any = None, *, enabled: bool = True) -> types.Modu
     return mod
 
 
+def put(monkeypatch: pytest.MonkeyPatch, module: types.ModuleType) -> None:
+    """Install *module* for one test, in ``sys.modules`` **and** as an attribute of the
+    ``tokenbill.core`` package: once the real F-SEM module has been imported (after the gate-F
+    merge), ``from tokenbill.core import findings`` reads the package attribute, not
+    ``sys.modules``."""
+    import tokenbill.core as core_pkg
+
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    monkeypatch.setattr(core_pkg, module.__name__.rpartition(".")[2], module, raising=False)
+
+
 def install(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Put the stand-ins into ``sys.modules`` for one test."""
-    for name, factory in (("tokenbill.core.transitions", _transitions),
-                          ("tokenbill.core.findings", _findings),
-                          ("tokenbill.core.policy", _policy),
-                          ("tokenbill.core.shapley", _shapley),
-                          ("tokenbill.core.cache_rules", _cache_rules)):
-        monkeypatch.setitem(sys.modules, name, factory())
+    """Put the stand-ins in place for one test (see :func:`put`)."""
+    for factory in (_transitions, _findings, _policy, _shapley, _cache_rules):
+        put(monkeypatch, factory())

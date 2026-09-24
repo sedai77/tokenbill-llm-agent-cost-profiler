@@ -280,20 +280,18 @@ def successor(model: str) -> str | None:
 
 
 _EPOCH = _dt.date(1970, 1, 1)
-
-
-def _utc_date(ts_ms: int) -> _dt.date:
-    return _EPOCH + _dt.timedelta(days=ts_ms // 86_400_000)
+_DAY_MS = 86_400_000
 
 
 def retiring_within(model: str, ts_ms: int, days: int) -> str | None:
     """The retirement (floor) date of *model* when it falls on or before the UTC date of *ts_ms*
-    plus *days* days — including dates already past — else None."""
+    plus *days* days — including dates already past — else None. Day arithmetic is on integers,
+    so any ``ts_ms`` / ``days`` (however large) is answered without an overflow."""
     floor = RETIREMENTS.get(model)
     if floor is None:
         return None
-    horizon = _utc_date(ts_ms) + _dt.timedelta(days=days)
-    return floor if _dt.date.fromisoformat(floor) <= horizon else None
+    floor_day = (_dt.date.fromisoformat(floor) - _EPOCH).days
+    return floor if floor_day <= ts_ms // _DAY_MS + days else None
 
 
 def promotion_for(model: str, channel: str, date: str) -> Promotion | None:
