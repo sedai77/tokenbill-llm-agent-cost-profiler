@@ -332,7 +332,8 @@ def plan(clusters: Sequence[str], *, lever_id: str, cluster_kind: str, design: s
          change_date: str | None = None, rate_card_sha256: str | None = None) -> MeasurePlan:
     """A measurement plan (SPEC §13.2). ``treated`` (cluster → wave number or ``"control"``) is a
     user-supplied assignment: it has no logged seed (MEASURED at best) and is checked for
-    correlation with pre-period spend."""
+    correlation with pre-period spend. ``washout_hours`` is the caller's p90 session length in
+    hours; the plan's washout is ``max(1 h, washout_hours, settings refresh interval)``."""
     if isinstance(clusters, (str, bytes)):
         raise UsageError("clusters must be a sequence of cluster ids")
     try:
@@ -416,10 +417,16 @@ def plan(clusters: Sequence[str], *, lever_id: str, cluster_kind: str, design: s
         waves = min(waves, len(names) - n_hold)
         if treated is not None:
             hold, wave_list = _user_assignment(names, treated)
+            if design == "cluster_rct" and len(wave_list) > 1:
+                warnings.append("cluster_rct treats every non-holdback cluster in one wave: the "
+                                "supplied waves are merged")
+                wave_list = [(1, tuple(sorted(c for _, m in wave_list for c in m)))]
             source, log_seed = "user", None
             n_hold = len(hold)
             verification = False
             warnings.append("user-supplied assignment has no logged seed: MEASURED at best")
+            if not lo_hb * len(names) <= n_hold <= hi_hb * len(names):
+                warnings.append("the supplied holdback is outside the planned 10–25% of clusters")
             if pre_panel:
                 priority = {c: 0 for c in names}
                 last = len(wave_list) + 1

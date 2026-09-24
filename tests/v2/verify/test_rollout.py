@@ -238,3 +238,14 @@ def test_plan_input_shapes_are_checked() -> None:
     p = _plan()
     with pytest.raises(UsageError):
         R.arms_for(p, {1: "20260803"})
+
+
+def test_user_assignment_shape_warnings() -> None:
+    staggered = {c: ("control" if i < 2 else str(1 + i % 3)) for i, c in enumerate(_clusters())}
+    p = _plan(design="cluster_rct", waves=1, treated=staggered)
+    assert len(p.waves) == 1 and len(p.waves[0][1]) == 22
+    assert any("merged" in w for w in p.warnings)
+    assert any("outside the planned 10–25%" in w for w in p.warnings)     # 2 of 24 held back
+    fair = {c: ("control" if i % 4 == 0 else "1") for i, c in enumerate(_clusters())}
+    q = _plan(treated=fair)
+    assert not any("outside the planned" in w for w in q.warnings)

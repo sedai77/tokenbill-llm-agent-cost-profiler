@@ -47,7 +47,7 @@ Everything is **synthetic**; there are no checked-in data files and no real tran
 | `plan(org_wide_delivery=True)` without MDM/gateway clusters → `design="its"`, `verification_design=False` | `test_rollout.py::test_org_wide_without_mdm_or_gateway_is_its` |
 | `ab` on an RTK-like campaign → `costlier`; VERIFIED only at `lab:<hash>` with randomized order and ≥ 5 trials | `test_ab.py` |
 | receipt canonical bytes identical across two processes; sign/verify with ed25519 (`needs_ssh_keygen`); flipped byte fails; ESTIMATED / allowance / unsignable refused; missing `ssh-keygen` → clear error | `test_receipts.py` |
-| gate: estimators on `synth.lanes_gen.rollout_panel` (+ `rollout_truth`, `ab_campaign`) | `test_gate_synth.py` (`gate`; verified locally against a scratch overlay of `pkg/SYNTH-ORACLE` c5c7763: all pass, incl. the 50-seed `slow` variant) |
+| gate: estimators on `synth.lanes_gen.rollout_panel` (+ `rollout_truth`, `ab_campaign`) | `test_gate_synth.py` (`gate`; verified locally against a scratch overlay of `pkg/SYNTH-ORACLE` c5c7763 and again in review at 42e0f15: all pass, incl. the 50-seed `slow` variant) |
 | gate: `build_panel` on a real `SqliteStore` equals MemoryStore | `test_gate_store.py` (`gate`; STORE not available on this branch) |
 
 Also: `test_fuzz.py` (hypothesis: ITS series, panels, A/B outcomes, canonical JSON, DSSE envelopes,
