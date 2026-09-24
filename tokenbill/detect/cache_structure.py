@@ -18,6 +18,7 @@ See ``detect.cache_miss`` for the shared conventions (cohorts, allowance labelin
 from __future__ import annotations
 
 from collections.abc import Sequence
+from decimal import Decimal
 from fractions import Fraction
 
 from tokenbill.core.findings import threshold
@@ -41,6 +42,7 @@ from tokenbill.detect.cache_miss import (
     emit,
     evidence_item,
     gateway_of,
+    int_threshold,
     is_claude_code,
     miss_money,
     patch,
@@ -48,6 +50,7 @@ from tokenbill.detect.cache_miss import (
     saving_figure,
     serving_steps,
     settings_doc,
+    share_threshold,
     sort_findings,
     transitions,
     usage_of,
@@ -58,9 +61,10 @@ __all__ = ["ColdFanout", "GatewayDisabled", "UnreadWrite"]
 _GATEWAY_REFS = ("cc-gateway-marker-stripping", "gateway-strip", "cc-gateway-cache-strip")
 _MIN_CACHE_PROMPT = 4096
 _NO_CACHE_MIN_REQUESTS = 5
-_BETA_MIN_REQUESTS = "20"
+_BETA_MIN_REQUESTS = 20
 _TOOL_SEARCH_PER_100 = "3"
 _ONE_HOUR_MS = 3_600_000
+_READ_SHARE_DEFAULT = "0.95"
 
 
 def _median(values: Sequence[int]) -> Fraction:
@@ -79,7 +83,8 @@ def _median(values: Sequence[int]) -> Fraction:
 class GatewayDisabled:
     """``cache.gateway-disabled`` (SPEC §10.2).
 
-    * ``no-cache``: a lane with ≥ 5 requests, median ``T ≥ max(min_cacheable, 4,096)`` and
+    * ``no-cache``: a lane with ≥ 5 requests (threshold ``cache.gateway-disabled.min_requests``),
+      median ``T ≥ max(min_cacheable, 4,096)`` (``cache.gateway-disabled.min_prompt_tokens``) and
       Σ reads = Σ writes = 0. ``cost_observed`` = billed uncached input ``ΣU·u`` (EXACT);
       ``recoverable`` = replay ``repair=restore_caching``.
     * ``beta-header-dropped``: the team is configured for 1h (``thresholds["policy.ttl.<team>"]
@@ -109,9 +114,10 @@ class GatewayDisabled:
 
     # ---------- (a) no-cache ----------
 
-    def _no_cache_lane(self, ctx: AnalysisContext, lane: Lane) -> bool:
+    def _no_cache_lane(self, ctx: AnalysisContext, lane: Lane, min_requests: int,
+                       min_prompt: int) -> bool:
         steps = serving_steps(lane)
-        if len(steps) < _NO_CACHE_MIN_REQUESTS:
+        if not steps or len(steps) < min_requests:
             return False
         for req in lane.requests:
             for inf in req.billable_inferences:
@@ -122,12 +128,14 @@ class GatewayDisabled:
         assert inf is not None
         floor = ctx.pricer.min_cacheable_tokens(inf.pricing, ts_ms=first.ts_start_ms) or 0
         totals = [usage_of(r).total_input for r in steps]
-        return _median(totals) >= max(floor, _MIN_CACHE_PROMPT)
+        return _median(totals) >= max(floor, min_prompt)
 
     def _no_cache(self, ctx: AnalysisContext, prices: Prices, cohort: Cohort) -> Finding | None:
         tally = Tally()
+        min_requests = int_threshold(ctx, f"{self.id}.min_requests", _NO_CACHE_MIN_REQUESTS)
+        min_prompt = int_threshold(ctx, f"{self.id}.min_prompt_tokens", _MIN_CACHE_PROMPT)
         for lane in cohort.lanes:
-            if not self._no_cache_lane(ctx, lane):
+            if not self._no_cache_lane(ctx, lane, min_requests, min_prompt):
                 continue
             lane_cost: Money | None = Money()
             for req in serving_steps(lane):
@@ -140,7 +148,7 @@ class GatewayDisabled:
                 tally.unpriced += 1
                 continue
             tally.cost.add_money(lane_cost)
-            tally.items.append(evidence_item("lane", lane.lane_key,
+            tally.items.append(evidence_item("aggregate", lane.lane_key,
                                              requests=len(serving_steps(lane)),
                                              nano=lane_cost.point))
         if tally.events == tally.unpriced:
@@ -183,7 +191,7 @@ class GatewayDisabled:
                 u = usage_of(req)
                 if u.cache_write_5m > 0 and u.cache_write_1h == 0:
                     five_only += 1
-        minimum = int(threshold(ctx, f"{self.id}.min_5m_requests", _BETA_MIN_REQUESTS))
+        minimum = int_threshold(ctx, f"{self.id}.min_5m_requests", _BETA_MIN_REQUESTS)
         if five_only < minimum:
             return None
         tally = Tally()
@@ -285,7 +293,8 @@ class UnreadWrite:
     """``cache.unread-write`` (SPEC §10.2).
 
     * ``write-never-read``: request ``i`` (not the last) with ``W_i > 0`` whose next request
-      starts within ``τ`` yet reads ``R_j < 0.95·(R_i + W_i)`` (and no other cause explains it);
+      starts within ``τ`` yet reads ``R_j < 0.95·(R_i + W_i)`` (threshold
+      ``cache.unread-write.read_share``) and no other cause explains it;
       the unread written tokens are ``min(W_i, R_i + W_i − R_j)``. ``cost_observed`` = their write
       premium over sending them uncached ``W·(wτ − u)`` (ESTIMATED). No replayed recoverable: the
       block-placement lever is linked when the requests carry fingerprints, else guidance only.
@@ -304,6 +313,7 @@ class UnreadWrite:
     def detect(self, lanes: Sequence[Lane], ctx: AnalysisContext) -> list[Finding]:
         """Per cohort: at most one finding of each kind at or above ``min_usd``."""
         prices = Prices(ctx.pricer)
+        read_share = share_threshold(ctx, f"{self.id}.read_share", _READ_SHARE_DEFAULT)
         out: list[Finding] = []
         for cohort in cohorts(lanes, ctx):
             unread, oversized, tail = Tally(), Tally(), Tally()
@@ -313,7 +323,7 @@ class UnreadWrite:
                 if len(steps) == 1:
                     self._tail(prices, tail, lane, steps[0])
                     continue
-                with_fp = self._unread(ctx, prices, unread, lane, steps) or with_fp
+                with_fp = self._unread(ctx, prices, unread, lane, steps, read_share) or with_fp
                 self._oversized(ctx, prices, oversized, lane, steps)
             for kind, tally in (("write-never-read", unread), ("oversized-ttl", oversized),
                                 ("tail-writes", tail)):
@@ -333,7 +343,7 @@ class UnreadWrite:
                        (-1, prices.line(inf.pricing, req.ts_start_ms, "uncached_input", tokens)))
 
     def _unread(self, ctx: AnalysisContext, prices: Prices, tally: Tally, lane: Lane,
-                steps: Sequence[Request]) -> bool:
+                steps: Sequence[Request], read_share: Decimal) -> bool:
         trans = {t.request_id: t for t in transitions(lane, ctx)}
         with_fp = False
         for i in range(len(steps) - 1):
@@ -349,7 +359,7 @@ class UnreadWrite:
                 continue
             prefix = u.cache_read + u.cache_write
             reads = usage_of(nxt).cache_read
-            if 100 * reads >= 95 * prefix:
+            if reads >= read_share * prefix:
                 continue
             tokens = min(u.cache_write, prefix - reads)
             tally.hit(lane, cur.ts_start_ms)
@@ -388,7 +398,7 @@ class UnreadWrite:
             tally.unpriced += 1
             return
         tally.cost.add_money(lane_cost)
-        tally.items.append(evidence_item("lane", lane.lane_key, tokens=tokens,
+        tally.items.append(evidence_item("aggregate", lane.lane_key, tokens=tokens,
                                          nano=lane_cost.point))
 
     def _tail(self, prices: Prices, tally: Tally, lane: Lane, req: Request) -> None:
@@ -401,7 +411,7 @@ class UnreadWrite:
             tally.unpriced += 1
             return
         tally.cost.add_money(premium)
-        tally.items.append(evidence_item("lane", lane.lane_key, tokens=u.cache_write,
+        tally.items.append(evidence_item("aggregate", lane.lane_key, tokens=u.cache_write,
                                          nano=premium.point))
 
     def _finding(self, ctx: AnalysisContext, cohort: Cohort, kind: str, tally: Tally,
@@ -468,14 +478,16 @@ class UnreadWrite:
 # =============================================================================================
 
 _FANOUT_REFS = ("anth-concurrency-fanout", "cc-agent-spinup-fanout")
-_FANOUT_WINDOW_MS = 10_000
+_FANOUT_WINDOW_S = 10
 _FANOUT_MIN_WRITE = 1024
+_FANOUT_READ_SHARE = "0.5"
 
 
 class ColdFanout:
     """``cache.cold-fanout`` (SPEC §10.2): at least two lane-first requests in the same
     (cache scope, model, cwd key) — a finer key inside the cohort — starting within 10 s, each
-    writing ``W ≥ 1,024`` and reading ``R < 0.5·T``: an entry is readable only after the first
+    writing ``W ≥ 1,024`` and reading ``R < 0.5·T`` (thresholds ``cache.cold-fanout.window_s``,
+    ``.min_write_tokens``, ``.max_read_share``): an entry is readable only after the first
     response token, so parallel starts all pay the write.
 
     ``cost_observed`` = ``(N − 1)·P·(w − r)`` per group with ``P`` in [min, median] of the
@@ -499,6 +511,9 @@ class ColdFanout:
         return sort_findings(out)
 
     def _cohort(self, ctx: AnalysisContext, prices: Prices, cohort: Cohort) -> Finding | None:
+        window_ms = 1000 * int_threshold(ctx, f"{self.id}.window_s", _FANOUT_WINDOW_S)
+        min_write = int_threshold(ctx, f"{self.id}.min_write_tokens", _FANOUT_MIN_WRITE)
+        read_share = share_threshold(ctx, f"{self.id}.max_read_share", _FANOUT_READ_SHARE)
         keyed: dict[tuple[str, str, str], list[tuple[int, str, Lane, Request]]] = {}
         for lane in cohort.lanes:
             steps = serving_steps(lane)
@@ -506,7 +521,7 @@ class ColdFanout:
                 continue
             first = steps[0]
             u = usage_of(first)
-            if u.cache_write < _FANOUT_MIN_WRITE or 2 * u.cache_read >= u.total_input:
+            if u.cache_write < min_write or u.cache_read >= read_share * u.total_input:
                 continue
             key = (lane.cache_scope_key, first.model, first.attribution.cwd_key or "")
             keyed.setdefault(key, []).append((first.ts_start_ms, first.request_id, lane, first))
@@ -517,7 +532,7 @@ class ColdFanout:
             i = 0
             while i < len(members):
                 j = i + 1
-                while j < len(members) and members[j][0] - members[i][0] <= _FANOUT_WINDOW_MS:
+                while j < len(members) and members[j][0] - members[i][0] <= window_ms:
                     j += 1
                 if j - i >= 2:
                     self._group(prices, tally, members[i:j])
@@ -535,7 +550,8 @@ class ColdFanout:
         spec = Emit(
             kind="cold-fanout", category="breaker", lever_class="cache_transform",
             title=f"Parallel cold starts sharing a prefix in {cohort.label()} lanes",
-            summary=(f"{tally.events} groups of {cohort.label()} lanes started within 10 s of "
+            summary=(f"{tally.events} groups of {cohort.label()} lanes started within "
+                     f"{window_ms // 1000} s of "
                      f"each other on the same prefix and each paid a cold write (estimated "
                      f"range, upper bound)."),
             references=_FANOUT_REFS, lever_ids=applicable_levers("cold-fanout", lanes),

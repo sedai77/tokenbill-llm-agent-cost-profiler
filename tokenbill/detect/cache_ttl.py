@@ -30,7 +30,7 @@ from tokenbill.core.evidence import (
     TTL_RULE_GAP_SHARE_5_60MIN,
     keepalive_break_even_s,
 )
-from tokenbill.core.findings import min_usd_nano, threshold
+from tokenbill.core.findings import min_usd_nano
 from tokenbill.core.labels import Figure
 from tokenbill.core.policy import to_spec
 from tokenbill.core.records import Lane, LaneKind, PricingContext
@@ -50,11 +50,13 @@ from tokenbill.detect.cache_miss import (
     emit,
     evidence_item,
     gateway_of,
+    int_threshold,
     is_claude_code,
     patch,
     replay,
     saving_figure,
     settings_doc,
+    share_threshold,
     sort_findings,
     transitions,
 )
@@ -72,14 +74,15 @@ __all__ = [
 # =============================================================================================
 
 _COLD_RESUME_REFS = ("cc-cold-resume", "compaction-timing", "channel-code-review-hooks")
+_WRITE_SHARE_DEFAULT = "0.5"
 _HOOK_VALUE = ('[{"hooks":[{"command":"python3 hooks/tokenbill_session_start.py",'
                '"type":"command"}],"matcher":"resume"}]')
 
 
 class ColdResume:
     """``cache.cold-resume`` (SPEC §10.2, Appendix A.5): on MAIN lanes, a ``ttl-expiry`` miss with
-    ``W_i ≥ 0.5·P_{i−1}`` and ``P_{i−1} ≥ 100,000`` (``COLD_RESUME_MIN_CONTEXT``; threshold
-    ``cache.cold-resume.min_context``).
+    ``W_i ≥ 0.5·P_{i−1}`` (threshold ``cache.cold-resume.min_write_share``) and ``P_{i−1} ≥
+    100,000`` (``COLD_RESUME_MIN_CONTEXT``; threshold ``cache.cold-resume.min_context``).
 
     ``cost_observed`` = ``min(W_i, P_{i−1})·w_billed`` — the rewrite billed (EXACT);
     ``recoverable`` = ``min(W_i, P_{i−1})·(w − r)`` — the premium over a warm read (ESTIMATED,
@@ -95,8 +98,10 @@ class ColdResume:
     def detect(self, lanes: Sequence[Lane], ctx: AnalysisContext) -> list[Finding]:
         """One ``cold-resume`` finding per MAIN cohort at or above ``min_usd``."""
         prices = Prices(ctx.pricer)
-        min_ctx = int(threshold(ctx, f"{self.id}.min_context",
-                                str(COLD_RESUME_MIN_CONTEXT.value)))
+        default_ctx = COLD_RESUME_MIN_CONTEXT.value
+        assert isinstance(default_ctx, int)
+        min_ctx = int_threshold(ctx, f"{self.id}.min_context", default_ctx)
+        write_share = share_threshold(ctx, f"{self.id}.min_write_share", _WRITE_SHARE_DEFAULT)
         out: list[Finding] = []
         for cohort in cohorts(lanes, ctx):
             if cohort.lane_kind != LaneKind.MAIN.value:
@@ -112,7 +117,7 @@ class ColdResume:
                     inf = req.serving_inference
                     assert inf is not None
                     writes = inf.usage.cache_write
-                    if prefix < min_ctx or 2 * writes < prefix:
+                    if prefix < min_ctx or writes < write_share * prefix:
                         continue
                     tokens = min(writes, prefix)
                     ts = req.ts_start_ms
@@ -250,11 +255,13 @@ class TtlAdvisor:
     """``cache.ttl-advisor`` (SPEC §10.2, D8, D9, R-E11). See the module docstring.
 
     Replays (through ``ctx.replayer``, on the cohort's lanes only): ``observed``,
-    :func:`ttl_spec` for 5m and 1h, and :func:`keepalive_spec` for API_RUN cohorts with SDK/API
-    lanes. ``cost_observed`` is the cohort spend (EXACT, LIST_EQUIVALENT for allowance cohorts);
+    :func:`ttl_spec` for 5m and 1h, and :func:`keepalive_spec` for API_RUN cohorts on their
+    SDK/API (non-Claude-Code) lanes. ``cost_observed`` is the cohort spend (EXACT,
+    LIST_EQUIVALENT for allowance cohorts);
     ``recoverable`` the recommended policy's saving (ESTIMATED; calibration from the replay).
     Thresholds: ``min_usd``, ``cache.ttl-advisor.spend_share`` (0.02) and
-    ``cache.ttl-advisor.heterogeneity_share`` (0.60). No findings without a replayer.
+    ``cache.ttl-advisor.heterogeneity_share`` (0.60), shares in [0, 1]. No findings without a
+    replayer.
     """
 
     id = "cache.ttl-advisor"
@@ -296,12 +303,17 @@ class TtlAdvisor:
             candidates.append(("ttl-1h-recommended", ttl_spec(cohort.lane_kind, "1h")))
         if current != "5m":
             candidates.append(("ttl-5m-recommended", ttl_spec(cohort.lane_kind, "5m")))
-        if cohort.lane_kind == LaneKind.API_RUN.value and \
-                any(not is_claude_code(lane) for lane in lanes):
+        # Keepalive is replayed only on the SDK/API lanes of an API_RUN cohort: Claude Code cannot
+        # be configured to ping (§9.3.2, R-E11), so its lanes never enter the keepalive saving,
+        # whatever the replayer does with them (a conforming replayer leaves them unchanged, so
+        # the saving stays comparable with the TTL candidates replayed on the whole cohort).
+        pingable = [lane for lane in lanes if not is_claude_code(lane)]
+        if cohort.lane_kind == LaneKind.API_RUN.value and pingable:
             candidates.append(("keepalive-recommended", keepalive_spec(cohort.lane_kind)))
         results: dict[str, ReplayResult] = {}
         for kind, spec in candidates:
-            result = replay(ctx, lanes, spec)
+            targets = pingable if kind == "keepalive-recommended" else lanes
+            result = replay(ctx, targets, spec)
             if result is not None and result.saving.nano is not None and \
                     result.saving.basis is basis:
                 results[kind] = result
@@ -311,7 +323,7 @@ class TtlAdvisor:
                                                 -_TTL_KINDS.index(k)))
         best = results[best_kind]
         saving = best.saving.nano or 0
-        share = threshold(ctx, f"{self.id}.spend_share", _SPEND_SHARE_DEFAULT)
+        share = share_threshold(ctx, f"{self.id}.spend_share", _SPEND_SHARE_DEFAULT)
         if saving <= 0 or saving < min_usd_nano(ctx) or Decimal(saving) < share * spend.nano:
             return None
         return self._finding(ctx, prices, sub, current, best_kind, observed, best, results)
@@ -353,13 +365,11 @@ class TtlAdvisor:
         else:
             title = f"Switch {label} lanes to a {ttl} cache TTL"
             what = f"ttl={ttl}"
-        summary = (f"Replaying {len(lanes)} {label} lanes (observed TTL {current}) under {what} "
-                   f"is cheaper than the observed policy and every other candidate (estimated "
-                   f"saving). Rule of thumb (1h when more than 1 in 20 gaps fall in 5-60 min): "
-                   f"{rule}.")
+        summary = (f"{len(lanes)} {label} lanes (observed TTL {current}) replayed under each "
+                   f"candidate: {what} saves the most (estimated). 1-in-20 gap rule: {rule}.")
         if hetero is not None:
-            summary += (f" Only {hetero[1]} of {hetero[0]} principals are individually cheaper, "
-                        f"so deliver the setting per MDM group instead of org-wide.")
+            summary += (f" Only {hetero[1]} of {hetero[0]} principals gain: deliver per MDM "
+                        f"group.")
         spec = Emit(
             kind=kind, category="lever", lever_class="cache_transform", title=title,
             summary=summary, references=_TTL_REFS, lever_ids=levers, fix=fix,
@@ -385,7 +395,7 @@ class TtlAdvisor:
         if n < ctx.k_anonymity:
             return None
         cheaper = sum(1 for v in per_principal.values() if v > 0)
-        share = threshold(ctx, f"{self.id}.heterogeneity_share", _HETEROGENEITY_DEFAULT)
+        share = share_threshold(ctx, f"{self.id}.heterogeneity_share", _HETEROGENEITY_DEFAULT)
         if Decimal(cheaper) >= share * n:
             return None
         return (n, cheaper)

@@ -31,19 +31,22 @@ pseudonymous ids are read — never content.
 from __future__ import annotations
 
 import dataclasses
+from bisect import bisect_right
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from decimal import ROUND_HALF_EVEN, Decimal
 from fractions import Fraction
 
 from tokenbill.core import catalog
-from tokenbill.core.errors import TokenbillError
+from tokenbill.core.errors import TokenbillError, UsageError
 from tokenbill.core.findings import (
+    MAX_SUMMARY,
     build_finding,
     cohort_key,
     make_scope,
     min_usd_nano,
     miss_waste,
+    threshold,
     top_evidence,
 )
 from tokenbill.core.ids import stable_id
@@ -82,6 +85,10 @@ DAY_MS = 86_400_000
 DEFAULT_TTL_S = 300
 ALLOWANCE_TITLE = "Allowance headroom: "
 ALLOWANCE_SUMMARY = " Figures are list-equivalent, not invoice dollars."
+#: Generated summaries stay this short so ``core.kanon.rescope_findings`` can prefix its
+#: "[re-scoped for k-anonymity …]" note (≈ 60 chars) within the 400-char limit without cutting the
+#: allowance statement (D26) at the end.
+SUMMARY_BUDGET = MAX_SUMMARY - 70
 RANGE_NOTE = "billed tokens; some lines are priced as a range (unknown TTL or endpoint scope)"
 API_CACHE_DOC = "https://platform.claude.com/docs/en/build-with-claude/prompt-caching"
 CC_CACHE_DOC = "https://code.claude.com/docs/en/prompt-caching"
@@ -320,10 +327,14 @@ class Cohort:
         full = (ALLOWANCE_TITLE + text) if self.allowance else text
         return full if len(full) <= 120 else full[:119] + "…"
 
-    def summary(self, text: str) -> str:
-        """*text* with the allowance note when needed, at most 400 chars."""
-        full = (text + ALLOWANCE_SUMMARY) if self.allowance else text
-        return full if len(full) <= 400 else full[:399] + "…"
+    def summary(self, text: str, note: str = "") -> str:
+        """*text*, then *note* and (for allowance cohorts) the "list-equivalent, not invoice
+        dollars" statement, within :data:`SUMMARY_BUDGET` chars: only *text* is ever shortened, so
+        the note and the allowance statement always survive."""
+        tail = note + (ALLOWANCE_SUMMARY if self.allowance else "")
+        room = SUMMARY_BUDGET - len(tail)
+        body = text if len(text) <= room else text[:room - 1] + "…"
+        return body + tail
 
 
 def in_view(lane: Lane, ctx: AnalysisContext) -> bool:
@@ -383,7 +394,44 @@ def serving_steps(lane: Lane) -> list[Request]:
 
 def events_between(lane: Lane, lo_ms: int, hi_ms: int) -> list[LaneEvent]:
     """Lane events with ``lo_ms < ts ≤ hi_ms``."""
-    return [ev for ev in lane.events if lo_ms < ev.ts_ms <= hi_ms]
+    return EventIndex(lane).between(lo_ms, hi_ms)
+
+
+class EventIndex:
+    """A lane's events with binary search on their timestamps (``Lane`` keeps events sorted by
+    ``(ts, kind, attrs)``), so per-transition windows cost O(log m) instead of a scan."""
+
+    def __init__(self, lane: Lane) -> None:
+        self.events = lane.events
+        self.ts = [ev.ts_ms for ev in lane.events]
+        self.resets = [ev.ts_ms for ev in lane.events if ev.kind in RESET_EVENTS]
+
+    def between(self, lo_ms: int, hi_ms: int) -> list[LaneEvent]:
+        """Events with ``lo_ms < ts ≤ hi_ms``."""
+        return list(self.events[bisect_right(self.ts, lo_ms):bisect_right(self.ts, hi_ms)])
+
+    def reset_between(self, lo_ms: int, hi_ms: int) -> bool:
+        """Whether a COMPACTION, CLEAR or CONTEXT_EDIT event has ``lo_ms < ts ≤ hi_ms``."""
+        first = bisect_right(self.resets, lo_ms)
+        return first < len(self.resets) and self.resets[first] <= hi_ms
+
+
+def int_threshold(ctx: AnalysisContext, key: str, default: int) -> int:
+    """A non-negative integer threshold ``ctx.thresholds[key]`` (else *default*); decimals are
+    truncated toward zero, negative values raise ``UsageError``."""
+    value = threshold(ctx, key, str(default))
+    if value < 0:
+        raise UsageError(f"threshold {key}: must not be negative")
+    return int(value)
+
+
+def share_threshold(ctx: AnalysisContext, key: str, default: str) -> Decimal:
+    """A share threshold in [0, 1] ``ctx.thresholds[key]`` (else *default*); out of range raises
+    ``UsageError``."""
+    value = threshold(ctx, key, default)
+    if not 0 <= value <= 1:
+        raise UsageError(f"threshold {key}: must be a share between 0 and 1")
+    return value
 
 
 def event_attr(event: LaneEvent, key: str) -> object:
@@ -583,12 +631,19 @@ def emit(detector: Detector, ctx: AnalysisContext, cohort: Cohort, tally: Tally,
          cost: Figure, recoverable: Figure | None,
          extra_evidence: Iterable[EvidenceItem] = ()) -> Finding | None:
     """Build one finding, or None when it is below ``min_usd``: the recoverable point is
-    compared, or ``cost_observed`` for triage/info kinds and findings without a recoverable."""
-    gate = cost if spec.triage or recoverable is None else recoverable
+    compared, or ``cost_observed`` for triage/info kinds, findings without a recoverable and
+    findings whose replayed recoverable is unpriced (kept as "unpriced", never zero, R2). Events
+    that could not be priced are counted and disclosed in the summary."""
+    unpriced_rec = recoverable is not None and recoverable.nano is None
+    gate = cost if spec.triage or recoverable is None or unpriced_rec else recoverable
     if not passes_min_usd(gate, ctx):
         return None
     scope = make_scope(**cohort.scope_dims(**spec.scope_extra))
     items = list(tally.items) + list(extra_evidence)
+    note = ""
+    if tally.unpriced:
+        note = (f" {tally.unpriced} of the {tally.events} events had no priced rate and are "
+                f"left out of the dollars.")
     return build_finding(
         detector_id=detector.id,
         kind=spec.kind,
@@ -597,7 +652,7 @@ def emit(detector: Detector, ctx: AnalysisContext, cohort: Cohort, tally: Tally,
         lever_class=spec.lever_class,
         audience=audience(ctx),
         title=cohort.title(spec.title),
-        summary=cohort.summary(spec.summary),
+        summary=cohort.summary(spec.summary, note),
         scope=scope,
         n_events=tally.events,
         n_lanes=len(tally.lanes),
@@ -943,11 +998,12 @@ class SwitchChurn:
             doc = settings_doc("fastModePerSessionOptIn") or doc
         elif kind == "refusal-fallback-no-credit":
             target = "sdk"
-        tradeoff = repair is None
         summary = (f"{tally.events} {phrase.lower()} in {cohort.label()} lanes rebuilt the cache; "
                    f"the rewrite billed is exact.")
-        if tradeoff:
+        if kind in _SWITCH_TRADEOFFS:
             summary += " No replayed saving: changing this behavior is a trade-off."
+        elif repair is None:
+            summary += " No mechanical repair is replayed (not a trade-off: see the fix)."
         spec = Emit(
             kind=kind, category="breaker", lever_class=lever_class,
             title=f"{phrase} in {cohort.label()} lanes", summary=summary,
@@ -1043,6 +1099,7 @@ class RebuildEvents:
             if not comps:
                 continue
             steps = serving_steps(lane)
+            starts = [req.ts_start_ms for req in steps]
             ttl_after: list[int | None] = []
             last: int | None = None
             for req in steps:
@@ -1053,7 +1110,7 @@ class RebuildEvents:
                 hint = _HINT_TTL_S.get(si.pricing.write_ttl_hint or "") if si else None
                 ttl_after.append(last if last is not None else hint)
             for ev in comps:
-                idx = _last_before(steps, ev.ts_ms)
+                idx = _last_before(starts, ev.ts_ms)
                 if idx is None:
                     continue
                 prev = steps[idx]
@@ -1107,14 +1164,18 @@ class RebuildEvents:
             steps = serving_steps(lane)
             if len(steps) < 2:
                 continue
-            trans = {t.request_id: t for t in transitions(lane, ctx)}
+            index = EventIndex(lane)
+            remaining: list[int] | None = None
+            trans: dict[str, Transition] | None = None
             for i in range(1, len(steps)):
                 req = steps[i]
                 prev_ts = steps[i - 1].ts_start_ms
                 ts = req.ts_start_ms
-                cleared = _cleared(lane, req, prev_ts)
+                cleared = _cleared(index, req, prev_ts)
                 if cleared <= 0:
                     continue
+                if trans is None:
+                    trans = {t.request_id: t for t in transitions(lane, ctx)}
                 t = trans.get(req.request_id)
                 tau = t.ttl_s if t is not None and t.ttl_s is not None else DEFAULT_TTL_S
                 if ts - prev_ts > tau * 1000:
@@ -1124,7 +1185,9 @@ class RebuildEvents:
                 rewritten = inf.usage.cache_write
                 if rewritten <= 0:
                     continue
-                k_rem = _remaining(lane, steps, i)
+                if remaining is None:
+                    remaining = _remaining_counts(index, steps)
+                k_rem = remaining[i]
                 billed = prices.written(inf.pricing, ts, inf.usage, rewritten)
                 read_s = prices.line(inf.pricing, ts, "cache_read", rewritten)
                 loss = combine((1, billed), (-1, read_s),
@@ -1177,25 +1240,20 @@ class RebuildEvents:
         return emit(self, ctx, cohort, tally, spec, cost, recoverable, (summary_item,))
 
 
-def _last_before(steps: Sequence[Request], ts_ms: int) -> int | None:
-    """Index of the last step starting at or before *ts_ms*."""
-    idx = None
-    for i, req in enumerate(steps):
-        if req.ts_start_ms <= ts_ms:
-            idx = i
-        else:
-            break
-    return idx
+def _last_before(starts: Sequence[int], ts_ms: int) -> int | None:
+    """Index of the last step starting at or before *ts_ms* (*starts* sorted ascending)."""
+    idx = bisect_right(starts, ts_ms) - 1
+    return idx if idx >= 0 else None
 
 
-def _cleared(lane: Lane, req: Request, prev_ts: int) -> int:
+def _cleared(index: EventIndex, req: Request, prev_ts: int) -> int:
     """Tokens cleared by context edits on *req*: Σ ``applied_edits``, else Σ
     ``cleared_input_tokens`` of CONTEXT_EDIT events in ``(prev_ts, ts]``."""
     applied = sum(n for att in req.attempts for _, n in att.applied_edits)
     if applied > 0:
         return applied
     total = 0
-    for ev in events_between(lane, prev_ts, req.ts_start_ms):
+    for ev in index.between(prev_ts, req.ts_start_ms):
         if ev.kind is LaneEventKind.CONTEXT_EDIT:
             n = event_attr(ev, "cleared_input_tokens")
             if type(n) is int and n > 0:
@@ -1203,19 +1261,24 @@ def _cleared(lane: Lane, req: Request, prev_ts: int) -> int:
     return total
 
 
-def _remaining(lane: Lane, steps: Sequence[Request], i: int) -> int:
-    """``K_rem``: later requests of the lane before the next reset (a reset event, or a request
-    carrying context edits or dropped thinking blocks)."""
-    ts = steps[i].ts_start_ms
-    resets = sorted(ev.ts_ms for ev in lane.events if ev.kind in RESET_EVENTS)
-    count = 0
-    for later in steps[i + 1:]:
-        if any(att.applied_edits or att.thinking_dropped for att in later.attempts):
-            break
-        if any(ts < r <= later.ts_start_ms for r in resets):
-            break
-        count += 1
-    return count
+def _remaining_counts(index: EventIndex, steps: Sequence[Request]) -> list[int]:
+    """``K_rem`` for every step ``i``: the later requests of the lane before the next reset — a
+    reset event after step ``i``, or a request carrying context edits or dropped thinking blocks.
+    A reset event in ``(ts_i, ts_j]`` is one in some ``(ts_{j'−1}, ts_{j'}]`` with ``i < j' ≤ j``,
+    so one backward pass over per-step break flags gives every count in O(n log m)."""
+    n = len(steps)
+    breaks = [False] * n
+    for j in range(1, n):
+        later = steps[j]
+        breaks[j] = any(att.applied_edits or att.thinking_dropped for att in later.attempts) or \
+            index.reset_between(steps[j - 1].ts_start_ms, later.ts_start_ms)
+    counts = [0] * n
+    first_break = n
+    for i in range(n - 1, -1, -1):
+        counts[i] = first_break - i - 1
+        if breaks[i]:
+            first_break = i
+    return counts
 
 
 def _kstar(prices: Prices, pricing: PricingContext, ts_ms: int, usage: UsageBuckets,

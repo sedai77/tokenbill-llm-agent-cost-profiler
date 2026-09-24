@@ -66,7 +66,8 @@ def test_availability_ping_pong() -> None:
     f = only(SwitchChurn().detect([lane_], ctx(thresholds=MIN_10C)), "availability-ping-pong")
     assert f.cost_observed.nano == 250_000_000
     assert f.recoverable is None                  # no mechanical repair: behavioral
-    assert "trade-off" in f.summary
+    assert "No mechanical repair is replayed" in f.summary
+    assert not f.needs_eval                       # a configuration fix, not a trade-off
 
 
 def test_ping_pong_without_fallback_events() -> None:
@@ -94,6 +95,7 @@ def test_plan_toggle_opusplan() -> None:
     assert f.cost_observed.nano == 100_000 * 2_500 + 102_000 * 5_000
     assert f.recoverable is None
     assert f.needs_eval                                        # a trade-off
+    assert "trade-off" in f.summary
     assert f.fix is not None and "opusplan switches models on every plan-mode toggle" in f.fix.text
 
 
