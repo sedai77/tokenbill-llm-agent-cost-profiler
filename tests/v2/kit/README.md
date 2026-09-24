@@ -26,7 +26,9 @@ merge of this branch with `pkg/F-SEM` (kit, sem and gate tests green; never comm
 | `fsem_stubs.py` | area-local stand-ins for the F-SEM functions the kit calls (used only by `test_kit_internals.py`); installed in `sys.modules` and on the `tokenbill.core` package so they also apply once the real F-SEM modules are importable |
 
 `RULINGS.md` records the rulings and the interpretations F-KIT made where the SPEC was silent;
-`CONTRACT-CHANGE-KIT-*.md` are the contract gaps raised for the orchestrator (SPEC §21 #3).
+`CONTRACT-CHANGE-KIT-*.md` are the contract gaps raised for the orchestrator (SPEC §21 #3);
+`CONTRACT-CHANGE-KIT-C-1.md` (wave 1.5b) records the VERIFY assertion that ruling R-E28 flips and the
+R-E10 note representation.
 
 ## Fixtures and provenance
 
