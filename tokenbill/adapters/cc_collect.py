@@ -207,7 +207,15 @@ def collect_incremental(root: Path, state: CollectorState, opts: IngestOptions, 
     retention = retention_note(files, now_ms)
     first = True
     for path in files:
-        result = _collect_file(path, state, opts, now_ms, final)
+        try:
+            result = _collect_file(path, state, opts, now_ms, final)
+        except SourceError:
+            if not opts.lenient:
+                raise
+            # lenient: bad records never raise, so this is the file itself (deleted by Claude
+            # Code's cleanup mid-run, unreadable): skip it, keep its cursor, retry next run
+            logger.warning("transcript unreadable; skipped this run")
+            continue
         if result is None:
             continue
         if first and retention is not None:

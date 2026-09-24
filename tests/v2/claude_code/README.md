@@ -145,7 +145,9 @@ the directory; the headless files are rejected by the transcript sniffer).
   residual output is not priced at standard rates.
 * **Collector robustness.** A saved parser context of the wrong shape (a damaged state file) is
   discarded and the file re-read from the start (`ContextError`, logged); a rotated file that
-  emits nothing keeps no context from the file it replaced.
+  emits nothing keeps no context from the file it replaced. In lenient mode a transcript that
+  cannot be read this run (deleted by Claude Code's cleanup mid-run, permissions) is skipped with
+  a warning and retried next run instead of aborting the whole collection.
 * **Collector state size.** Once `collect_incremental` has run to completion, the cursors of
   transcripts no longer under the root (deleted by `cleanupPeriodDays`) are dropped, so the state
   file is bounded by the transcripts on disk (one state per root; an empty or missing root prunes

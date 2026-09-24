@@ -502,3 +502,33 @@ def test_cursors_of_deleted_transcripts_are_pruned(tmp_path: Path) -> None:
     missing = tmp_path / "gone"
     assert list(collect_incremental(missing, state, opts(), now_ms=NOW)) == []
     assert len(state.cursors) == 3                 # an empty or missing root prunes nothing
+
+
+def test_an_unreadable_transcript_is_skipped_not_fatal(tmp_path: Path,
+                                                       monkeypatch: pytest.MonkeyPatch) -> None:
+    """A transcript that disappears or cannot be read mid-run (Claude Code's cleanup) is skipped
+    with a warning in lenient mode; the others are collected and its cursor is kept."""
+    import tokenbill.adapters.cc_collect as cc_collect
+    from tokenbill.core.errors import SourceError
+
+    root = tmp_path / "tree"
+    bf.build(root)
+    state = CollectorState()
+    real = cc_collect.parse_file
+
+    def flaky(opts_: object, path: Path, **kw: object) -> object:
+        if "-home-dev-beta" in path.parts:
+            raise SourceError(f"{path.name}: unreadable (PermissionError)")
+        return real(opts_, path, **kw)
+
+    monkeypatch.setattr(cc_collect, "parse_file", flaky)
+    results = list(collect_incremental(root / "projects", state, opts(),
+                                       now_ms=NOW + 30 * 86_400_000))
+    assert len(results) == 3 and len(state.cursors) == 3
+    with pytest.raises(SourceError):
+        list(collect_incremental(root / "projects", CollectorState(), opts(lenient=False),
+                                 now_ms=NOW + 30 * 86_400_000))
+    monkeypatch.setattr(cc_collect, "parse_file", real)
+    [late] = list(collect_incremental(root / "projects", state, opts(),
+                                      now_ms=NOW + 30 * 86_400_000))
+    assert "msg_31BetaAllowance31" in by_message(late)
