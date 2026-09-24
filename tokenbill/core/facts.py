@@ -4,6 +4,12 @@
 parses the JSON. Numbers that are money or multipliers are decimal strings in the file and
 ``Decimal`` here — a JSON float anywhere in the file is a load error. Every entry carries
 ``source``, ``finding``, ``verified_on`` and ``verification`` (``"primary"`` | ``"research"``).
+
+The top-level ``copilot`` object (CORE-AMENDMENTS C-28) holds every GitHub Copilot fact — rate rows
+of channel ``github_copilot``, modifiers, promotions, settings keys and the other Copilot tables —
+apart from the top-level sections, which stay unchanged (pinned by wave-0/1 tests). It is read only
+through :attr:`Facts.copilot` and the ``copilot_*`` accessors; every entry carries
+``verification: "research"`` until the Copilot release gate (ruling R-E19).
 """
 
 from __future__ import annotations
@@ -20,12 +26,33 @@ from typing import Any
 
 from tokenbill.core.errors import ContractViolation
 from tokenbill.core.money import EXACT_CTX, usd
+from tokenbill.core.records import (
+    COPILOT_WORKLOADS,
+    EDITOR_FAMILIES,
+    GITHUB_COST_TYPES,
+    LICENSE_PLANS,
+)
 from tokenbill.core.types import Modifier, RateRow, SourceCitation
 
 __all__ = [
     "FACTS_SCHEMA",
     "META_KEYS",
     "AnnouncedFact",
+    "CopilotBandRuleFact",
+    "CopilotCreditFact",
+    "CopilotEditorFamilyFact",
+    "CopilotFacts",
+    "CopilotIncludedMinutesFact",
+    "CopilotPlanFact",
+    "CopilotQuotaFact",
+    "CopilotRemapFact",
+    "CopilotRetirementFact",
+    "CopilotReviewEstimateFact",
+    "CopilotRunnerRateFact",
+    "CopilotSkuFact",
+    "CopilotVsCodeTracesFact",
+    "CopilotWorkflowPathFact",
+    "CopilotWriteRuleFact",
     "EvidenceFact",
     "Facts",
     "FocusColumn",
@@ -34,6 +61,20 @@ __all__ = [
     "PromotionFact",
     "SettingsKeyFact",
     "SkuRuleFact",
+    "copilot_dates",
+    "copilot_editor_families",
+    "copilot_modifiers",
+    "copilot_plan_quota_map",
+    "copilot_plans",
+    "copilot_rates",
+    "copilot_remaps",
+    "copilot_report_lag_days",
+    "copilot_retirements",
+    "copilot_runner_rates",
+    "copilot_settings_keys",
+    "copilot_skus",
+    "copilot_vscode_traces",
+    "copilot_workflow_paths",
     "load",
     "parse",
 ]
@@ -164,6 +205,235 @@ class SkuRuleFact:
     notes: str = ""
 
 
+# ---------------------------------------------------------------------------------------------
+# GitHub Copilot facts (C-28); every entry also carries the META_KEYS and optional notes
+# ---------------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotCreditFact:
+    usd_per_credit: Decimal          # 0.01
+    nano_usd_per_credit: int         # 10,000,000
+    nano_aiu_per_credit: int         # 10**9 (runtime units)
+    source: str
+    finding: str
+    verified_on: str
+    verification: str
+    notes: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotPlanFact:
+    plan: str                        # "business" | "enterprise"
+    seat_usd_per_month: Decimal      # list price per seat-month
+    included_credits: int            # pooled AI credits per seat-month
+    promo_credits: int | None        # promotional credits per seat-month for existing customers
+    promo_from: str | None           # inclusive
+    promo_to: str | None             # exclusive
+    source: str
+    finding: str
+    verified_on: str
+    verification: str
+    notes: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotWriteRuleFact:
+    model_prefix: str                # "claude-"
+    multiplier_of_input: Decimal     # 2: the assumed 1-hour write price = 2 × input (VERIFY)
+    verified: bool
+    source: str
+    finding: str
+    verified_on: str
+    verification: str
+    notes: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotBandRuleFact:
+    model: str
+    threshold: int                   # input tokens above which the long-context band applies
+    measure: str                     # "request_input_tokens" (hypothesis A)
+    verified: bool
+    source: str
+    finding: str
+    verified_on: str
+    verification: str
+    notes: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotSkuFact:
+    sku: str
+    product: str
+    cost_type: str                   # GITHUB_COST_TYPES, rows with a username
+    cost_type_unattributed: str      # GITHUB_COST_TYPES, rows without a username
+    plan: str | None                 # seat SKUs: "business" | "enterprise"
+    workload: str | None             # COPILOT_WORKLOADS
+    verified: bool
+    source: str
+    finding: str
+    verified_on: str
+    verification: str
+    notes: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotQuotaFact:
+    quota: int                       # AI usage report total_monthly_quota
+    plan: str                        # "business" | "enterprise"
+    months: tuple[str, ...]          # "YYYY-MM" months it applies to; () = every month
+    verified: bool
+    source: str
+    finding: str
+    verified_on: str
+    verification: str
+    notes: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotWorkflowPathFact:
+    pattern: str
+    match: str                       # "exact" | "glob"
+    workload: str                    # COPILOT_WORKLOADS
+    verified: bool
+    source: str
+    finding: str
+    verified_on: str
+    verification: str
+    notes: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotRetirementFact:
+    model: str
+    retire_on: str                   # YYYY-MM-DD
+    successor: str | None
+    source: str
+    finding: str
+    verified_on: str
+    verification: str
+    notes: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotRemapFact:
+    model: str
+    target: str                      # same-vendor candidate
+    tokenizer_same: bool
+    source: str
+    finding: str
+    verified_on: str
+    verification: str
+    notes: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotRunnerRateFact:
+    sku: str                         # the runner-pricing spelling (billing rows may add "actions_")
+    label: str
+    arch: str
+    runner_class: str                # "standard" | "larger" | "gpu"
+    usd_per_minute: Decimal
+    included_minutes_apply: bool
+    source: str
+    finding: str
+    verified_on: str
+    verification: str
+    notes: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotIncludedMinutesFact:
+    plan: str                        # "ghec"
+    minutes_per_month: int
+    source: str
+    finding: str
+    verified_on: str
+    verification: str
+    notes: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotReviewEstimateFact:
+    effort: str                      # "lite" | "balanced"
+    low_usd: Decimal
+    high_usd: Decimal
+    display_only: bool               # quoted context, never projected (R13)
+    source: str
+    finding: str
+    verified_on: str
+    verification: str
+    notes: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotEditorFamilyFact:
+    origin: str                      # "seat_editor" | "activity_surface" | "metrics_ide"
+    match: str                       # "prefix" (case-insensitive) | "exact"
+    pattern: str
+    family: str                      # core.records.EDITOR_FAMILIES
+    verified: bool
+    source: str
+    finding: str
+    verified_on: str
+    verification: str
+    notes: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotVsCodeTracesFact:
+    extension_id: str
+    global_storage_dir: str
+    db_file: str
+    tmp_fallback_file: str
+    enable_setting: str
+    outfile_setting: str
+    span_columns: tuple[str, ...]
+    attribute_allowlist: tuple[str, ...]   # the only span_attributes keys ever selected
+    content_keys: tuple[str, ...]          # never read (canary targets in fixtures)
+    identity_keys: tuple[str, ...]
+    retention_days: int
+    retention_sessions: int
+    paths: Mapping[str, tuple[str, ...]]   # platform ("darwin" | "linux" | "win32") → templates
+    verified: bool
+    source: str
+    finding: str
+    verified_on: str
+    verification: str
+    notes: str = ""
+
+
+@dataclass(frozen=True)
+class CopilotFacts:
+    """Typed view of the ``copilot`` object of ``facts.json`` (read-only mappings)."""
+
+    credit: CopilotCreditFact
+    plans: Mapping[str, CopilotPlanFact]
+    rate_rows: tuple[RateRow, ...]
+    modifiers: tuple[Modifier, ...]
+    write_1h_rule: CopilotWriteRuleFact
+    band_rules: Mapping[str, CopilotBandRuleFact]
+    promotions: tuple[PromotionFact, ...]
+    skus: Mapping[str, CopilotSkuFact]
+    plan_quota_map: Mapping[int, CopilotQuotaFact]
+    workflow_paths: tuple[CopilotWorkflowPathFact, ...]
+    utility_models: frozenset[str]
+    model_categories: Mapping[str, str]
+    retirements: Mapping[str, CopilotRetirementFact]
+    remaps: Mapping[str, CopilotRemapFact]
+    runner_rates: Mapping[str, CopilotRunnerRateFact]
+    included_minutes: Mapping[str, CopilotIncludedMinutesFact]
+    review_estimates: Mapping[str, CopilotReviewEstimateFact]
+    dates: Mapping[str, str]
+    settings_keys: Mapping[str, SettingsKeyFact]
+    editor_families: tuple[CopilotEditorFamilyFact, ...]
+    vscode_traces: CopilotVsCodeTracesFact
+    cache_ttl_statement: str
+    report_lag_days: int
+    aic_default_cap_per_run: int
+
+
 class Facts:
     """Typed, read-only view of ``facts.json``."""
 
@@ -205,6 +475,7 @@ class Facts:
             }
         )
         self.sku_rules: tuple[SkuRuleFact, ...] = tuple(SkuRuleFact(**s) for s in raw["sku_rules"])
+        self.copilot: CopilotFacts = _copilot(raw["copilot"])
 
     def rate_row(self, row_id: str) -> RateRow:
         """The rate row with *row_id* (KeyError when absent)."""
@@ -233,8 +504,71 @@ class Facts:
         """Deep copies of the raw modifier objects."""
         return copy.deepcopy(list(self._raw["modifiers"]))
 
+    # ---- GitHub Copilot accessors (C-28); Copilot rows are never reached through rows_for()
+
+    def copilot_rates(self) -> tuple[RateRow, ...]:
+        """Every Copilot rate row (channel ``github_copilot``, current and history, §19.2)."""
+        return self.copilot.rate_rows
+
+    def copilot_rate_rows_json(self) -> list[dict[str, Any]]:
+        """Deep copies of the raw Copilot rate rows (for rate-file parity tests)."""
+        return copy.deepcopy(list(self._raw["copilot"]["rates"]))
+
+    def copilot_modifiers(self) -> tuple[Modifier, ...]:
+        """The Copilot modifiers (``github.auto``, ``github.compliance``, ``github.fast.*``)."""
+        return self.copilot.modifiers
+
+    def copilot_plans(self) -> Mapping[str, CopilotPlanFact]:
+        """Plan → seat price, included credits and promotional credits."""
+        return self.copilot.plans
+
+    def copilot_dates(self) -> Mapping[str, str]:
+        """Named Copilot dates (billing start, promo end, exogenous events) → ``YYYY-MM-DD``."""
+        return self.copilot.dates
+
+    def copilot_skus(self) -> Mapping[str, CopilotSkuFact]:
+        """SKU → cost type (with / without a username), product, seat plan and workload."""
+        return self.copilot.skus
+
+    def copilot_plan_quota_map(self) -> Mapping[int, CopilotQuotaFact]:
+        """AI usage report ``total_monthly_quota`` → plan (plan evidence only, VERIFY)."""
+        return self.copilot.plan_quota_map
+
+    def copilot_workflow_paths(self) -> tuple[CopilotWorkflowPathFact, ...]:
+        """Billing ``workflow_path`` patterns → Copilot workload (exact paths, then globs)."""
+        return self.copilot.workflow_paths
+
+    def copilot_remaps(self) -> Mapping[str, CopilotRemapFact]:
+        """Model → same-vendor remap candidate (model-policy lever)."""
+        return self.copilot.remaps
+
+    def copilot_retirements(self) -> Mapping[str, CopilotRetirementFact]:
+        """Model → retirement date and suggested successor."""
+        return self.copilot.retirements
+
+    def copilot_runner_rates(self) -> Mapping[str, CopilotRunnerRateFact]:
+        """Actions runner SKU (runner-pricing spelling) → per-minute rate and class."""
+        return self.copilot.runner_rates
+
+    def copilot_settings_keys(self) -> Mapping[str, SettingsKeyFact]:
+        """Copilot settings allowlist (target ``github-copilot``), in file order."""
+        return self.copilot.settings_keys
+
+    def copilot_editor_families(self) -> tuple[CopilotEditorFamilyFact, ...]:
+        """Editor / surface string patterns → ``core.records.EDITOR_FAMILIES``."""
+        return self.copilot.editor_families
+
+    def copilot_vscode_traces(self) -> CopilotVsCodeTracesFact:
+        """VS Code ``agent-traces.db`` layout: columns, attribute allowlist, retention, paths."""
+        return self.copilot.vscode_traces
+
+    def copilot_report_lag_days(self) -> int:
+        """Days the GitHub reports lag (open-month days within the lag are provisional)."""
+        return self.copilot.report_lag_days
+
     def entries(self) -> Iterator[tuple[str, Mapping[str, Any]]]:
-        """``(section, raw entry)`` for every fact entry (each carries the META_KEYS)."""
+        """``(section, raw entry)`` for every fact entry (each carries the META_KEYS); Copilot
+        entries are yielded as ``("copilot.<part>", entry)``."""
         raw = self._raw
         for section in (
             "rates",
@@ -250,6 +584,12 @@ class Facts:
             for entry in items:
                 yield f"lifecycle.{part}", entry
         yield "focus_columns", raw["focus_columns"]
+        for part, value in raw["copilot"].items():
+            if isinstance(value, list):
+                for entry in value:
+                    yield f"copilot.{part}", entry
+            else:
+                yield f"copilot.{part}", value
 
 
 def _dec(value: Any, what: str) -> Decimal:
@@ -381,6 +721,176 @@ def _focus(f: Mapping[str, Any]) -> FocusSpec:
     )
 
 
+_COPILOT_PARTS = (
+    "credit", "plans", "rates", "modifiers", "write_1h_rule", "band_rules", "promotions", "skus",
+    "plan_quota_map", "workflow_paths", "utility_models", "model_categories", "retirements",
+    "remaps", "runner_rates", "included_minutes", "review_estimates", "dates", "settings_keys",
+    "editor_families", "vscode_traces", "cache_ttl_statement", "report_lag_days",
+    "aic_default_cap_per_run",
+)
+_META_FIELDS = ("source", "finding", "verified_on", "verification")
+
+
+def _meta(e: Mapping[str, Any]) -> dict[str, Any]:
+    return {k: e[k] for k in _META_FIELDS} | {"notes": e.get("notes", "")}
+
+
+def _check(ok: bool, what: str) -> None:
+    if not ok:
+        raise ContractViolation(f"facts: copilot {what}")
+
+
+def _int_value(value: Any, what: str) -> int:
+    _check(type(value) is int, f"{what} must be an int")
+    return value
+
+
+def _b(value: Any) -> bool:
+    _check(type(value) is bool, "flags must be JSON booleans")
+    return value
+
+
+def _date_str(value: Any, what: str) -> str:
+    _check(isinstance(value, str) and len(value) == 10 and value[4] == "-" and value[7] == "-",
+           f"{what} must be a YYYY-MM-DD string")
+    return value
+
+
+def _unique(items: list[Any], key: str, what: str) -> dict[Any, Any]:
+    out: dict[Any, Any] = {}
+    for item in items:
+        k = getattr(item, key)
+        _check(k not in out, f"{what}: duplicate {key}")
+        out[k] = item
+    return out
+
+
+def _copilot(c: Mapping[str, Any]) -> CopilotFacts:
+    """Parse and validate the ``copilot`` object (every Copilot fact; C-28)."""
+    _check(isinstance(c, Mapping) and set(c) == set(_COPILOT_PARTS), "section has the wrong parts")
+    cr = c["credit"]
+    credit = CopilotCreditFact(usd_per_credit=_dec(cr["usd_per_credit"], "usd_per_credit"),
+                               nano_usd_per_credit=_int_value(cr["nano_usd_per_credit"], "credit"),
+                               nano_aiu_per_credit=_int_value(cr["nano_aiu_per_credit"], "credit"),
+                               **_meta(cr))
+    plans = [CopilotPlanFact(plan=p["plan"],
+                             seat_usd_per_month=_dec(p["seat_usd_per_month"], "seat price"),
+                             included_credits=_int_value(p["included_credits"], "credits"),
+                             promo_credits=p["promo_credits"], promo_from=p["promo_from"],
+                             promo_to=p["promo_to"], **_meta(p)) for p in c["plans"]]
+    for plan in plans:
+        _check(plan.plan in ("business", "enterprise"), "plans: unknown plan")
+    rows = tuple(_rate_row(r) for r in c["rates"])
+    _check(all(r.provider == "github" and r.channel == "github_copilot" for r in rows),
+           "rates must be provider github, channel github_copilot")
+    _unique(list(rows), "row_id", "rates")
+    modifiers = tuple(_modifier(m) for m in c["modifiers"])
+    _check(all(dict(m.when).get("channel_in") == "github_copilot" for m in modifiers),
+           "modifiers must be limited to channel github_copilot")
+    promotions = tuple(PromotionFact(**p) for p in c["promotions"])
+    promo_ids = {p.promotion_id for p in promotions}
+    _check(all(r.promotion is None or r.promotion in promo_ids for r in rows),
+           "a rate row names an unknown promotion")
+    wr = c["write_1h_rule"]
+    write_rule = CopilotWriteRuleFact(model_prefix=wr["model_prefix"],
+                                      multiplier_of_input=_dec(wr["multiplier_of_input"], "rule"),
+                                      verified=_b(wr["verified"]), **_meta(wr))
+    bands = [CopilotBandRuleFact(model=b["model"], threshold=_int_value(b["threshold"], "band"),
+                                 measure=b["measure"], verified=_b(b["verified"]), **_meta(b))
+             for b in c["band_rules"]]
+    skus = [CopilotSkuFact(sku=k["sku"], product=k["product"], cost_type=k["cost_type"],
+                           cost_type_unattributed=k["cost_type_unattributed"], plan=k["plan"],
+                           workload=k["workload"], verified=_b(k["verified"]), **_meta(k))
+            for k in c["skus"]]
+    for k in skus:
+        _check(k.cost_type in GITHUB_COST_TYPES and k.cost_type_unattributed in GITHUB_COST_TYPES,
+               "skus: cost type not in GITHUB_COST_TYPES")
+        _check(k.plan is None or k.plan in LICENSE_PLANS[:2], "skus: unknown plan")
+        _check(k.workload is None or k.workload in COPILOT_WORKLOADS, "skus: unknown workload")
+    quotas = [CopilotQuotaFact(quota=_int_value(q["quota"], "quota"), plan=q["plan"],
+                               months=tuple(q["months"]), verified=_b(q["verified"]), **_meta(q))
+              for q in c["plan_quota_map"]]
+    _check(all(q.plan in LICENSE_PLANS[:2] for q in quotas), "plan_quota_map: unknown plan")
+    paths = tuple(CopilotWorkflowPathFact(pattern=w["pattern"], match=w["match"],
+                                          workload=w["workload"], verified=_b(w["verified"]),
+                                          **_meta(w)) for w in c["workflow_paths"])
+    _check(all(w.match in ("exact", "glob") and w.workload in COPILOT_WORKLOADS for w in paths),
+           "workflow_paths: bad match or workload")
+    retirements = [CopilotRetirementFact(model=r["model"],
+                                         retire_on=_date_str(r["retire_on"], "retire_on"),
+                                         successor=r["successor"], **_meta(r))
+                   for r in c["retirements"]]
+    remaps = [CopilotRemapFact(model=r["model"], target=r["target"],
+                               tokenizer_same=_b(r["tokenizer_same"]), **_meta(r))
+              for r in c["remaps"]]
+    runners = [CopilotRunnerRateFact(sku=r["sku"], label=r["label"], arch=r["arch"],
+                                     runner_class=r["runner_class"],
+                                     usd_per_minute=_dec(r["usd_per_minute"], "runner rate"),
+                                     included_minutes_apply=_b(r["included_minutes_apply"]),
+                                     **_meta(r)) for r in c["runner_rates"]]
+    included = [CopilotIncludedMinutesFact(plan=m["plan"],
+                                           minutes_per_month=_int_value(m["minutes_per_month"],
+                                                                        "minutes"), **_meta(m))
+                for m in c["included_minutes"]]
+    reviews = [CopilotReviewEstimateFact(effort=r["effort"], low_usd=_dec(r["low_usd"], "review"),
+                                         high_usd=_dec(r["high_usd"], "review"),
+                                         display_only=_b(r["display_only"]), **_meta(r))
+               for r in c["review_estimates"]]
+    dates = {d["name"]: _date_str(d["date"], "dates") for d in c["dates"]}
+    _check(len(dates) == len(c["dates"]), "dates: duplicate name")
+    keys = [SettingsKeyFact(**k) for k in c["settings_keys"]]
+    _check(all(k.target == "github-copilot" for k in keys),
+           "settings_keys: target must be github-copilot")
+    families = tuple(CopilotEditorFamilyFact(origin=e["origin"], match=e["match"],
+                                             pattern=e["pattern"], family=e["family"],
+                                             verified=_b(e["verified"]), **_meta(e))
+                     for e in c["editor_families"])
+    _check(all(e.family in EDITOR_FAMILIES and e.match in ("prefix", "exact") for e in families),
+           "editor_families: bad family or match")
+    v = c["vscode_traces"]
+    traces = CopilotVsCodeTracesFact(
+        extension_id=v["extension_id"], global_storage_dir=v["global_storage_dir"],
+        db_file=v["db_file"], tmp_fallback_file=v["tmp_fallback_file"],
+        enable_setting=v["enable_setting"], outfile_setting=v["outfile_setting"],
+        span_columns=tuple(v["span_columns"]), attribute_allowlist=tuple(v["attribute_allowlist"]),
+        content_keys=tuple(v["content_keys"]), identity_keys=tuple(v["identity_keys"]),
+        retention_days=_int_value(v["retention_days"], "retention"),
+        retention_sessions=_int_value(v["retention_sessions"], "retention"),
+        paths=types.MappingProxyType({k: tuple(p) for k, p in v["paths"].items()}),
+        verified=_b(v["verified"]), **_meta(v))
+    _check(not set(traces.attribute_allowlist) & set(traces.content_keys),
+           "vscode_traces: a content key is allowlisted")
+    ttl, lag, cap = c["cache_ttl_statement"], c["report_lag_days"], c["aic_default_cap_per_run"]
+    _check(isinstance(ttl["text"], str), "cache_ttl_statement: text must be a str")
+    proxy = types.MappingProxyType
+    return CopilotFacts(
+        credit=credit,
+        plans=proxy(_unique(plans, "plan", "plans")),
+        rate_rows=rows,
+        modifiers=modifiers,
+        write_1h_rule=write_rule,
+        band_rules=proxy(_unique(bands, "model", "band_rules")),
+        promotions=promotions,
+        skus=proxy(_unique(skus, "sku", "skus")),
+        plan_quota_map=proxy(_unique(quotas, "quota", "plan_quota_map")),
+        workflow_paths=paths,
+        utility_models=frozenset(u["model"] for u in c["utility_models"]),
+        model_categories=proxy({m["model"]: m["category"] for m in c["model_categories"]}),
+        retirements=proxy(_unique(retirements, "model", "retirements")),
+        remaps=proxy(_unique(remaps, "model", "remaps")),
+        runner_rates=proxy(_unique(runners, "sku", "runner_rates")),
+        included_minutes=proxy(_unique(included, "plan", "included_minutes")),
+        review_estimates=proxy(_unique(reviews, "effort", "review_estimates")),
+        dates=proxy(dates),
+        settings_keys=proxy(_unique(keys, "key", "settings_keys")),
+        editor_families=families,
+        vscode_traces=traces,
+        cache_ttl_statement=ttl["text"],
+        report_lag_days=_int_value(lag["value"], "report_lag_days"),
+        aic_default_cap_per_run=_int_value(cap["value"], "aic_default_cap_per_run"),
+    )
+
+
 def _reject_float(token: str) -> Any:
     raise ContractViolation("facts: JSON floats are not allowed (use decimal strings)")
 
@@ -416,3 +926,76 @@ def load() -> Facts:
         .read_text(encoding="utf-8")
     )
     return parse(text)
+
+
+# ---- module-level Copilot accessors (the packaged facts; C-28) ---------------------------------
+
+
+def copilot_rates() -> tuple[RateRow, ...]:
+    """``load().copilot_rates()``: every Copilot rate row."""
+    return load().copilot_rates()
+
+
+def copilot_modifiers() -> tuple[Modifier, ...]:
+    """``load().copilot_modifiers()``."""
+    return load().copilot_modifiers()
+
+
+def copilot_plans() -> Mapping[str, CopilotPlanFact]:
+    """``load().copilot_plans()``."""
+    return load().copilot_plans()
+
+
+def copilot_dates() -> Mapping[str, str]:
+    """``load().copilot_dates()``."""
+    return load().copilot_dates()
+
+
+def copilot_skus() -> Mapping[str, CopilotSkuFact]:
+    """``load().copilot_skus()``."""
+    return load().copilot_skus()
+
+
+def copilot_plan_quota_map() -> Mapping[int, CopilotQuotaFact]:
+    """``load().copilot_plan_quota_map()``."""
+    return load().copilot_plan_quota_map()
+
+
+def copilot_workflow_paths() -> tuple[CopilotWorkflowPathFact, ...]:
+    """``load().copilot_workflow_paths()``."""
+    return load().copilot_workflow_paths()
+
+
+def copilot_remaps() -> Mapping[str, CopilotRemapFact]:
+    """``load().copilot_remaps()``."""
+    return load().copilot_remaps()
+
+
+def copilot_retirements() -> Mapping[str, CopilotRetirementFact]:
+    """``load().copilot_retirements()``."""
+    return load().copilot_retirements()
+
+
+def copilot_runner_rates() -> Mapping[str, CopilotRunnerRateFact]:
+    """``load().copilot_runner_rates()``."""
+    return load().copilot_runner_rates()
+
+
+def copilot_settings_keys() -> Mapping[str, SettingsKeyFact]:
+    """``load().copilot_settings_keys()``."""
+    return load().copilot_settings_keys()
+
+
+def copilot_editor_families() -> tuple[CopilotEditorFamilyFact, ...]:
+    """``load().copilot_editor_families()``."""
+    return load().copilot_editor_families()
+
+
+def copilot_vscode_traces() -> CopilotVsCodeTracesFact:
+    """``load().copilot_vscode_traces()``."""
+    return load().copilot_vscode_traces()
+
+
+def copilot_report_lag_days() -> int:
+    """``load().copilot_report_lag_days()``."""
+    return load().copilot_report_lag_days()

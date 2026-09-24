@@ -3,6 +3,10 @@
 # expanded to one path each. Patterns: "*" matches within one path segment, "**" any number of segments.
 # Every repository file belongs to exactly one package, to INTEGRATION, or is FROZEN; FROZEN files are
 # never edited by anyone. Changing this file is a contract change (SPEC §21 #3).
+# GitHub Copilot (wave 1.5, CORE-AMENDMENTS C-32): the rows of SPEC-v0.2-COPILOT §21.3 (revision 3.1)
+# = the Owns sections of the Copilot briefs: F-EXT, F-POOL and the 19 CP-* packages;
+# tokenbill/copilot/__init__.py belongs to F-CORE; tokenbill/outputs/ccusage.py moved from OUT to
+# CLI-LEDGER (addendum §21.5). F-SEM-C and F-KIT-C edit files under F-SEM's / F-KIT's rows.
 
 schema = "tokenbill/ownership@1"
 
@@ -73,6 +77,7 @@ paths = [
   "tokenbill/synth/__init__.py",
   "tokenbill/pipeline/__init__.py",
   "tokenbill/commands/__init__.py",
+  "tokenbill/copilot/__init__.py",
   "tests/conftest.py",
   "tests/v2/__init__.py",
   "tests/v2/core/**",
@@ -256,7 +261,6 @@ paths = [
   "tokenbill/outputs/html.py",
   "tokenbill/outputs/focus.py",
   "tokenbill/outputs/sarif.py",
-  "tokenbill/outputs/ccusage.py",
   "tokenbill/outputs/showback.py",
   "tokenbill/finops/allocation.py",
   "tokenbill/finops/workload.py",
@@ -286,6 +290,7 @@ paths = [
   "tokenbill/commands/showback.py",
   "tokenbill/commands/pricing.py",
   "tokenbill/commands/purge.py",
+  "tokenbill/outputs/ccusage.py",
   "tests/v2/cli_ledger/**",
 ]
 
@@ -306,6 +311,167 @@ paths = [
   "tokenbill/commands/check.py",
   "tokenbill/commands/report.py",
   "tests/v2/cli_savings/**",
+]
+
+[packages.F-EXT]
+paths = [
+  "tokenbill/core/extensions.py",
+  "tests/v2/ext/**",
+]
+
+[packages.F-POOL]
+paths = [
+  "tokenbill/core/pool.py",
+  "tests/v2/pool/**",
+]
+
+[packages.CP-RATES]
+paths = [
+  "tokenbill/copilot/data/__init__.py",
+  "tokenbill/copilot/data/github_copilot.json",
+  "tokenbill/copilot/data/snapshots/**",
+  "tokenbill/copilot/rates_verify.py",
+  "tests/v2/copilot_rates/**",
+  "tests/v2/fixtures/copilot_rates/**",
+]
+
+[packages.CP-BILL]
+paths = [
+  "tokenbill/adapters/github_billing.py",
+  "tests/v2/copilot_bill/**",
+  "tests/v2/fixtures/copilot_bill/**",
+]
+
+[packages.CP-ORGDATA]
+paths = [
+  "tokenbill/adapters/github_config.py",
+  "tokenbill/adapters/github_metrics.py",
+  "tokenbill/adapters/github_seats.py",
+  "tokenbill/adapters/github_agent_tasks.py",
+  "tokenbill/adapters/github_usage_records.py",
+  "tokenbill/copilot/teammap.py",
+  "tests/v2/copilot_orgdata/**",
+  "tests/v2/fixtures/copilot_orgdata/**",
+]
+
+[packages.CP-HANDOFF]
+paths = [
+  "tokenbill/copilot/handoff.py",
+  "tokenbill/copilot/admin_answers.py",
+  "tokenbill/copilot/handoff_data/**",
+  "tokenbill/adapters/copilot_export.py",
+  "tokenbill/adapters/github_activity_report.py",
+  "tests/v2/copilot_handoff/**",
+  "tests/v2/fixtures/copilot_handoff/**",
+]
+
+[packages.CP-PULL]
+paths = [
+  "tokenbill/copilot/pull_common.py",
+  "tokenbill/copilot/pull_billing.py",
+  "tokenbill/copilot/pull_metrics.py",
+  "tests/v2/copilot_pull/**",
+]
+
+[packages.CP-LOCAL]
+paths = [
+  "tokenbill/adapters/copilot_cli.py",
+  "tokenbill/adapters/copilot_collect.py",
+  "tokenbill/adapters/copilot_conventions.py",
+  "tests/v2/copilot_local/**",
+  "tests/v2/fixtures/copilot_local/**",
+]
+
+[packages.CP-OTEL]
+paths = [
+  "tokenbill/adapters/copilot_otel.py",
+  "tokenbill/adapters/copilot_vscode.py",
+  "tokenbill/adapters/gh_aw.py",
+  "tests/v2/copilot_otel/**",
+  "tests/v2/fixtures/copilot_otel/**",
+]
+
+[packages.CP-VSCODE]
+paths = [
+  "tokenbill/adapters/copilot_vscode_collect.py",
+  "tests/v2/copilot_vscode/**",
+  "tests/v2/fixtures/copilot_vscode/**",
+]
+
+[packages.CP-STORE]
+paths = [
+  "tokenbill/copilot/record_store.py",
+  "tokenbill/copilot/enrich.py",
+  "tests/v2/copilot_store/**",
+]
+
+[packages.CP-RECON]
+paths = [
+  "tokenbill/copilot/recon.py",
+  "tokenbill/copilot/panel.py",
+  "tests/v2/copilot_recon/**",
+  "tests/v2/fixtures/copilot_recon/**",
+]
+
+[packages.CP-DET-SEATS]
+paths = [
+  "tokenbill/detect/copilot_seats.py",
+  "tests/v2/copilot_det_seats/**",
+]
+
+[packages.CP-DET-USAGE]
+paths = [
+  "tokenbill/detect/copilot_org.py",
+  "tests/v2/copilot_det_usage/**",
+]
+
+[packages.CP-DET-LANES]
+paths = [
+  "tokenbill/detect/copilot_lanes.py",
+  "tests/v2/copilot_det_lanes/**",
+]
+
+[packages.CP-PLAN]
+paths = [
+  "tokenbill/copilot/plan.py",
+  "tests/v2/copilot_plan/**",
+]
+
+[packages.CP-POLICY]
+paths = [
+  "tokenbill/copilot/policy.py",
+  "tokenbill/copilot/admin_actions.py",
+  "tokenbill/copilot/budgets.py",
+  "tests/v2/copilot_policy/**",
+]
+
+[packages.CP-OUT]
+paths = [
+  "tokenbill/copilot/summary.py",
+  "tokenbill/copilot/render.py",
+  "tokenbill/copilot/showback.py",
+  "tokenbill/copilot/focus.py",
+  "tests/v2/copilot_out/**",
+]
+
+[packages.CP-WIRE]
+paths = [
+  "tokenbill/commands/copilot.py",
+  "tokenbill/pipeline/copilot.py",
+  "tests/v2/copilot_wire/**",
+]
+
+[packages.CP-SYNTH]
+paths = [
+  "tokenbill/synth/copilot_world.py",
+  "tokenbill/synth/copilot_truth.py",
+  "tests/v2/copilot_synth/**",
+]
+
+[packages.CP-SYNTH-W]
+paths = [
+  "tokenbill/synth/copilot_writers.py",
+  "tests/v2/copilot_writers/**",
 ]
 
 [packages.INTEGRATION]

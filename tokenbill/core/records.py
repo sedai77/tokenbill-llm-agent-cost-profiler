@@ -9,11 +9,20 @@ message.
 ``to_json`` / ``from_json`` give a lossless JSON round trip for every record (and every dataclass of
 ``core.types``): enums by value, tuples as lists, ``Decimal`` as a decimal string, frozensets as
 sorted lists.
+
+GitHub Copilot additions (wave 1.5a, CORE-AMENDMENTS C-1 … C-10): the Copilot billing paths and the
+billing class ``pool``, the ``copilot_compliance`` extra key, the ``PricingContext`` routing /
+compliance / context-tier fields, the raw-usage enum table, the ``CostLine`` Copilot fields and
+vocabularies, the aggregate source kinds and dims, ``OutcomeAggregate.extra``, the Copilot
+lane-event attrs, the seat / activity / configuration vocabularies and the records
+``LicenseSnapshot``, ``ActivityDay`` and ``ConfigSnapshot`` with their natural ``record_key``. Every
+addition is appended with a default.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import datetime as _dt
 import functools
 import re
 import types
@@ -27,18 +36,44 @@ from typing import Any
 from tokenbill.core.errors import ContractViolation
 
 __all__ = [
+    "ACTIVITY_FLAGS",
+    "ACTIVITY_KEYS",
+    "ACTIVITY_KEY_PREFIXES",
+    "BILLING_CLASSES",
     "BILLING_PATHS",
     "BLOCK_KINDS",
+    "COPILOT_AGG_DIMS",
+    "COPILOT_AGG_SOURCE_KINDS",
+    "COPILOT_BILLING_PATHS",
+    "COPILOT_CHANNELS",
+    "COPILOT_EVENT_VALUE_DOMAINS",
+    "COPILOT_PSEUDO",
+    "COPILOT_WORKLOADS",
+    "CONFIG_KEYS",
+    "CONFIG_KINDS",
+    "CONFIG_SOURCE_KINDS",
+    "COUNT_CONFIG_KINDS",
     "DIAG_REASONS",
+    "EDITOR_FAMILIES",
     "EVENT_ATTRS",
     "EXTRA_KEYS",
+    "GITHUB_COST_TYPES",
+    "LICENSE_BUCKETS",
+    "LICENSE_PLANS",
+    "LICENSE_SOURCE_KINDS",
     "MAX_TOKENS",
+    "OUTCOME_EXTRA_KEYS",
+    "PLAN_SOURCES",
+    "RAW_USAGE_ENUMS",
+    "RAW_USAGE_NUMERIC",
+    "ActivityDay",
     "AppendedItem",
     "Attempt",
     "Attribution",
     "BlockRef",
     "Breakpoint",
     "CacheDiagnostic",
+    "ConfigSnapshot",
     "ContentFingerprint",
     "ContentTier",
     "CostLine",
@@ -49,6 +84,7 @@ __all__ = [
     "LaneEvent",
     "LaneEventKind",
     "LaneKind",
+    "LicenseSnapshot",
     "Outcome",
     "OutcomeAggregate",
     "PricingContext",
@@ -62,12 +98,31 @@ __all__ = [
     "UsageRecord",
     "UsageSource",
     "WorkloadClass",
+    "OMIT_DEFAULT",
+    "appended",
     "billing_class",
     "from_json",
+    "record_fields",
+    "record_key",
     "to_json",
 ]
 
 MAX_TOKENS = 2**53
+
+#: Field metadata of fields appended to pre-existing contract types after wave 1 (GitHub Copilot,
+#: wave 1.5): ``to_json`` leaves such a field out while it holds its default, so every document of
+#: pre-Copilot data stays byte-identical (fixtures and goldens of started packages, R-E15);
+#: ``from_json`` restores the default for a missing key.
+OMIT_DEFAULT = "tokenbill.omit_default"
+
+
+def appended(default: Any = dataclasses.MISSING, *, default_factory: Any = dataclasses.MISSING
+             ) -> Any:
+    """A dataclass field appended after wave 1: ``field(default=…, metadata={OMIT_DEFAULT: True})``
+    (or with *default_factory*)."""
+    if default_factory is not dataclasses.MISSING:
+        return dataclasses.field(default_factory=default_factory, metadata={OMIT_DEFAULT: True})
+    return dataclasses.field(default=default, metadata={OMIT_DEFAULT: True})
 
 
 class TBEnum(str, Enum):
@@ -147,19 +202,140 @@ class Fidelity(IntEnum):
 
 
 BILLING_PATHS = ("api_key", "subscription", "usage_credits", "bedrock", "vertex", "foundry",
-                 "claude_platform_aws", "openai", "azure_openai", "unknown")
+                 "claude_platform_aws", "openai", "azure_openai", "unknown",
+                 "copilot_pool", "copilot_direct")
+#: GitHub Copilot billing paths (addendum DC2): the user's seat / pooled included AI credits, and
+#: usage metered straight to the organization. Both are billing class ``pool`` (LIST_EQUIVALENT per
+#: request).
+COPILOT_BILLING_PATHS = ("copilot_pool", "copilot_direct")
+#: Every value :func:`billing_class` returns.
+BILLING_CLASSES = ("billed", "allowance", "pool")
+#: Channels owned by the Copilot extension: AI-credit usage, Actions minutes of Copilot workloads
+#: and the cloud sandbox meters (addendum DC1).
+COPILOT_CHANNELS = ("github_copilot", "github_actions", "github_sandbox")
 
 
 def billing_class(billing_path: str | None) -> str:
-    """``"allowance"`` iff *billing_path* is ``"subscription"`` (seat allowance, D26), else
-    ``"billed"``."""
-    return "allowance" if billing_path == "subscription" else "billed"
+    """The billing class of a billing path.
+
+    ``"allowance"`` iff *billing_path* is ``"subscription"`` (seat allowance, D26); ``"pool"`` iff
+    it is one of :data:`COPILOT_BILLING_PATHS` (GitHub Copilot pooled AI credits, addendum DC2);
+    else ``"billed"`` (also for None and unknown paths).
+    """
+    if billing_path == "subscription":
+        return "allowance"
+    if billing_path in COPILOT_BILLING_PATHS:
+        return "pool"
+    return "billed"
 
 
 #: Allowlisted ``Attribution.extra`` keys; anything else is dropped at the adapter
 #: (dq.unknown_fields). ``endpoint_scope``: "global" | "regional" (--attr; Claude Code on Vertex).
+#: ``copilot_compliance``: "none" | "data_residency" | "fedramp" (documented values, set by adapters
+#: from ``--attr``; like every extra value a free string ≤ 128 chars — readers use
+#: ``dict(attribution.extra).get("copilot_compliance")`` and treat other values as unknown).
 EXTRA_KEYS = ("mdm_group", "gateway", "task_id", "workflow", "run_attempt", "department",
-              "environment", "endpoint_scope")
+              "environment", "endpoint_scope", "copilot_compliance")
+
+# ---- GitHub Copilot vocabularies (CORE-AMENDMENTS C-4 … C-9)
+# --------------------------------------
+
+#: Allowlisted enum strings of raw provider usage objects (SPEC §4.2 "numbers and allowlisted enum
+#: strings"): key → allowed values; an empty set means "any token matching
+#: ``^[A-Za-z0-9_.-]{1,64}$``". Declarative (TRACE derives its closed key sets from it); no
+#: validator reads it in wave 1.5.
+RAW_USAGE_ENUMS: Mapping[str, frozenset[str]] = types.MappingProxyType({
+    "tokenType": frozenset({"input", "cache_read", "cache_write", "output"}),
+    "contextTier": frozenset({"default", "long_context"}),
+    "initiator": frozenset(),
+    "interactionType": frozenset(),
+})
+#: Raw provider usage keys whose values are numbers (Copilot ``copilotUsage.tokenDetails`` and
+#: totals).
+RAW_USAGE_NUMERIC = frozenset({"totalNanoAiu", "batchSize", "costPerBatch", "tokenCount"})
+#: Closed ``CostLine.cost_type`` strings of GitHub sources (F-POOL, CP-BILL, CP-RECON, CP-OUT agree
+#: on them); ``cost_type`` itself stays a free string for other providers.
+GITHUB_COST_TYPES = ("ai_credit.user", "ai_credit.direct", "ai_credit.legacy_pru", "seat",
+                     "actions", "sandbox", "code_quality.license", "metered.ai_credit",
+                     "rest.ai_credit", "rest.summary", "rest.usage", "other")
+#: ``CostLine.workload`` values.
+COPILOT_WORKLOADS = ("copilot_code_review", "copilot_cloud_agent", "agentic_workflow",
+                     "code_quality")
+#: ``CostLine.pseudo`` values: billing-row model labels that name no priceable model.
+COPILOT_PSEUDO = ("code_review", "cloud_agent", "auto_unattributed", "unknown")
+#: ``UsageAggregate.source_kind`` values of the Copilot adapters (``UsageAggregate`` stays
+#: free-form).
+COPILOT_AGG_SOURCE_KINDS = ("github.ai_usage_report", "github.ai_usage_report.coverage",
+                            "github.agent_tasks", "copilot.cli_rollup", "gh_aw.run")
+#: ``UsageAggregate.dims`` keys the Copilot adapters use (documented; dims stay free sorted pairs).
+COPILOT_AGG_DIMS = ("channel", "team", "cost_center", "organization", "model", "sku", "routing",
+                    "speed", "pseudo", "convention", "state", "artifact", "repo", "workflow",
+                    "source")
+#: ``OutcomeAggregate.extra`` keys (GitHub usage-metrics pull-request and suggestion totals).
+OUTCOME_EXTRA_KEYS = ("prs_merged", "prs_created_by_copilot", "prs_merged_created_by_copilot",
+                      "prs_reviewed_by_copilot", "copilot_suggestions",
+                      "copilot_applied_suggestions")
+#: ``LicenseSnapshot.plan`` values (the activity report never knows the plan: ``unknown``).
+LICENSE_PLANS = ("business", "enterprise", "unknown")
+#: Recency buckets of a seat's last activity / authentication, in days before the snapshot.
+LICENSE_BUCKETS = ("0-7", "8-30", "31-90", "none_90d")
+#: ``LicenseSnapshot.source_kind`` values: the seats API and the UI activity report (addendum
+#: §5.15).
+LICENSE_SOURCE_KINDS = ("github.copilot_seats", "github.copilot_activity_report")
+#: Editor / surface families of seat ``last_activity_editor`` strings, activity-report
+#: ``last_surface_used`` strings and metrics ``ide:*`` keys (mapping:
+#: ``core.catalog.editor_family``).
+EDITOR_FAMILIES = ("vscode", "jetbrains", "visual_studio", "xcode", "eclipse", "neovim", "cli",
+                   "github_com", "copilot_app", "mobile", "other")
+#: Fixed ``ActivityDay.counts`` keys (addendum §5.5 users-1-day mapping).
+ACTIVITY_KEYS = ("interactions", "code_generation", "code_acceptance", "loc_suggested_add",
+                 "loc_suggested_delete", "loc_added", "loc_deleted", "cli_sessions", "cli_requests",
+                 "cli_prompts", "cli_prompt_tokens", "cli_output_tokens", "app_sessions",
+                 "app_requests", "app_prompts", "app_prompt_tokens", "app_output_tokens",
+                 "mcp_distinct", "skill_distinct", "custom_agent_distinct", "plugin_distinct",
+                 "slash_cmd_distinct", "third_party_agent_jobs")
+#: Prefix keys of ``ActivityDay.counts`` (and of ``activity_counts`` configuration rows for
+#: ``ide:``): the prefix plus a suffix matching ``^[a-z0-9._-]{1,64}$``.
+ACTIVITY_KEY_PREFIXES = ("feature:", "model:", "ide:")
+#: ``ActivityDay.flags`` values.
+ACTIVITY_FLAGS = ("used_chat", "used_agent", "used_cli", "used_copilot_app", "used_cloud_agent",
+                  "used_code_review_active", "used_code_review_passive")
+#: ``ConfigSnapshot.kind`` values.
+CONFIG_KINDS = ("budget", "budget_users", "cost_center", "org_settings", "run_flags", "seat_counts",
+                "activity_counts", "plan_quota")
+#: Configuration kinds that carry counts (several rows per entity and day, told apart by their
+#: attrs).
+COUNT_CONFIG_KINDS = ("seat_counts", "activity_counts", "plan_quota")
+#: ``ConfigSnapshot.source_kind`` values.
+CONFIG_SOURCE_KINDS = ("github.budgets", "github.cost_centers", "github.org_copilot_settings",
+                       "github.ai_usage_report", "tokenbill.cli", "tokenbill.admin_answers",
+                       "tokenbill.copilot_export")
+#: Allowed ``ConfigSnapshot.attrs`` keys per kind; a key ending in ``.`` is a prefix (the attr key
+#: is the prefix plus a non-empty suffix, e.g. ``plan.org:acme``).
+CONFIG_KEYS: Mapping[str, tuple[str, ...]] = types.MappingProxyType({
+    "budget": ("scope", "type", "sku", "amount_nano", "prevent_further_usage", "will_alert",
+               "n_recipients", "expires_at", "consumed_nano", "target", "team", "cost_center"),
+    "budget_users": ("n_users", "n_at_or_over_target", "consumed_p50_nano", "consumed_p90_nano"),
+    "cost_center": ("cost_center_id", "state", "pool_enabled", "pool_target_credits",
+                    "pool_current_credits", "n_users", "n_teams", "n_orgs", "n_repos", "azure"),
+    "org_settings": ("plan_type", "seat_management_setting", "ide_chat", "platform_chat", "cli",
+                     "seats_total", "seats_added_this_cycle", "seats_pending_cancellation",
+                     "seats_pending_invitation", "seats_active_this_cycle",
+                     "seats_inactive_this_cycle"),
+    "run_flags": ("promo_eligible", "compliance", "paid_usage_policy", "org_cli_billing_policy",
+                  "plan.", "pool_seats.", "billing_mode.", "renewal_date.", "capped_policy.",
+                  "budget_stop."),
+    "seat_counts": ("team", "plan", "bucket", "surface", "assigned_via_team",
+                    "pending_cancellation", "created_over_30d", "zero_cost_30d", "n", "n_people"),
+    "activity_counts": ("team", "month", "n_people", "interactions", "cli_requests",
+                        "cli_prompt_tokens", "app_interactions", "ide:"),
+    "plan_quota": ("month", "quota", "n_users"),
+})
+#: Count attrs of ``COUNT_CONFIG_KINDS`` rows; every other attr is part of the natural key.
+_COUNT_ATTRS = frozenset({"n", "n_people", "n_users"})
+#: ``PlanEvidence.source`` values in plan-detection precedence order (addendum R17, ruling R-E22).
+PLAN_SOURCES = ("seat_lines", "seats_api", "org_settings", "report_quota", "admin_statement",
+                "none")
 
 #: Canonical ``CacheDiagnostic.reason`` values.
 DIAG_REASONS = frozenset({"model_changed", "system_changed", "tools_changed", "messages_changed",
@@ -180,6 +356,17 @@ _TTL_HINTS = frozenset({"5m", "1h"})
 _ENDPOINT_SCOPES = frozenset({"global", "regional", "multi_region", "unknown"})
 _TTL_OBSERVED = frozenset({"5m", "1h", "mixed", "unknown"})
 _FINALITIES = frozenset({"provisional", "final"})
+_ROUTINGS = frozenset({"direct", "auto", "unknown"})
+_COMPLIANCE = frozenset({"data_residency", "fedramp"})
+_CONTEXT_TIERS = frozenset({"default", "long_context"})
+_COPILOT_SPEEDS = frozenset({"standard", "fast"})
+_LAST_AUTH_BUCKETS = frozenset((*LICENSE_BUCKETS, "unknown"))
+_KEY_SUFFIX_RE = re.compile(r"[a-z0-9._-]{1,64}\Z")
+_DECIMAL_STR_RE = re.compile(r"-?[0-9]{1,40}(?:\.[0-9]{1,40})?\Z")
+_ENTITY_ID_RE = re.compile(r"(?:enterprise|run|admin_answers|(?:org|cc|budget):[^\x00-\x1f]+)\Z")
+_INT64 = 2**63 - 1
+#: 9999-12-31T23:59:59.999Z in epoch ms: the last instant with a ``datetime.date``.
+_MAX_DATE_MS = 253_402_300_799_999
 _PRINCIPAL_RE = re.compile(r"(?:[pc]_[0-9a-f]{20}|r_[A-Za-z0-9._-]{1,64})\Z")
 _STORE_PRINCIPAL_RE = re.compile(r"p_[0-9a-f]{20}\Z")
 _HASH_RE = re.compile(r"h_[0-9a-f]{20}\Z")
@@ -292,6 +479,43 @@ def _pairs(obj: object, name: str, *, sort: bool, value_types: tuple[type, ...] 
     return result
 
 
+def _decimal_str(obj: object, name: str, *, optional: bool = False) -> None:
+    """A finite plain decimal string such as ``"42.726213"`` (no exponent, no whitespace)."""
+    v = getattr(obj, name)
+    if v is None and optional:
+        return
+    if not isinstance(v, str) or not _DECIMAL_STR_RE.match(v):
+        raise _fail(obj, name, "must be a finite decimal string")
+
+
+def _hashed(obj: object, name: str) -> None:
+    v = getattr(obj, name)
+    if v is not None and (not isinstance(v, str) or not _HASH_RE.match(v)):
+        raise _fail(obj, name, "must be h_<20 hex>")
+
+
+def _store_principal(obj: object, name: str, *, optional: bool = False) -> None:
+    v = getattr(obj, name)
+    if v is None and optional:
+        return
+    if not isinstance(v, str) or not _STORE_PRINCIPAL_RE.match(v):
+        raise _fail(obj, name, "must be p_<20 hex>")
+
+
+def _prefixed_key_ok(key: str, fixed: tuple[str, ...], *,
+                     prefix_suffix_re: re.Pattern[str] | None = None) -> bool:
+    """Whether *key* is in *fixed* or is a prefix entry (ending in ``.`` or ``:``) plus a suffix."""
+    for entry in fixed:
+        if entry[-1:] not in (".", ":"):
+            if key == entry:
+                return True
+        elif key.startswith(entry) and len(key) > len(entry):
+            suffix = key[len(entry):]
+            if prefix_suffix_re is None or prefix_suffix_re.match(suffix):
+                return True
+    return False
+
+
 def _date(obj: object, name: str) -> None:
     v = getattr(obj, name)
     if not isinstance(v, str) or not _DATE_RE.match(v):
@@ -390,9 +614,9 @@ class UsageBuckets:
 
 @dataclass(frozen=True, slots=True)
 class PricingContext:
-    provider: str            # "anthropic" | "openai"
+    provider: str            # "anthropic" | "openai" | "github"
     # "anthropic_api" | "claude_platform_aws" | "foundry" | "bedrock" | "vertex" | "openai_api" |
-    # "azure_openai" | "unknown"
+    # "azure_openai" | "github_copilot" | "unknown"
     channel: str
     model: str               # normalized id (core/models.py), e.g. "claude-opus-5-5"; "" if unknown
     model_raw: str           # exactly as reported
@@ -402,6 +626,11 @@ class PricingContext:
     endpoint_scope: str = "unknown"  # "global" | "regional" | "multi_region" | "unknown"
     write_ttl_hint: str | None = None  # "5m" | "1h" | None: point estimate for cache_write_unknown
     billing_path: str = "unknown"    # BILLING_PATHS; "subscription" ⇒ basis list_equivalent (D26)
+    # GitHub Copilot (C-3): model selection ("auto" = Auto model selection, ×0.9 on paid plans),
+    # restrict-to-compliant-models policy (×1.1) and the session's context tier (band hypothesis B)
+    routing: str = appended("direct")         # "direct" | "auto" | "unknown"
+    compliance: str | None = appended(None)   # "data_residency" | "fedramp" | None
+    context_tier: str | None = appended(None)  # "default" | "long_context" | None (unknown)
 
     def __post_init__(self) -> None:
         for name in ("provider", "channel", "model", "model_raw", "service_tier", "speed"):
@@ -410,6 +639,9 @@ class PricingContext:
         _one_of(self, "endpoint_scope", _ENDPOINT_SCOPES)
         _one_of(self, "write_ttl_hint", _TTL_HINTS, optional=True)
         _one_of(self, "billing_path", BILLING_PATHS)
+        _one_of(self, "routing", _ROUTINGS)
+        _one_of(self, "compliance", _COMPLIANCE, optional=True)
+        _one_of(self, "context_tier", _CONTEXT_TIERS, optional=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -816,7 +1048,10 @@ _N = type(None)
 #: part of the contract; a key may be omitted when the source does not report it, never invented.
 EVENT_ATTRS: Mapping[LaneEventKind, Mapping[str, tuple[type, ...]]] = types.MappingProxyType({
     LaneEventKind.COMPACTION: {"trigger": (str,), "pre_tokens": (int,), "post_tokens": (int,),
-                               "duration_ms": (int,), "dropped_tokens": (int, _N)},
+                               "duration_ms": (int,), "dropped_tokens": (int, _N),
+                               # GitHub Copilot CLI session.compaction_complete (C-8)
+                               "copilot_trigger": (str, _N), "system_tokens": (int, _N),
+                               "tool_definitions_tokens": (int, _N)},
     LaneEventKind.CLEAR: {},
     LaneEventKind.MODEL_FALLBACK: {"from_model": (str,), "to_model": (str,), "trigger": (str,),
                                    "credited": (bool, _N)},
@@ -828,7 +1063,10 @@ EVENT_ATTRS: Mapping[LaneEventKind, Mapping[str, tuple[type, ...]]] = types.Mapp
     LaneEventKind.CONTEXT_INJECTION: {"att_type": (str,), "n_bytes": (int,)},
     LaneEventKind.HUMAN_PROMPT: {},
     LaneEventKind.SESSION_META: {"agent_type": (str, _N), "spawn_depth": (int, _N),
-                                 "model_alias": (str, _N)},
+                                 "model_alias": (str, _N),
+                                 # GitHub Copilot session.start / resume (C-8)
+                                 "credit_limit_nano": (int, _N), "routing_mode": (str, _N),
+                                 "context_tier": (str, _N)},
     LaneEventKind.COST_STATE: {"reported_total_nano": (int,), "reporter": (str,)},
     LaneEventKind.IMAGE_EVICTION: {"n_images": (int,)},
     LaneEventKind.QUOTA_STATE: {"status": (str, _N), "rate_limit_type": (str, _N),
@@ -839,6 +1077,18 @@ _EVENT_VALUE_DOMAINS: Mapping[tuple[LaneEventKind, str], frozenset[str]] = {
     (LaneEventKind.COMPACTION, "trigger"): frozenset({"auto", "manual"}),
     (LaneEventKind.MODEL_FALLBACK, "trigger"): frozenset({"refusal", "availability", "unknown"}),
 }
+#: Value domains of the GitHub Copilot lane-event attrs (C-8): the values Copilot adapters emit.
+#: Copilot's ``manual`` compaction also sets ``trigger="manual"``, every other Copilot trigger
+#: ``trigger="auto"``, so the ``trigger`` domain stays {auto, manual}. Declarative: ``LaneEvent``
+#: does not enforce these two domains, because the merged wave-0 strategies
+#: (tests/v2/core/strategies.py, unedited per CORE-AMENDMENTS T-4) draw free strings for every
+#: nullable str attr.
+COPILOT_EVENT_VALUE_DOMAINS: Mapping[tuple[LaneEventKind, str], frozenset[str]] = (
+    types.MappingProxyType({
+        (LaneEventKind.COMPACTION, "copilot_trigger"): frozenset(
+            {"threshold", "manual", "context_limit_retry", "memory_pressure", "model_switch"}),
+        (LaneEventKind.SESSION_META, "context_tier"): frozenset({"default", "long_context"}),
+    }))
 
 
 def _attr_type_ok(value: object, allowed: tuple[type, ...]) -> bool:
@@ -936,7 +1186,7 @@ class Lane:
 
     @property
     def billing_class(self) -> str:
-        """Billing class (``billed`` | ``allowance``) of the first request."""
+        """Billing class (``billed`` | ``allowance`` | ``pool``) of the first request."""
         return billing_class(_request_billing_path(self.requests[0]) if self.requests else None)
 
 
@@ -1021,6 +1271,18 @@ class CostLine:
     finality: str = "provisional"
     principal: str | None = None   # CUR line_item_iam_principal → p_ (principal key); not exported
     fetched_ms: int = 0
+    # GitHub billing rows (C-5); cost_type stays a free string (GitHub sources use
+    # GITHUB_COST_TYPES)
+    quantity: str | None = appended(None)     # finite decimal string (credits, minutes, seats)
+    unit: str | None = appended(None)         # provider unit, e.g. "ai-credits", "minutes"
+    cost_center: str | None = appended(None)
+    team: str | None = appended(None)
+    repo: str | None = appended(None)         # "h_…" (name key)
+    workload: str | None = appended(None)     # COPILOT_WORKLOADS
+    workflow: str | None = appended(None)     # "h_…" of an agentic-workflow path (only those)
+    routing: str | None = appended(None)      # "direct" | "auto" | "unknown"
+    speed: str | None = appended(None)        # "standard" | "fast"
+    pseudo: str | None = appended(None)       # COPILOT_PSEUDO: a label naming no priceable model
 
     def __post_init__(self) -> None:
         for name in ("line_id", "source_kind", "channel", "description", "currency"):
@@ -1033,10 +1295,17 @@ class CostLine:
         _int(self, "amount_nano")
         _int(self, "list_amount_nano", optional=True)
         _one_of(self, "finality", _FINALITIES)
-        p = self.principal
-        if p is not None and (not isinstance(p, str) or not _STORE_PRINCIPAL_RE.match(p)):
-            raise _fail(self, "principal", "must be p_<20 hex>")
+        _store_principal(self, "principal", optional=True)
         _count(self, "fetched_ms")
+        _decimal_str(self, "quantity", optional=True)
+        for name in ("unit", "cost_center", "team"):
+            _str(self, name, optional=True)
+        _hashed(self, "repo")
+        _hashed(self, "workflow")
+        _one_of(self, "workload", COPILOT_WORKLOADS, optional=True)
+        _one_of(self, "routing", _ROUTINGS, optional=True)
+        _one_of(self, "speed", _COPILOT_SPEEDS, optional=True)
+        _one_of(self, "pseudo", COPILOT_PSEUDO, optional=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1055,7 +1324,9 @@ class OutcomeAggregate:
     lines_removed: int
     edits_accepted: int
     edits_rejected: int
-    source_kind: str = "anthropic.cc_analytics"
+    source_kind: str = "anthropic.cc_analytics"   # also "github.copilot_metrics"
+    # sorted (key, count) pairs, keys ⊆ OUTCOME_EXTRA_KEYS (GitHub usage-metrics PR totals, C-7)
+    extra: tuple[tuple[str, int], ...] = appended(())
 
     def __post_init__(self) -> None:
         _date(self, "date_utc")
@@ -1064,6 +1335,11 @@ class OutcomeAggregate:
                      "lines_removed", "edits_accepted", "edits_rejected"):
             _count(self, name)
         _str(self, "source_kind")
+        for k, v in _pairs(self, "extra", sort=True, value_types=(int,)):
+            if k not in OUTCOME_EXTRA_KEYS:
+                raise _fail(self, "extra", "key not in OUTCOME_EXTRA_KEYS")
+            if not 0 <= v <= MAX_TOKENS:
+                raise _fail(self, "extra", "counts must be ints in [0, 2**53]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1104,10 +1380,199 @@ class UsageRecord:
 
 
 # ---------------------------------------------------------------------------------------------
+# seat, activity and configuration records (GitHub Copilot, C-10); stored by extension record stores
+# ---------------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class LicenseSnapshot:
+    """One seat of a seat-licensed AI product at a snapshot date.
+
+    Stored per ``p_`` principal (org key, or an adopted export key, R-E21); never exported in clear;
+    published only as k-anonymous counts (R14). The activity report knows neither the plan
+    (``plan="unknown"``) nor how the seat was assigned (``assigned_via_team=None``).
+    """
+
+    snapshot_date: str                 # YYYY-MM-DD (UTC) of the pull / report_time
+    product: str                       # "github_copilot"
+    plan: str                          # LICENSE_PLANS
+    principal: str                     # ^p_[0-9a-f]{20}$
+    team: str | None
+    cost_center: str | None
+    org: str | None                    # org login (organizational name) or None (enterprise report)
+    seat_created: str | None
+    pending_cancellation: str | None
+    last_activity_bucket: str          # LICENSE_BUCKETS
+    last_activity_surface: str | None  # EDITOR_FAMILIES (core.catalog.editor_family) or None
+    last_authenticated_bucket: str     # LICENSE_BUCKETS or "unknown"
+    assigned_via_team: bool | None     # None = unknown (activity report)
+    fetched_ms: int = 0
+    source_kind: str = "github.copilot_seats"   # LICENSE_SOURCE_KINDS
+
+    def __post_init__(self) -> None:
+        _date(self, "snapshot_date")
+        _str(self, "product")
+        _one_of(self, "plan", LICENSE_PLANS)
+        _store_principal(self, "principal")
+        for name in ("team", "cost_center", "org", "seat_created", "pending_cancellation"):
+            _str(self, name, optional=True)
+        _one_of(self, "last_activity_bucket", LICENSE_BUCKETS)
+        _one_of(self, "last_activity_surface", EDITOR_FAMILIES, optional=True)
+        _one_of(self, "last_authenticated_bucket", _LAST_AUTH_BUCKETS)
+        _bool(self, "assigned_via_team", optional=True)
+        _count(self, "fetched_ms")
+        _one_of(self, "source_kind", LICENSE_SOURCE_KINDS)
+
+
+def _activity_key_ok(key: str) -> bool:
+    return _prefixed_key_ok(key, (*ACTIVITY_KEYS, *ACTIVITY_KEY_PREFIXES),
+                            prefix_suffix_re=_KEY_SUFFIX_RE)
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityDay:
+    """Per principal per day activity of a seat-licensed AI product (usage metrics users-1-day)."""
+
+    date_utc: str
+    product: str
+    principal: str                     # ^p_[0-9a-f]{20}$
+    team: str | None
+    cost_center: str | None
+    # NANO-USD: ai_credits_used × $0.01 (12.5 credits → 125,000,000); a provider estimate (R12)
+    reported_cost_nano: int | None
+    # sorted (key, count): keys ∈ ACTIVITY_KEYS or ACTIVITY_KEY_PREFIXES + ^[a-z0-9._-]{1,64}$
+    counts: tuple[tuple[str, int], ...]
+    flags: tuple[str, ...]             # ⊆ ACTIVITY_FLAGS, sorted, unique
+    fetched_ms: int = 0
+    source_kind: str = "github.copilot_metrics"
+
+    def __post_init__(self) -> None:
+        _date(self, "date_utc")
+        _str(self, "product")
+        _store_principal(self, "principal")
+        _str(self, "team", optional=True)
+        _str(self, "cost_center", optional=True)
+        _int(self, "reported_cost_nano", optional=True)
+        for k, v in _pairs(self, "counts", sort=True, value_types=(int,)):
+            if not _activity_key_ok(k):
+                raise _fail(self, "counts", "key not an activity key")
+            if not 0 <= v <= MAX_TOKENS:
+                raise _fail(self, "counts", "counts must be ints in [0, 2**53]")
+        flags = _tuple(self, "flags", str)
+        if any(f not in ACTIVITY_FLAGS for f in flags):
+            raise _fail(self, "flags", "flag not in ACTIVITY_FLAGS")
+        if len(set(flags)) != len(flags):
+            raise _fail(self, "flags", "duplicate flags")
+        if list(flags) != sorted(flags):
+            object.__setattr__(self, "flags", tuple(sorted(flags)))
+        _count(self, "fetched_ms")
+        _str(self, "source_kind")
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigSnapshot:
+    """Content-free configuration state of a billing entity or of this run.
+
+    ``entity_id``: ``enterprise`` | ``org:<login>`` | ``cc:<name>`` | ``budget:<id>`` | ``run`` |
+    ``admin_answers``. User-scope budgets carry only the user's team / cost center, never a person:
+    no attr value may look like a ``p_`` pseudonym (R14). Count kinds (``COUNT_CONFIG_KINDS``) hold
+    one row per group; their non-count attrs are part of :func:`record_key`.
+    """
+
+    snapshot_ms: int
+    source_kind: str      # CONFIG_SOURCE_KINDS
+    kind: str             # CONFIG_KINDS
+    entity_id: str
+    attrs: tuple[tuple[str, str | int | bool | None], ...]   # keys per CONFIG_KEYS[kind], sorted
+    fetched_ms: int = 0
+
+    def __post_init__(self) -> None:
+        _count(self, "snapshot_ms")
+        if self.snapshot_ms > _MAX_DATE_MS:  # record_key derives its UTC date
+            raise _fail(self, "snapshot_ms", "after 9999-12-31")
+        _one_of(self, "source_kind", CONFIG_SOURCE_KINDS)
+        _one_of(self, "kind", CONFIG_KINDS)
+        e = self.entity_id
+        if not isinstance(e, str) or not _ENTITY_ID_RE.match(e):
+            raise _fail(self, "entity_id", "not an entity id")
+        allowed = CONFIG_KEYS[self.kind]
+        for k, v in _pairs(self, "attrs", sort=True, value_types=(str, int, bool, _N)):
+            if not _prefixed_key_ok(k, allowed):
+                raise _fail(self, "attrs", f"key not allowed for kind {self.kind}")
+            if type(v) is int and not -_INT64 <= v <= _INT64:
+                raise _fail(self, "attrs", "int out of range")
+            if isinstance(v, str) and _STORE_PRINCIPAL_RE.match(v):
+                raise _fail(self, "attrs", "values must not be principal pseudonyms")
+        _count(self, "fetched_ms")
+
+
+def _key_part(value: object) -> str:
+    """One natural-key part: ``""`` for None, ``true`` / ``false`` for bools; a backslash or the
+    ``\\x1f`` separator inside a free string is escaped, so distinct records never share a key."""
+    if value is None:
+        return ""
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    s = str(value)
+    if "\\" in s or "\x1f" in s:
+        s = s.replace("\\", "\\\\").replace("\x1f", "\\x1f")
+    return s
+
+
+def _utc_date_of_ms(ms: int) -> str:
+    return (_dt.datetime(1970, 1, 1) + _dt.timedelta(milliseconds=ms)).date().isoformat()
+
+
+def record_key(rec: LicenseSnapshot | ActivityDay | ConfigSnapshot) -> str:
+    """The natural key of an extension record (parts joined by ``"\\x1f"``; ``""`` for None parts).
+
+    License: ``(snapshot_date, product, principal, org or "")``; activity: ``(date_utc, product,
+    principal)``; configuration: ``(kind, entity_id, UTC date of snapshot_ms)`` plus, for
+    ``COUNT_CONFIG_KINDS``, every non-count attr (all but ``n``, ``n_people``, ``n_users``) as
+    ``k=v`` in key order — so several count rows per entity and day never collide. A backslash or
+    ``"\\x1f"`` inside a free-string part is backslash-escaped (injective).
+    """
+    if isinstance(rec, LicenseSnapshot):
+        parts = [rec.snapshot_date, _key_part(rec.product), rec.principal, _key_part(rec.org)]
+    elif isinstance(rec, ActivityDay):
+        parts = [rec.date_utc, _key_part(rec.product), rec.principal]
+    elif isinstance(rec, ConfigSnapshot):
+        parts = [rec.kind, _key_part(rec.entity_id), _utc_date_of_ms(rec.snapshot_ms)]
+        if rec.kind in COUNT_CONFIG_KINDS:
+            parts.extend(f"{k}={_key_part(v)}" for k, v in rec.attrs if k not in _COUNT_ATTRS)
+    else:
+        raise TypeError("record_key expects a LicenseSnapshot, ActivityDay or ConfigSnapshot")
+    return "\x1f".join(parts)
+
+
+# ---------------------------------------------------------------------------------------------
 # lossless JSON round trip
 # ---------------------------------------------------------------------------------------------
 
 _FIELD_NAMES: dict[type, tuple[str, ...]] = {}
+#: Per dataclass type: appended fields (OMIT_DEFAULT) → their default, left out while at it.
+_OMIT_DEFAULTS: dict[type, dict[str, Any]] = {}
+
+
+def _default_of(f: dataclasses.Field) -> Any:
+    if f.default_factory is not dataclasses.MISSING:  # type: ignore[misc]
+        return f.default_factory()  # type: ignore[misc]
+    return f.default
+
+
+def _enc_dataclass(value: Any, names: tuple[str, ...]) -> dict[str, Any]:
+    omit = _OMIT_DEFAULTS.get(type(value))
+    if not omit:
+        return {name: _enc(getattr(value, name)) for name in names}
+    out = {}
+    for name in names:
+        v = getattr(value, name)
+        if name in omit and v == omit[name]:
+            continue
+        out[name] = _enc(v)
+    return out
 
 
 def _enc(value: Any) -> Any:
@@ -1118,7 +1583,7 @@ def _enc(value: Any) -> Any:
         return [_enc(v) for v in value]
     names = _FIELD_NAMES.get(t)
     if names is not None:
-        return {name: _enc(getattr(value, name)) for name in names}
+        return _enc_dataclass(value, names)
     if isinstance(value, Enum):
         return value.value
     if t is Decimal:
@@ -1126,11 +1591,13 @@ def _enc(value: Any) -> Any:
             raise TypeError("to_json: non-finite Decimal")
         return str(value)
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        fields = dataclasses.fields(value)
+        _OMIT_DEFAULTS[t] = {f.name: _default_of(f) for f in fields if f.metadata.get(OMIT_DEFAULT)}
         names = _FIELD_NAMES[t] = tuple(
-            f.name for f in dataclasses.fields(value)
+            f.name for f in fields
             if f.metadata.get("tokenbill.json", True)  # e.g. PublishedAggregate.token is not data
         )
-        return {name: _enc(getattr(value, name)) for name in names}
+        return _enc_dataclass(value, names)
     if t is frozenset or t is set:
         return sorted(_enc(v) for v in value)
     if isinstance(value, Mapping):
@@ -1154,10 +1621,24 @@ def to_json(obj: Any) -> dict[str, Any]:
     ``metadata={"tokenbill.json": False}`` are left out: ``PublishedAggregate.token`` is a
     construction guard, so a ``RunResult`` with published breakdowns encodes, while ``from_json``
     still refuses to rebuild a ``PublishedAggregate`` (only ``core.kanon.publish`` makes one).
+    Fields appended after wave 1 (:func:`appended`, metadata :data:`OMIT_DEFAULT`) are left out
+    while they hold their default, so documents of pre-Copilot data are byte-identical to wave 1.
     """
     if not dataclasses.is_dataclass(obj) or isinstance(obj, type):
         raise TypeError("to_json expects a dataclass instance")
     return _enc(obj)
+
+
+def record_fields(cls: type) -> frozenset[str]:
+    """The JSON field names :func:`to_json` may emit for instances of the dataclass *cls* (fields
+    marked ``metadata={"tokenbill.json": False}`` are left out; appended fields are included,
+    though omitted from a document while at their default), so codecs derive closed key sets
+    instead of keeping hand-written lists."""
+    if not (isinstance(cls, type) and dataclasses.is_dataclass(cls)):
+        raise TypeError("record_fields expects a dataclass type")
+    return frozenset(
+        f.name for f in dataclasses.fields(cls) if f.metadata.get("tokenbill.json", True)
+    )
 
 
 class _DecodeError(Exception):

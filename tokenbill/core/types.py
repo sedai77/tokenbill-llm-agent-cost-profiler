@@ -3,11 +3,19 @@
 Plain frozen dataclasses transcribed from the SPEC. Construction-time invariants that the SPEC
 states (``PublishedAggregate``'s publish token) are enforced; behavior owned by F-SEM
 (``Policy.spec()``, ``Policy.combine()``) is delegated lazily to ``tokenbill.core.policy``.
+
+GitHub Copilot additions (wave 1.5a, CORE-AMENDMENTS C-11 … C-18) are appended with defaults: the
+ingest and context carriers of seat / activity / configuration records, the experimental flags, the
+pool figures (``PricedTotal.pool``, ``ClusterDay.pool_nano``, ``Finding.headroom``,
+``ActionPlan.pool_headroom_monthly``), the reconciler's decisions and the Copilot result types
+(``PlanEvidence``, ``PoolMonth``, ``CopilotBillLine``, ``AdminAction``, ``CopilotSummary``,
+``FocusRow``), which validate their closed vocabularies in ``__post_init__``.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -17,29 +25,48 @@ from tokenbill.core.errors import ContractViolation
 from tokenbill.core.labels import Basis, Calibration, Figure, Finality
 from tokenbill.core.money import scaled_to_nano
 from tokenbill.core.records import (
+    _DECIMAL_STR_RE,
+    LICENSE_PLANS,
+    PLAN_SOURCES,
+    ActivityDay,
     Attribution,
+    ConfigSnapshot,
     ContentTier,
     CostLine,
     Inference,
     LaneEvent,
+    LicenseSnapshot,
     OutcomeAggregate,
     Request,
     Session,
     UsageAggregate,
     UsageBuckets,
+    _bool,
+    _count,
+    _decimal_str,
+    _fail,
+    _instance,
+    _int,
+    _one_of,
+    _pairs,
+    _str,
+    _tuple,
+    appended,
 )
 
 if TYPE_CHECKING:
     from tokenbill.core.protocols import CacheRulesProvider, Pricer, Replayer
 
 __all__ = [
-    "AbResult", "ActionPlan", "AggRow", "AnalysisContext", "BillSummary", "CalibrationPartial",
-    "CalibrationReport", "ChannelVerdict", "CheckResult", "CheckViolation", "ClusterDay",
-    "ContractOverlay", "DataQualityNote", "Discrepancy", "EvidenceItem", "Finding", "Fix",
-    "GuardResult", "IngestOptions", "IngestResult", "LaneIndexRow", "LedgerCostRow", "LeverResult",
-    "MeasurePlan", "MeasurementResult", "Modifier", "PanelRow", "Policy", "PolicyEntry",
-    "PolicyPack", "PricedInference", "PricedLine", "PricedTotal", "PricingReport", "PrivacyInfo",
-    "PublishedAggregate",
+    "ADMIN_ACTION_WHERE", "BILL_LINES", "EXPERIMENTAL_FLAGS", "RECON_DECISION_PREFIXES",
+    "AbResult", "ActionPlan", "AdminAction", "AggRow", "AnalysisContext", "BillSummary",
+    "CalibrationPartial", "CalibrationReport", "ChannelVerdict", "CheckResult", "CheckViolation",
+    "ClusterDay", "ContractOverlay", "CopilotBillLine", "CopilotSummary", "DataQualityNote",
+    "Discrepancy", "EvidenceItem", "Finding", "Fix", "FocusRow", "GuardResult", "IngestOptions",
+    "IngestResult", "LaneIndexRow", "LedgerCostRow", "LeverResult", "MeasurePlan",
+    "MeasurementResult", "Modifier", "PanelRow", "PlanEvidence", "Policy", "PolicyEntry",
+    "PolicyPack", "PoolMonth", "PricedInference", "PricedLine", "PricedTotal", "PricingReport",
+    "PrivacyInfo", "PublishedAggregate",
     "QuarantineItem", "RateCardInfo", "RateLayer", "RateRow", "RawAggregate", "ReceiptRow",
     "ReconRow", "ReconciliationReport", "ReplayRequestOutcome", "ReplayResult", "ResolvedRates",
     "RunResult", "Scope", "ShardKey", "SourceCitation", "SourceInfo", "Transition", "UnitRates",
@@ -104,6 +131,19 @@ class IngestOptions:
     # trace@2: rebuild inferences from raw_usage with current conventions
     renormalize: bool = False
     now_ms: int = 0                  # injected clock (determinism)
+    # GitHub sources (C-12): raw actor ref → cost center, applied at ingest then discarded
+    cost_center_map: tuple[tuple[str, str], ...] = appended(())
+    # extra Copilot OTel service.name values: "NAME" or "NAME=<agent_product>" (agent_product ∈
+    # copilot_jetbrains | copilot_other); core.models.is_copilot_resource uses the NAME part only
+    otel_service_names: tuple[str, ...] = appended(())
+    # opt-in feature flags ⊆ EXPERIMENTAL_FLAGS (the CLI rejects unknown flags with UsageError)
+    experimental: frozenset[str] = appended(frozenset())
+
+
+#: Experimental ingest features (``IngestOptions.experimental``): sources whose only evidence is
+#: third-party or undocumented ship behind a flag until a real fixture exists (addendum §5).
+EXPERIMENTAL_FLAGS = frozenset({"copilot-store", "copilot-cli-otel-file", "copilot-jetbrains-otel",
+                                "copilot-report-quota"})
 
 
 @dataclass
@@ -123,6 +163,10 @@ class IngestResult:
     # Claude Code only: Σ usage over every assistant line, per normalized model (the 2.33×
     # self-check; the pipeline prices it)
     naive_usage: dict[str, UsageBuckets] = field(default_factory=dict)
+    # seat / activity / configuration records (C-11; persisted by extension record stores)
+    licenses: list[LicenseSnapshot] = appended(default_factory=list)
+    activity: list[ActivityDay] = appended(default_factory=list)
+    config: list[ConfigSnapshot] = appended(default_factory=list)
 
 
 # ---------- pricing registry format (frozen contract; RATES implements load/validate) ----------
@@ -312,12 +356,16 @@ class PricedTotal:
     exact: Figure
     # Σ range lines on billed bases; shown beside, never inside, the bill
     estimated: Figure | None
-    # Σ every line on basis LIST_EQUIVALENT (EXACT iff all its lines are)
+    # Σ LIST_EQUIVALENT lines on billing path ``subscription`` (EXACT iff all its lines are); before
+    # the Copilot paths existed this was every LIST_EQUIVALENT line (same number for that data)
     allowance: Figure | None
     priced_inferences: int
     unpriced_inferences: int
     unpriced_tokens: int
     coverage: str                    # decimal string: priced billable tokens / all billable tokens
+    # Σ LIST_EQUIVALENT lines on core.records.COPILOT_BILLING_PATHS (Copilot pooled AI credits,
+    # C-15)
+    pool: Figure | None = appended(None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -536,7 +584,7 @@ class Fix:
     text: str
     # flattened key path → JSON value string (ALLOWLIST keys)
     config_patch: tuple[tuple[str, str], ...] | None
-    # "claude-code-managed-settings"|"litellm"|"code"|"gateway"|"ci"|"sdk"
+    # "claude-code-managed-settings"|"litellm"|"code"|"gateway"|"ci"|"sdk"|"github-copilot"
     target: str | None
     doc_url: str | None
     gates: tuple[str, ...] = ()  # applicability, e.g. "claude-code>=2.1.267"
@@ -544,7 +592,8 @@ class Fix:
 
 @dataclass(frozen=True, slots=True)
 class Scope:
-    # sorted; team/repo/lane_kind/model/agent_type/workspace/cohort/…
+    # sorted; team/repo/lane_kind/model/agent_type/workspace/cohort/…; Copilot findings also use
+    # product/entity/cost_center/org/plan/bucket/surface/workload/plan_scenario (C-16)
     dims: tuple[tuple[str, str], ...]
 
 
@@ -581,6 +630,8 @@ class Finding:
     validated_against: str | None = None
     needs_eval: bool = False
     references: tuple[str, ...] = ()       # research finding ids
+    # Copilot scopes only (R-E20): the unconverted list-equivalent pool headroom, LIST_EQUIVALENT
+    headroom: Figure | None = appended(None)
 
 
 @dataclass(frozen=True)
@@ -603,6 +654,16 @@ class AnalysisContext:
     aggregates: tuple[UsageAggregate, ...] = ()   # for aggregate-level detectors (org scan)
     cost_lines: tuple[CostLine, ...] = ()
     shard: ShardKey | None = None                 # informational; detectors must not depend on it
+    # channel extensions (C-14): filled by core.extensions.enrich
+    licenses: tuple[LicenseSnapshot, ...] = ()
+    activity: tuple[ActivityDay, ...] = ()
+    config: tuple[ConfigSnapshot, ...] = ()
+    outcomes: tuple[OutcomeAggregate, ...] = ()
+    pools: tuple[PoolMonth, ...] = ()             # both scenarios while a plan is unknown (R-E22)
+    plans: tuple[PlanEvidence, ...] = ()
+    reconciled_channels: frozenset[str] = frozenset()
+    # the reconcilers' decisions (ReconciliationReport.decisions, merged; never persisted)
+    recon_decisions: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -619,7 +680,7 @@ class PolicyEntry:
 
 @dataclass(frozen=True, slots=True)
 class PolicyPack:
-    target: str                  # "claude-code" | "litellm" | "sdk"
+    target: str                  # "claude-code" | "litellm" | "sdk" | "github-copilot"
     cohort: str                  # "all" or cohort id (team / MDM group)
     merge_patch_json: str        # RFC 7386 merge patch against --current (canonical JSON)
     rollback_patch_json: str     # merge patch restoring the previous values (null for absent keys)
@@ -660,6 +721,9 @@ class ActionPlan:
     sample: str
     # lever class → (observed mean RR, n receipts)
     observed_rr: tuple[tuple[str, str, int], ...] = ()
+    # billing class ``pool`` cohorts (Copilot lanes): list-equivalent headroom, never in the
+    # headline
+    pool_headroom_monthly: Figure | None = appended(None)
 
 
 # ---------- reconciliation ----------
@@ -707,6 +771,47 @@ class ReconciliationReport:
     finality: Finality
     suggested_contract: ContractOverlay | None
     rerun_verdict: str | None             # verdict after applying the suggested contract
+    # channel reconcilers' reusable decisions (C-17): "convention:<source_id>" →
+    # excl|incl|undecidable, "gross_is_list:<entity>:<YYYY-MM>" → true|false|unknown,
+    # "plan_fit:<entity>:<YYYY-MM>" → business|enterprise|unknown (diagnostic only, never a label
+    # source); sorted, unique keys
+    decisions: tuple[tuple[str, str], ...] = appended(())
+
+    def __post_init__(self) -> None:
+        for key, value in _pairs(self, "decisions", sort=True):
+            prefix = _decision_prefix(key)
+            domain = _RECON_DECISION_DOMAINS.get(prefix)
+            if domain is None or not _decision_key_ok(prefix, key[len(prefix):]):
+                raise ContractViolation("ReconciliationReport.decisions: unknown decision key")
+            if value not in domain:
+                raise ContractViolation("ReconciliationReport.decisions: value not allowed")
+
+
+#: Prefixes of ``ReconciliationReport.decisions`` keys.
+RECON_DECISION_PREFIXES = ("convention:", "gross_is_list:", "plan_fit:")
+_RECON_DECISION_DOMAINS: Mapping[str, frozenset[str]] = {
+    "convention:": frozenset({"excl", "incl", "undecidable"}),
+    "gross_is_list:": frozenset({"true", "false", "unknown"}),
+    "plan_fit:": frozenset({"business", "enterprise", "unknown"}),
+}
+
+
+def _decision_prefix(key: str) -> str:
+    for prefix in RECON_DECISION_PREFIXES:
+        if key.startswith(prefix):
+            return prefix
+    return ""
+
+
+def _decision_key_ok(prefix: str, rest: str) -> bool:
+    """``convention:<source_id>`` (non-empty, no control characters); ``gross_is_list:`` /
+    ``plan_fit:`` + ``<entity>:<YYYY-MM>`` with a pool entity id (``enterprise`` | ``org:<x>`` |
+    ``cc:<x>``, as ``PoolMonth.entity_id``)."""
+    if prefix == "convention:":
+        return _SOURCE_ID_RE.match(rest) is not None
+    entity, sep, month = rest.rpartition(":")
+    return bool(sep) and _POOL_ENTITY_RE.match(entity) is not None and (
+        _MONTH_RE.match(month) is not None)
 
 
 # ---------- verification ----------
@@ -848,6 +953,285 @@ class PublishedAggregate:     # the only aggregate type renderers/exporters acce
             raise ContractViolation("PublishedAggregate: construct it through core.kanon.publish")
 
 
+# ---------- GitHub Copilot (C-13): plan evidence, pool months, bill lines, admin actions ----------
+_MONTH_RE = re.compile(r"\d{4}-(?:0[1-9]|1[0-2])\Z")
+_DATE_STR_RE = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
+_POOL_ENTITY_RE = re.compile(r"(?:enterprise|(?:org|cc):[^\x00-\x1f]+)\Z")
+_SOURCE_ID_RE = re.compile(r"[^\x00-\x1f]+\Z")
+_SCENARIOS = ("business", "enterprise")
+_EVIDENCE_PLANS = ("business", "enterprise", "mixed", "unknown")
+_BILLING_MODES = ("metered", "volume", "azure", "unknown")
+_SEATS_SOURCES = ("seat_lines", "run_flags", "licenses", "seat_counts", "report_users", "none")
+_DIRECT_DRAWS = ("yes", "no", "unknown")
+_CAPPED_POLICIES = ("block", "continue", "unknown")
+_POOL_FINALITIES = ("closed", "open")
+_REGIMES = ("slack", "overage", "straddling", "unknown")
+_FOCUS_X_COLUMN_RE = re.compile(r"x_[A-Z][A-Za-z0-9]{1,48}\Z")
+_FOCUS_COLUMN_RE = re.compile(r"[A-Z][A-Za-z0-9]{1,63}\Z")
+_WHAT_MAX = 400
+
+
+def _match(obj: object, name: str, pattern: re.Pattern[str], why: str, *,
+           optional: bool = False) -> None:
+    v = getattr(obj, name)
+    if v is None and optional:
+        return
+    if not isinstance(v, str) or not pattern.match(v):
+        raise _fail(obj, name, why)
+
+
+def _str_tuple(obj: object, name: str) -> tuple[str, ...]:
+    return _tuple(obj, name, str)
+
+
+@dataclass(frozen=True, slots=True)
+class PlanEvidence:
+    """What the data says about one billing entity's Copilot plan in one month (R17, R-E22).
+
+    ``source`` names the highest-precedence source with evidence (``PLAN_SOURCES`` order);
+    ``conflict`` is True when a lower-precedence source disagreed (the higher one won); ``seats``
+    counts seats per plan (``unknown`` for seats no source could place, e.g. activity-report seats).
+    """
+
+    entity_id: str                    # "enterprise" | "org:<login>" | "cc:<name>"
+    month: str                        # "YYYY-MM"
+    plan: str                         # "business" | "enterprise" | "mixed" | "unknown"
+    source: str                       # PLAN_SOURCES
+    seats: tuple[tuple[str, int], ...] = ()   # sorted: plan (LICENSE_PLANS) → seats
+    conflict: bool = False
+    evidence: tuple[str, ...] = ()    # content-free, e.g. "seat_lines: copilot_enterprise 200"
+
+    def __post_init__(self) -> None:
+        _match(self, "entity_id", _POOL_ENTITY_RE, "not a pool entity id")
+        _match(self, "month", _MONTH_RE, "must be a YYYY-MM string")
+        _one_of(self, "plan", _EVIDENCE_PLANS)
+        _one_of(self, "source", PLAN_SOURCES)
+        for k, v in _pairs(self, "seats", sort=True, value_types=(int,)):
+            if k not in LICENSE_PLANS:
+                raise _fail(self, "seats", "keys must be license plans")
+            if v < 0:
+                raise _fail(self, "seats", "counts must be >= 0")
+        _bool(self, "conflict")
+        _str_tuple(self, "evidence")
+
+
+@dataclass(frozen=True, slots=True)
+class PoolMonth:
+    """One Copilot pool entity × calendar month (addendum CA-14; the pool resets on the 1st, UTC).
+
+    While any seat's plan is unknown, ``core.pool.pool_months`` emits one ``PoolMonth`` per scenario
+    (``plan_scenario`` ``business`` / ``enterprise``), never one merged figure (R-E22).
+    """
+
+    entity_id: str                    # "enterprise" | "org:<login>" | "cc:<name>" (capped)
+    month: str                        # "YYYY-MM"
+    billing_mode: str                 # "metered" | "volume" | "azure" | "unknown"
+    # sorted: plan (LICENSE_PLANS) → seat-months (decimal string); in a scenario the unknown seats
+    # are counted under the scenario's plan
+    seats: tuple[tuple[str, str], ...]
+    # "seat_lines" | "run_flags" | "licenses" | "seat_counts" | "report_users" (lower bound) |
+    # "none"
+    seats_source: str
+    pool_credits: str                 # decimal string
+    pool_nano: int
+    promo: str | None
+    consumed_report_nano: int         # Σ credits × $0.01 of pooled report rows (final + prov.)
+    consumed_estimate_nano: int       # ai_credits_used for days not yet in the report (R12)
+    pool_draw_nano: int | None        # Σ discount classified pool-included (None: unclassified)
+    discount_other_nano: int          # classified non-pool discounts (Auto, contract)
+    discount_unclassified_nano: int
+    overage_observed_nano: int        # Σ net of pooled report rows so far
+    direct_net_nano: int              # Σ net of direct-org rows
+    direct_draws_pool: str            # "yes" | "no" | "unknown"
+    capped_policy: str | None         # cc entities: "block" | "continue" | "unknown"
+    days_final: int
+    days_provisional: int
+    days_in_month: int
+    finality: str                     # "closed" | "open"
+    forecast: Figure | None           # ESTIMATED month-end consumption, p10–p90 (open months)
+    overage_forecast: Figure | None   # ESTIMATED (open months; range when capped_policy unknown)
+    regime: str                       # "slack" | "overage" | "straddling" | "unknown"
+    notes: tuple[str, ...] = ()
+    plan_source: str = "none"         # PlanEvidence.source of this entity × month
+    plan_scenario: str | None = None  # None when every plan is known; else business|enterprise
+    plan_conflict: bool = False
+
+    def __post_init__(self) -> None:
+        _match(self, "entity_id", _POOL_ENTITY_RE, "not a pool entity id")
+        _match(self, "month", _MONTH_RE, "must be a YYYY-MM string")
+        _one_of(self, "billing_mode", _BILLING_MODES)
+        for k, v in _pairs(self, "seats", sort=True):
+            if k not in LICENSE_PLANS:
+                raise _fail(self, "seats", "keys must be license plans")
+            if not _DECIMAL_STR_RE.match(v):
+                raise _fail(self, "seats", "values must be finite decimal strings")
+        _one_of(self, "seats_source", _SEATS_SOURCES)
+        _decimal_str(self, "pool_credits")
+        _str(self, "promo", optional=True)
+        for name in ("pool_nano", "consumed_report_nano", "consumed_estimate_nano",
+                     "discount_other_nano", "discount_unclassified_nano", "overage_observed_nano",
+                     "direct_net_nano"):
+            _int(self, name)
+        _int(self, "pool_draw_nano", optional=True)
+        _one_of(self, "direct_draws_pool", _DIRECT_DRAWS)
+        _one_of(self, "capped_policy", _CAPPED_POLICIES, optional=True)
+        for name in ("days_final", "days_provisional", "days_in_month"):
+            _count(self, name)
+        _one_of(self, "finality", _POOL_FINALITIES)
+        _instance(self, "forecast", Figure, optional=True)
+        _instance(self, "overage_forecast", Figure, optional=True)
+        _one_of(self, "regime", _REGIMES)
+        _str_tuple(self, "notes")
+        _one_of(self, "plan_source", PLAN_SOURCES)
+        _one_of(self, "plan_scenario", _SCENARIOS, optional=True)
+        _bool(self, "plan_conflict")
+
+
+#: Copilot bill lines per entity × month (addendum §14.1); ``seats.unknown_plan`` carries seats
+#: whose plan is unknown, once per scenario.
+BILL_LINES = ("seats.business", "seats.enterprise", "seats.unknown_plan", "ai_credits.gross",
+              "ai_credits.discount_pool", "ai_credits.discount_other",
+              "ai_credits.discount_unclassified", "ai_credits.overage", "ai_credits.direct_org",
+              "code_quality.licenses", "code_quality.ai_credits", "actions.code_review",
+              "actions.cloud_agent", "actions.agentic_workflow", "sandbox", "total.invoice")
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotBillLine:
+    """One line of the Copilot bill of an entity × month; ``amount`` is labelled per R16."""
+
+    month: str                        # "YYYY-MM"
+    entity_id: str
+    line: str                         # BILL_LINES
+    quantity: str | None              # decimal string (credits, seats, minutes)
+    unit: str | None
+    amount: Figure
+    components: tuple[str, ...] = ()  # total.invoice: the lines it sums (⊆ BILL_LINES)
+    # "business" | "enterprise" for pool-dependent lines while the plan is unknown
+    scenario: str | None = None
+
+    def __post_init__(self) -> None:
+        _match(self, "month", _MONTH_RE, "must be a YYYY-MM string")
+        _match(self, "entity_id", _POOL_ENTITY_RE, "not a pool entity id")
+        _one_of(self, "line", BILL_LINES)
+        _decimal_str(self, "quantity", optional=True)
+        _str(self, "unit", optional=True)
+        _instance(self, "amount", Figure)
+        if any(c not in BILL_LINES for c in _str_tuple(self, "components")):
+            raise _fail(self, "components", "items must be bill lines")
+        _one_of(self, "scenario", _SCENARIOS, optional=True)
+
+
+#: ``AdminAction.where`` values: where an admin applies the change (addendum CA-14).
+ADMIN_ACTION_WHERE = ("enterprise settings", "organization settings", "managed-settings.json",
+                      "repository settings", "personal settings (communicate)", "REST",
+                      "workflow frontmatter")
+
+
+@dataclass(frozen=True, slots=True)
+class AdminAction:
+    """One admin checklist item of the Copilot policy pack (never executed by Token Bill)."""
+
+    action_id: str
+    lever_id: str | None
+    admin_action: str                 # key of core.catalog.ADMIN_ACTIONS
+    where: str                        # ADMIN_ACTION_WHERE
+    what: str                         # ≤ 400 chars, content-free
+    doc_url: str
+    rest_file: str | None
+    auth_note: str | None             # the role / scope the REST call needs (§19.4)
+    reach: str | None                 # decimal string in [0, 1]: share of the credits reached
+    projection: Figure | None
+    deadline: str | None              # YYYY-MM-DD
+    needs_eval: bool
+    tradeoff: bool
+
+    def __post_init__(self) -> None:
+        for name in ("action_id", "admin_action", "what", "doc_url"):
+            _str(self, name)
+        for name in ("lever_id", "rest_file", "auth_note"):
+            _str(self, name, optional=True)
+        _one_of(self, "where", ADMIN_ACTION_WHERE)
+        if len(self.what) > _WHAT_MAX:
+            raise _fail(self, "what", "longer than 400 chars")
+        _decimal_str(self, "reach", optional=True)
+        if self.reach is not None and not Decimal(0) <= Decimal(self.reach) <= Decimal(1):
+            raise _fail(self, "reach", "must be in [0, 1]")
+        _instance(self, "projection", Figure, optional=True)
+        _match(self, "deadline", _DATE_STR_RE, "must be a YYYY-MM-DD string", optional=True)
+        _bool(self, "needs_eval")
+        _bool(self, "tradeoff")
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotSummary:
+    """``RunResult.copilot``: the Copilot bill, pools, k-anonymous seat counts, the aggregate plan
+    (one per scenario while a plan is unknown) and the admin actions."""
+
+    window: tuple[str, str]
+    lines: tuple[CopilotBillLine, ...]
+    pools: tuple[PoolMonth, ...]
+    teams: PublishedAggregate | None
+    # (team or "(other)", "plan:bucket", count), k-anonymous
+    seat_counts: tuple[tuple[str, str, int], ...]
+    plan: ActionPlan | None           # None while a plan is unknown (see plans_by_scenario)
+    actions: tuple[AdminAction, ...]
+    channel_verdicts: tuple[tuple[str, str], ...]   # channel → verdict
+    notes: tuple[str, ...] = ()
+    plan_status: tuple[PlanEvidence, ...] = ()      # one per entity (latest month)
+    # ("business", plan), ("enterprise", plan) while a plan is unknown; the scenarios are its keys
+    plans_by_scenario: tuple[tuple[str, ActionPlan], ...] = ()
+    editor_split: PublishedAggregate | None = None  # credits by team × editor family (k ≥ 5)
+
+    def __post_init__(self) -> None:
+        w = _tuple(self, "window", str)
+        if len(w) != 2:
+            raise _fail(self, "window", "must be (start, end)")
+        _tuple(self, "lines", CopilotBillLine)
+        _tuple(self, "pools", PoolMonth)
+        _instance(self, "teams", PublishedAggregate, optional=True)
+        counts = _tuple(self, "seat_counts")
+        norm = []
+        for row in counts:
+            if (not isinstance(row, (list, tuple)) or len(row) != 3
+                    or not isinstance(row[0], str) or not isinstance(row[1], str)
+                    or type(row[2]) is not int or row[2] < 0):
+                raise _fail(self, "seat_counts", "items must be (team, plan:bucket, count >= 0)")
+            norm.append((row[0], row[1], row[2]))
+        if any(type(row) is not tuple for row in counts):
+            object.__setattr__(self, "seat_counts", tuple(norm))
+        _instance(self, "plan", ActionPlan, optional=True)
+        _tuple(self, "actions", AdminAction)
+        _pairs(self, "channel_verdicts", sort=True)
+        _str_tuple(self, "notes")
+        _tuple(self, "plan_status", PlanEvidence)
+        for scenario, _plan in _pairs(self, "plans_by_scenario", sort=True,
+                                     value_types=(ActionPlan,)):
+            if scenario not in _SCENARIOS:
+                raise _fail(self, "plans_by_scenario", "keys must be business | enterprise")
+        _instance(self, "editor_split", PublishedAggregate, optional=True)
+
+
+@dataclass(frozen=True, slots=True)
+class FocusRow:
+    """One FOCUS 1.4 row from a channel extension; values already formatted (money as decimal
+    strings). Column names are FOCUS columns or custom ``x_`` columns."""
+
+    columns: tuple[tuple[str, str], ...]   # FOCUS columns + x_ columns ^x_[A-Z][A-Za-z0-9]{1,48}$
+    channel: str
+    reconciled: bool
+
+    def __post_init__(self) -> None:
+        for name, _value in _pairs(self, "columns", sort=False):
+            if name.startswith("x_"):
+                if not _FOCUS_X_COLUMN_RE.match(name):
+                    raise _fail(self, "columns", "custom columns must match x_<PascalCase>")
+            elif not _FOCUS_COLUMN_RE.match(name):
+                raise _fail(self, "columns", "not a FOCUS column name")
+        _str(self, "channel")
+        _bool(self, "reconciled")
+
+
 # ---------- run-level results (what pipeline returns and outputs/* render) ----------
 @dataclass(frozen=True, slots=True)
 class LedgerCostRow:
@@ -886,6 +1270,7 @@ class ClusterDay:
     requests: int
     exact_nano: int
     allowance_nano: int
+    pool_nano: int = appended(0)    # LIST_EQUIVALENT Copilot pooled usage (C-15)
 
 
 @dataclass(frozen=True, slots=True)
@@ -962,4 +1347,5 @@ class RunResult:
     receipts: tuple[str, ...] = ()           # receipt ids
     synthetic: bool = False                  # demo-data banner
     notes: tuple[str, ...] = ()
+    copilot: CopilotSummary | None = appended(None)   # GitHub Copilot summary (C-18)
 

@@ -19,6 +19,7 @@ import re
 import subprocess
 import zlib
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import IO, Any
 
@@ -31,6 +32,7 @@ __all__ = [
     "acl_warning",
     "head_sha",
     "iter_lines",
+    "load_json_exact",
     "open_private",
     "open_text",
     "parse_json_line",
@@ -164,16 +166,22 @@ def iter_lines(path: Path, *, start_offset: int = 0) -> Iterator[tuple[int, int,
 
 
 def _has_lone_surrogate(value: Any) -> bool:
-    if isinstance(value, str):
-        try:
-            value.encode("utf-8")
-        except UnicodeEncodeError:
-            return True
-        return False
-    if isinstance(value, dict):
-        return any(_has_lone_surrogate(k) or _has_lone_surrogate(v) for k, v in value.items())
-    if isinstance(value, list):
-        return any(_has_lone_surrogate(v) for v in value)
+    """Whether a string (key or value) anywhere in the decoded JSON *value* holds an unpaired
+    surrogate. Iterative, so a document nested as deeply as the JSON decoder accepts never raises
+    ``RecursionError`` here."""
+    stack = [value]
+    while stack:
+        v = stack.pop()
+        if isinstance(v, str):
+            try:
+                v.encode("utf-8")
+            except UnicodeEncodeError:
+                return True
+        elif isinstance(v, dict):
+            stack.extend(v.keys())
+            stack.extend(v.values())
+        elif isinstance(v, list):
+            stack.extend(v)
     return False
 
 
@@ -190,10 +198,22 @@ def _finite_float(token: str) -> float:
     return value
 
 
-def parse_json_line(raw: bytes) -> dict | None:
+def _exact_decimal(token: str) -> Decimal:
+    """A JSON number with a fraction or exponent, exactly (money and credits are never float)."""
+    try:
+        return Decimal(token)
+    except InvalidOperation:  # pragma: no cover - the JSON scanner only passes numeric tokens
+        raise ValueError("not a number") from None
+
+
+def parse_json_line(raw: bytes, *, exact_numbers: bool = False) -> dict | None:
     """Parse one JSONL line: a ``dict``, or None for invalid UTF-8/JSON, non-objects, NaN/Infinity
     (including number literals that overflow to infinity), excessive nesting and strings holding
-    unpaired surrogates."""
+    unpaired surrogates.
+
+    With *exact_numbers*, JSON numbers with a fraction or exponent parse as ``Decimal`` (exact; the
+    GitHub usage-metrics ``ai_credits_used`` values); integers stay ``int``. The default path is
+    unchanged (finite floats)."""
     if not raw:
         return None
     try:
@@ -202,14 +222,52 @@ def parse_json_line(raw: bytes) -> dict | None:
         return None
     if text.startswith("\ufeff"):
         text = text[1:]
+    parse_float = _exact_decimal if exact_numbers else _finite_float
     try:
-        obj = json.loads(text, parse_constant=_reject_constant, parse_float=_finite_float)
+        obj = json.loads(text, parse_constant=_reject_constant, parse_float=parse_float)
     except (ValueError, RecursionError):
         return None
     if not isinstance(obj, dict):
         return None
     if _SURROGATE_ESCAPE_RE.search(raw) and _has_lone_surrogate(obj):
         return None
+    return obj
+
+
+def load_json_exact(path: Path, *, max_bytes: int = 256 * 2**20) -> object:
+    """Load a whole JSON document (plain or ``.gz``) with exact numbers: fractions and exponents as
+    ``Decimal``, integers as ``int``; a UTF-8 BOM is skipped.
+
+    Every failure is a content-free ``SourceError``: unreadable or corrupt files, more than
+    *max_bytes* (decompressed) bytes, invalid UTF-8 or JSON, NaN/Infinity, excessive nesting and
+    strings holding unpaired surrogates.
+    """
+    path = Path(path)
+    if type(max_bytes) is not int or max_bytes < 0:
+        raise ValueError("max_bytes must be an int >= 0")
+    errors = _decompression_errors(_kind(path))
+    f = open_text(path)
+    try:
+        try:
+            raw = f.read(max_bytes + 1)
+        except errors as exc:
+            raise SourceError(f"{path.name}: corrupt stream ({type(exc).__name__})") from None
+    finally:
+        f.close()
+    if len(raw) > max_bytes:
+        raise SourceError(f"{path.name}: larger than {max_bytes} bytes")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise SourceError(f"{path.name}: not UTF-8") from None
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    try:
+        obj = json.loads(text, parse_constant=_reject_constant, parse_float=_exact_decimal)
+    except (ValueError, RecursionError):
+        raise SourceError(f"{path.name}: invalid JSON") from None
+    if _SURROGATE_ESCAPE_RE.search(raw) and _has_lone_surrogate(obj):
+        raise SourceError(f"{path.name}: unpaired surrogate in a string")
     return obj
 
 

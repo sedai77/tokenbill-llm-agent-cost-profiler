@@ -75,3 +75,67 @@ Corrections to the SPEC found by the facts task (recorded in facts.json notes):
 - claude-code-action execution-file path and container shape (SPEC §19.8 #16).
 - All CUR 2.0 / GCP SKU rules: `verified: false` (usage-type text checked; CUR usage-amount units not
   confirmed against a real export). No GCP SKU ids are known yet.
+
+## F-CORE-C — GitHub Copilot core contracts (wave 1.5a)
+
+Applies `copilot/briefs/CORE-AMENDMENTS.md` C-1 … C-33 and T-1 … T-3 to F-CORE's files (ownership check
+`--package F-CORE`, RULINGS G-1). Every new field is appended with a default; nothing is renamed or
+removed.
+
+| file | covers |
+|---|---|
+| `test_copilot_records.py` | C-1 … C-10: `billing_class` table (`pool`), `COPILOT_*` constants, `PricingContext` routing / compliance / context tier, `RAW_USAGE_ENUMS`, `record_fields`, `CostLine` Copilot fields (`h_` repo / workflow, pseudo, workload, decimal quantity), `OutcomeAggregate.extra`, Copilot lane-event attrs, the C-9 vocabularies, `LicenseSnapshot` (incl. the activity-report shape), `ActivityDay`, `ConfigSnapshot` (keys per kind, prefixes, no `p_` values, entity ids), `record_key` (count rows differ by attrs), appended fields omitted from `to_json` at their default, hypothesis round trips and mutation fuzz |
+| `test_copilot_types.py` | C-11 … C-18: ingest / context carriers, `EXPERIMENTAL_FLAGS`, `PlanEvidence`, `PoolMonth` (scenarios), `BILL_LINES`, `CopilotBillLine`, `AdminAction`, `CopilotSummary`, `FocusRow`, `PricedTotal.pool`, `ClusterDay.pool_nano`, `Finding.headroom`, `ActionPlan.pool_headroom_monthly`, `ReconciliationReport.decisions`, `RunResult.copilot` — validators and JSON round trips |
+| `test_copilot_helpers.py` | C-19 … C-23: credit and nano-AIU money (addendum C.G11 / G17), `figure_json`, `combine_weakest`, `parse_json_line(exact_numbers=True)`, `load_json_exact` (plain, gzip, limits, fuzz), `natural_id` / Copilot session and lane keys, the CA-20 `normalize_copilot_model` table (+ fuzz), `normalize_model(…, "github")`, `is_copilot_resource` truth table |
+| `test_copilot_registry.py` | C-24 … C-27: registry entries and order, `sniff_adapter(notes=…)` (one `dq.adapter_unavailable` per unimportable entry; every Copilot module absent), `run_detectors` phases (`aggregates_only`), silent `ext:<name>` gating, product-family lane filter and `FAMILY_EXCLUSIONS` drops (stubbed), missing F-SEM-C / F-KIT-C modules tolerated, `ExtensionSpec` / `ArgvAlias` / `EXTENSIONS`, registry import loads no wave-2 module, `LedgerStore` unchanged for `MemoryStore`, `LedgerStats` / `ExtRecordStore` / `SectionRenderer` / `ChannelReconciler` |
+| `test_copilot_facts.py` | C-28: the `copilot` section (provenance, `verification: research`, R-E19), top-level sections unchanged, §19.2 current rows, history rows and intervals, Appendix C.G1/G5/G5b/G6/G7/G8/G9/G10/G11/G14/G16 rate arithmetic from the rows, every other table, accessors, malformed sections → `ContractViolation` (+ fuzz) |
+| `test_copilot_builders.py` | C-29: `CANARY_LOGIN`, `make_copilot_ctx`, record builders, `make_ai_usage_row` on GitHub's parser test row, seat / Actions lines, `make_pool_month` (C.P1, P13), `FlatRates` bases on every billing path |
+| `test_copilot_no_float.py` | C-30: the amended §2.4 no-float module list (absent modules skipped) plus F-CORE-C's own modules |
+| `test_copilot_ownership.py` | C-31 / C-32: packaging of `tokenbill/copilot/{data,handoff_data}/**`, docstring-only `tokenbill/copilot/__init__.py`, every §21.3 ownership row |
+
+Existing tests edited (declared contract changes): T-1 `test_registry.py`, T-2 `test_types.py`, T-3
+`test_records.py`, and — as the orchestrator's wave-1.5a notes direct for C-32 — the Appendix-O mirror
+of `test_guards.py` (44 packages; `ccusage.py` → CLI-LEDGER; `tokenbill/copilot/__init__.py` → F-CORE).
+
+### Copilot facts (`core/facts.json` → `copilot`) and provenance
+
+Transcribed on 2026-09-23 from addendum §19 (research tracks and fact-checks, `verification:
+"research"` until the Copilot release gate, R-E19) and from local copies of the primary sources in the
+research snapshot. The 46 rate rows are the §19.2 current and history rows; the generator replayed the 38
+dated revisions of `github/docs:data/tables/copilot/models-and-pricing.yml` (`copilot/raw/yml`) and
+asserted every row's prices on every day-final revision inside its interval; each row cites the first
+revision carrying its prices. No fixture files: every record is built in the tests.
+
+### Unverified (shipped as `research`, disabled or flagged `verified: false`)
+
+- K-dated `effective_from` dates (docs merge dates, not billing dates) and the long-context threshold
+  reading (272K = 272,000; hypothesis A vs B); GPT-5.6 rows 2026-07-09 → 08-03 have no write price (write
+  bucket disabled).
+- Claude 1-hour write price = 2 × input (`write_1h_rule`, `verified: false`); tokenizer families of
+  non-Claude rows; `github.auto` / `github.compliance` stacking (`assumed`).
+- SKU `copilot_standalone` → Business; `spark_ai_credits` vs `spark_ai_credit`; quota → plan map (1,900 /
+  3,000 / 3,900 / 7,000); billing `workflow_path` patterns (incl. `.lock.yml`); JetBrains / Visual Studio
+  / Xcode / CLI editor and surface strings; VS Code `agent-traces.db` per-OS directories and extension id.
+- `remaps` are design candidates (same vendor; `tokenizer_same` from the rows' families), not facts.
+
+### Deviations from the literal C-list (forced by unedited wave-0/1 tests)
+
+- C-8: the `copilot_trigger` / `context_tier` value domains are published as
+  `records.COPILOT_EVENT_VALUE_DOMAINS` but not enforced by `LaneEvent`, because `strategies.py`
+  (unedited, T-4) draws free strings for every nullable str attr. Likewise `copilot_compliance` values are
+  documented, not enforced (the strategies draw free extra values).
+- `to_json` leaves fields appended in wave 1.5 out while they hold their default (`records.appended`,
+  `OMIT_DEFAULT`), so every pre-Copilot document — e.g. BLOCK's checked-in fixtures on the v0.2 canary — is
+  byte-identical; `from_json` restores the defaults.
+
+### Hardening from the adversarial review
+
+- `core.jsonl`'s unpaired-surrogate scan is iterative: `parse_json_line` (both number modes) and
+  `load_json_exact` return None / raise `SourceError` for a document nested as deeply as the JSON decoder
+  accepts, never `RecursionError` (`test_deep_nesting_with_surrogate_escapes_never_raises`).
+- `ConfigSnapshot.snapshot_ms` ends at 9999-12-31T23:59:59.999Z, so `record_key` always has its UTC date;
+  `record_key` backslash-escapes `\x1f` (and `\`) inside free-string parts, so no attr value can forge
+  another row's key (`test_record_key_is_injective_and_total`, widened strategies).
+- `ReconciliationReport.decisions` keys follow their documented shapes: `convention:<source_id>`,
+  `gross_is_list:` / `plan_fit:` + `<entity>:<YYYY-MM>` with a pool entity id.
+- `ArgvAlias` validates `verb` / `trigger` and stores a list `target` as a tuple (specs stay hashable).

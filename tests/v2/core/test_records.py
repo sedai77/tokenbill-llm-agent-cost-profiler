@@ -97,6 +97,7 @@ def test_billing_class() -> None:
     for bp in ("api_key", "usage_credits", "unknown", None):
         assert r.billing_class(bp) == "billed"
     assert r.BILLING_PATHS[0] == "api_key" and "subscription" in r.BILLING_PATHS
+    assert r.billing_class("copilot_pool") == r.billing_class("copilot_direct") == "pool"
 
 
 # ---------- UsageBuckets ----------

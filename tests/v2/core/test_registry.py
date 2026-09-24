@@ -22,6 +22,8 @@ def test_string_maps_match_the_spec() -> None:
         "claude-code-headless",
         "trace@1",
         "trace@2",
+        "copilot-cli",
+        "copilot-otel",
         "otlp",
         "openai",
         "bedrock",
@@ -34,6 +36,18 @@ def test_string_maps_match_the_spec() -> None:
         "openai-costs",
         "aws-cur",
         "gcp-billing",
+        "copilot-vscode-traces",
+        "gh-aw-token-usage",
+        "github-ai-usage",
+        "github-metered-usage",
+        "github-billing-api",
+        "github-copilot-config",
+        "github-copilot-metrics",
+        "github-copilot-seats",
+        "github-agent-tasks",
+        "github-usage-records",
+        "github-copilot-activity-report",
+        "copilot-export",
     ]
     assert reg.BUILTIN_ADAPTERS["claude-code"] == "tokenbill.adapters.claude_code:ClaudeCodeAdapter"
     assert reg.BUILTIN_ADAPTERS["trace@2"] == "tokenbill.adapters.trace_v2:TraceV2Adapter"
@@ -41,11 +55,17 @@ def test_string_maps_match_the_spec() -> None:
         reg.BUILTIN_ADAPTERS["gcp-billing"]
         == "tokenbill.adapters.cloud_billing:GcpBillingExportAdapter"
     )
-    assert len(reg.BUILTIN_DETECTORS) == 20
+    assert len(reg.BUILTIN_DETECTORS) == 23
     assert reg.BUILTIN_DETECTORS["aggregate.org-scan"] == "tokenbill.recon.orgscan:OrgScan"
     assert reg.BUILTIN_DETECTORS["block.breakers"] == "tokenbill.detect.block:BlockBreakers"
     assert reg.BUILTIN_DETECTORS["cache.miss-by-cause"] == "tokenbill.detect.cache_miss:MissByCause"
-    assert reg.CONVENTION_MODULES == ("tokenbill.adapters.conventions_ext",)
+    assert reg.CONVENTION_MODULES == (
+        "tokenbill.adapters.conventions_ext",
+        "tokenbill.adapters.copilot_conventions",
+        "tokenbill.adapters.copilot_otel",
+        "tokenbill.adapters.github_billing",
+        "tokenbill.adapters.gh_aw",
+    )
     for dotted in (*reg.BUILTIN_ADAPTERS.values(), *reg.BUILTIN_DETECTORS.values()):
         module, _, cls = dotted.partition(":")
         assert module.startswith("tokenbill.") and cls[:1].isupper()
@@ -233,7 +253,8 @@ def test_all_detectors_skips_unimportable_with_notes(test_detectors: None) -> No
     notes: list[DataQualityNote] = []
     dets = reg.all_detectors(notes=notes)
     assert [d.id for d in dets] == ["test.blocks", "test.nodollar", "test.seq"]
-    assert len(notes) == 20 and {n.code for n in notes} == {"dq.detector_unavailable"}
+    assert len(notes) == len(reg.BUILTIN_DETECTORS)
+    assert {n.code for n in notes} == {"dq.detector_unavailable"}
     assert reg.all_detectors() and all(n.count == 1 for n in notes)
 
 

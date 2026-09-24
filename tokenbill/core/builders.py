@@ -2,25 +2,43 @@
 
 Every package builds its fixtures with these helpers instead of sibling packages (SPEC §21 #4).
 Builders are deterministic: default ids derive from their arguments with ``core.ids.stable_id``.
+
+GitHub Copilot builders (CORE-AMENDMENTS C-29): ``make_copilot_ctx``, ``make_license``,
+``make_activity``, ``make_config``, ``make_ai_usage_row``, ``make_seat_line``,
+``make_actions_line``, ``make_pool_month``, ``make_plan_evidence``, the login canary
+``CANARY_LOGIN`` and ``make_principal``; ``FlatRates`` prices both Copilot billing paths on
+LIST_EQUIVALENT like ``subscription``.
 """
 
 from __future__ import annotations
 
 import copy
+import datetime as _dt
+import hashlib
 from collections.abc import Iterable, Mapping, Sequence
 from decimal import Decimal
 from typing import Any
 
-from tokenbill.core.ids import stable_id
+from tokenbill.core.ids import natural_id, stable_id
 from tokenbill.core.labels import Basis, Calibration, Evidence, Figure, unpriced
 from tokenbill.core.lanes import _ttl_observed
-from tokenbill.core.money import EXACT_CTX, decimal_to_nano, token_nano
+from tokenbill.core.models import normalize_copilot_model
+from tokenbill.core.money import (
+    EXACT_CTX,
+    NANO_USD_PER_CREDIT,
+    credits_str_to_nano,
+    decimal_to_nano,
+    token_nano,
+    usd,
+)
 from tokenbill.core.records import (
+    ActivityDay,
     AppendedItem,
     Attempt,
     Attribution,
     BlockRef,
     CacheDiagnostic,
+    ConfigSnapshot,
     ContentFingerprint,
     CostLine,
     Inference,
@@ -28,6 +46,7 @@ from tokenbill.core.records import (
     Lane,
     LaneEvent,
     LaneKind,
+    LicenseSnapshot,
     Outcome,
     PricingContext,
     Request,
@@ -36,26 +55,45 @@ from tokenbill.core.records import (
     UsageAggregate,
     UsageBuckets,
     UsageSource,
+    billing_class,
 )
-from tokenbill.core.types import PricedInference, PricedLine, ResolvedRates, UnitRates
+from tokenbill.core.types import (
+    PlanEvidence,
+    PoolMonth,
+    PricedInference,
+    PricedLine,
+    ResolvedRates,
+    UnitRates,
+)
 
 __all__ = [
     "CANARY",
     "CANARY_EMAIL",
     "CANARY_KEYS",
+    "CANARY_LOGIN",
     "STRUCTURAL_KEYS",
     "FlatRates",
     "assert_no_canary",
     "lane_from_table",
+    "make_activity",
+    "make_actions_line",
     "make_aggregate",
+    "make_ai_usage_row",
     "make_attempt",
     "make_block",
+    "make_config",
+    "make_copilot_ctx",
     "make_cost_line",
     "make_ctx",
     "make_fingerprint",
     "make_inference",
     "make_lane",
+    "make_license",
+    "make_plan_evidence",
+    "make_pool_month",
+    "make_principal",
     "make_request",
+    "make_seat_line",
     "make_usage",
     "plant_canary",
     "unit_rates_from",
@@ -67,6 +105,9 @@ __all__ = [
 
 CANARY = "TB-CANARY-7f3a91"
 CANARY_EMAIL = f"canary.{CANARY}@example.com"
+#: A GitHub login planted in Copilot fixtures (seats, AI usage report, metrics, activity report); it
+#: must never appear in any output (logins are mapped to team / cost center and pseudonymized).
+CANARY_LOGIN = "tb-canary-login-7f3a91"
 #: Keys whose string values carry user content in the sources Token Bill reads.
 CANARY_KEYS = frozenset(
     {
@@ -527,6 +568,392 @@ def make_cost_line(
 
 
 # ---------------------------------------------------------------------------------------------
+# GitHub Copilot builders (C-29)
+# ---------------------------------------------------------------------------------------------
+
+_DAY_MS = 86_400_000
+_USD_PER_CREDIT = Decimal(NANO_USD_PER_CREDIT) / Decimal(10**9)   # 0.01
+_SEAT_SKUS = {"business": "copilot_for_business", "enterprise": "copilot_enterprise"}
+_SEAT_USD = {"business": Decimal("19"), "enterprise": Decimal("39")}
+_INCLUDED_CREDITS = {"business": Decimal("1900"), "enterprise": Decimal("3900")}
+_CONFIG_SOURCES = {
+    "budget": "github.budgets",
+    "budget_users": "github.budgets",
+    "cost_center": "github.cost_centers",
+    "org_settings": "github.org_copilot_settings",
+    "run_flags": "tokenbill.cli",
+    "seat_counts": "tokenbill.copilot_export",
+    "activity_counts": "tokenbill.copilot_export",
+    "plan_quota": "github.ai_usage_report",
+}
+
+
+def make_principal(seed: str | int = 0) -> str:
+    """A deterministic ``p_<20 hex>`` fixture pseudonym (``sha256`` of *seed*, not a key HMAC)."""
+    return "p_" + hashlib.sha256(f"tokenbill-fixture-principal:{seed}".encode()).hexdigest()[:20]
+
+
+def _day_start_ms(date_utc: str) -> int:
+    d = _dt.date.fromisoformat(date_utc)
+    return (d - _dt.date(1970, 1, 1)).days * _DAY_MS
+
+
+def make_copilot_ctx(model: str = "claude-opus-5-5", **kw: Any) -> PricingContext:
+    """A PricingContext on GitHub Copilot: provider ``github``, channel ``github_copilot``,
+    billing path ``copilot_pool`` (each overridable through *kw*, like every other field)."""
+    kw.setdefault("provider", "github")
+    kw.setdefault("channel", "github_copilot")
+    kw.setdefault("billing_path", "copilot_pool")
+    return make_ctx(model, **kw)
+
+
+def make_license(
+    principal: str | None = None,
+    *,
+    snapshot_date: str = "2026-09-01",
+    plan: str = "business",
+    team: str | None = None,
+    cost_center: str | None = None,
+    org: str | None = "org-a",
+    seat_created: str | None = None,
+    pending_cancellation: str | None = None,
+    last_activity_bucket: str = "0-7",
+    last_activity_surface: str | None = "vscode",
+    last_authenticated_bucket: str = "0-7",
+    assigned_via_team: bool | None = False,
+    fetched_ms: int = 0,
+    source_kind: str = "github.copilot_seats",
+    product: str = "github_copilot",
+) -> LicenseSnapshot:
+    """A Copilot seat snapshot (seats API by default; ``source_kind=
+    "github.copilot_activity_report"`` with ``plan="unknown"`` and ``assigned_via_team=None`` for
+    the UI activity report). *principal* defaults to ``make_principal(0)``."""
+    return LicenseSnapshot(
+        snapshot_date=snapshot_date,
+        product=product,
+        plan=plan,
+        principal=principal if principal is not None else make_principal(0),
+        team=team,
+        cost_center=cost_center,
+        org=org,
+        seat_created=seat_created,
+        pending_cancellation=pending_cancellation,
+        last_activity_bucket=last_activity_bucket,
+        last_activity_surface=last_activity_surface,
+        last_authenticated_bucket=last_authenticated_bucket,
+        assigned_via_team=assigned_via_team,
+        fetched_ms=fetched_ms,
+        source_kind=source_kind,
+    )
+
+
+def make_activity(
+    principal: str | None = None,
+    *,
+    date_utc: str = "2026-09-01",
+    team: str | None = None,
+    cost_center: str | None = None,
+    reported_cost_nano: int | None = None,
+    counts: Mapping[str, int] | None = None,
+    flags: Iterable[str] = (),
+    fetched_ms: int = 0,
+    product: str = "github_copilot",
+    source_kind: str = "github.copilot_metrics",
+) -> ActivityDay:
+    """One usage-metrics user-day; *counts* default to ``{"interactions": 1}``."""
+    c = dict(counts) if counts is not None else {"interactions": 1}
+    return ActivityDay(
+        date_utc=date_utc,
+        product=product,
+        principal=principal if principal is not None else make_principal(0),
+        team=team,
+        cost_center=cost_center,
+        reported_cost_nano=reported_cost_nano,
+        counts=tuple(sorted(c.items())),
+        flags=tuple(sorted(flags)),
+        fetched_ms=fetched_ms,
+        source_kind=source_kind,
+    )
+
+
+def make_config(
+    kind: str = "run_flags",
+    attrs: Mapping[str, str | int | bool | None] | None = None,
+    *,
+    entity_id: str = "run",
+    source_kind: str | None = None,
+    snapshot_ms: int = 0,
+    fetched_ms: int = 0,
+) -> ConfigSnapshot:
+    """A configuration snapshot; *source_kind* defaults by kind (run flags: ``tokenbill.cli``;
+    budgets: ``github.budgets``; count kinds: ``tokenbill.copilot_export``; …)."""
+    return ConfigSnapshot(
+        snapshot_ms=snapshot_ms,
+        source_kind=source_kind if source_kind is not None else _CONFIG_SOURCES.get(
+            kind, "tokenbill.cli"),
+        kind=kind,
+        entity_id=entity_id,
+        attrs=tuple(sorted((attrs or {}).items())),
+        fetched_ms=fetched_ms,
+    )
+
+
+def _workload(pseudo: str | None, sku: str) -> str | None:
+    if pseudo == "code_review":
+        return "copilot_code_review"
+    if pseudo == "cloud_agent" or sku == "coding_agent_ai_credit":
+        return "copilot_cloud_agent"
+    if sku == "code_quality_ai_credit":
+        return "code_quality"
+    return None
+
+
+def make_ai_usage_row(
+    *,
+    date_utc: str = "2026-09-10",
+    model: str = "Claude Opus 5.5",
+    credits: str = "100",
+    discount_credits: str = "0",
+    principal: str | None = None,
+    unattributed: bool = False,
+    organization: str | None = "org-a",
+    cost_center: str | None = None,
+    team: str | None = None,
+    repo: str | None = None,
+    sku: str = "copilot_ai_credit",
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+    finality: str = "final",
+    fetched_ms: int = 0,
+) -> tuple[CostLine, UsageAggregate]:
+    """One AI usage report row as the ``github-ai-usage`` adapter maps it (addendum §5.1): a
+    ``CostLine`` (gross = *credits* × $0.01, net = gross − *discount_credits* × $0.01, natural
+    ``line_id``) and its ``UsageAggregate`` (tokens under the ``excl`` convention: report input →
+    uncached, cache writes → unknown TTL). *model* is the report label, normalized with
+    ``normalize_copilot_model``; *unattributed* rows have no principal (``ai_credit.direct``)."""
+    cm = normalize_copilot_model(model)
+    who = None if unattributed else (principal if principal is not None else make_principal(0))
+    gross, _ = credits_str_to_nano(credits)
+    discount, _ = credits_str_to_nano(discount_credits)
+    net = gross - discount
+    cost_type = "ai_credit.user" if who is not None else "ai_credit.direct"
+    if sku.endswith("_premium_request"):
+        cost_type = "ai_credit.legacy_pru"
+    line = CostLine(
+        line_id=natural_id("cl", "github.ai_usage_report", date_utc, who, cm.model or model, sku,
+                           organization, cost_center, repo),
+        source_kind="github.ai_usage_report",
+        date_utc=date_utc,
+        channel="github_copilot",
+        workspace_id=organization,
+        description=f"{sku} {model}"[:128],
+        model=cm.model or None,
+        cost_type=cost_type,
+        token_type=None,
+        sku=sku,
+        service_tier=None,
+        inference_geo=None,
+        endpoint_scope=None,
+        amount_nano=net,
+        list_amount_nano=gross,
+        finality=finality,
+        principal=who,
+        fetched_ms=fetched_ms,
+        quantity=credits,
+        unit="ai-credits",
+        cost_center=cost_center,
+        team=team,
+        repo=repo,
+        workload=_workload(cm.pseudo, sku),
+        routing=cm.routing,
+        speed=cm.speed,
+        pseudo=cm.pseudo,
+    )
+    dims = {"channel": "github_copilot", "organization": organization, "team": team,
+            "cost_center": cost_center, "model": cm.model or None, "sku": sku,
+            "routing": cm.routing, "speed": cm.speed, "pseudo": cm.pseudo}
+    pairs = tuple(sorted((k, v) for k, v in dims.items() if v is not None))
+    start = _day_start_ms(date_utc)
+    agg = UsageAggregate(
+        agg_id=natural_id("ag", "github.ai_usage_report", date_utc,
+                          *(f"{k}={v}" for k, v in pairs)),
+        source_kind="github.ai_usage_report",
+        bucket_start_ms=start,
+        bucket_end_ms=start + _DAY_MS,
+        dims=pairs,
+        usage=UsageBuckets(uncached_input=input_tokens, cache_read=cache_read_tokens,
+                           cache_write_unknown=cache_write_tokens, output=output_tokens),
+        reported_cost_nano=net,
+        reported_cost_basis="invoice",
+        list_cost_nano=gross,
+        finality=finality,
+        fetched_ms=fetched_ms,
+    )
+    return line, agg
+
+
+def make_seat_line(
+    plan: str = "business",
+    seats: str = "1",
+    *,
+    date_utc: str = "2026-09-01",
+    organization: str | None = "org-a",
+    cost_center: str | None = None,
+    team: str | None = None,
+    principal: str | None = None,
+    sku: str | None = None,
+    discount_nano: int = 0,
+    finality: str = "final",
+    fetched_ms: int = 0,
+) -> CostLine:
+    """A detailed-usage seat line (cost type ``seat``): *seats* seat-months × the plan's list price
+    ($19 Business, $39 Enterprise); the SKU defaults to the plan's seat SKU."""
+    s = sku if sku is not None else _SEAT_SKUS[plan]
+    gross = decimal_to_nano(EXACT_CTX.multiply(usd(seats), _SEAT_USD[plan]))
+    return CostLine(
+        line_id=natural_id("cl", "github.metered_usage", date_utc, principal, s, organization,
+                           cost_center, "seat"),
+        source_kind="github.metered_usage",
+        date_utc=date_utc,
+        channel="github_copilot",
+        workspace_id=organization,
+        description=f"{s} seats",
+        model=None,
+        cost_type="seat",
+        token_type=None,
+        sku=s,
+        service_tier=None,
+        inference_geo=None,
+        endpoint_scope=None,
+        amount_nano=gross - discount_nano,
+        list_amount_nano=gross,
+        finality=finality,
+        principal=principal,
+        fetched_ms=fetched_ms,
+        quantity=seats,
+        unit="seat-months",
+        cost_center=cost_center,
+        team=team,
+    )
+
+
+def make_actions_line(
+    minutes: str = "10",
+    *,
+    sku: str = "actions_linux",
+    usd_per_minute: str = "0.006",
+    workload: str | None = "copilot_code_review",
+    date_utc: str = "2026-09-10",
+    organization: str | None = "org-a",
+    cost_center: str | None = None,
+    team: str | None = None,
+    repo: str | None = None,
+    workflow: str | None = None,
+    discount_nano: int = 0,
+    finality: str = "final",
+    fetched_ms: int = 0,
+) -> CostLine:
+    """A detailed-usage Actions line of a Copilot workload (channel ``github_actions``, cost type
+    ``actions``): gross = *minutes* × *usd_per_minute*, net = gross − *discount_nano*."""
+    gross = decimal_to_nano(EXACT_CTX.multiply(usd(minutes), usd(usd_per_minute)))
+    return CostLine(
+        line_id=natural_id("cl", "github.metered_usage", date_utc, sku, organization, repo,
+                           workflow, workload, cost_center),
+        source_kind="github.metered_usage",
+        date_utc=date_utc,
+        channel="github_actions",
+        workspace_id=organization,
+        description=f"{sku} minutes",
+        model=None,
+        cost_type="actions",
+        token_type=None,
+        sku=sku,
+        service_tier=None,
+        inference_geo=None,
+        endpoint_scope=None,
+        amount_nano=gross - discount_nano,
+        list_amount_nano=gross,
+        finality=finality,
+        fetched_ms=fetched_ms,
+        quantity=minutes,
+        unit="minutes",
+        cost_center=cost_center,
+        team=team,
+        repo=repo,
+        workload=workload,
+        workflow=workflow,
+    )
+
+
+def make_pool_month(
+    *,
+    entity_id: str = "enterprise",
+    month: str = "2026-09",
+    seats: Mapping[str, str] | None = None,
+    consumed_report_nano: int = 0,
+    **kw: Any,
+) -> PoolMonth:
+    """A closed, metered ``PoolMonth``; the pool is Σ seats × included credits of the known plans
+    (*seats* default ``{"business": "100"}``; unknown seats need a ``plan_scenario``, whose plan
+    they are counted under). The regime follows consumption vs pool unless given; any other field
+    passes through *kw*."""
+    seat_map = dict(seats) if seats is not None else {"business": "100"}
+    scenario = kw.get("plan_scenario")
+    credits = Decimal(0)
+    for plan, n in seat_map.items():
+        per_seat = _INCLUDED_CREDITS.get(plan if plan != "unknown" else (scenario or ""))
+        if per_seat is None:
+            raise ValueError("make_pool_month: unknown seats need a plan_scenario")
+        credits = EXACT_CTX.add(credits, EXACT_CTX.multiply(usd(n), per_seat))
+    pool_nano = decimal_to_nano(EXACT_CTX.multiply(credits, _USD_PER_CREDIT))
+    fields: dict[str, Any] = {
+        "billing_mode": "metered",
+        "seats_source": "seat_lines",
+        "pool_credits": format(credits.normalize(), "f"),
+        "pool_nano": pool_nano,
+        "promo": None,
+        "consumed_report_nano": consumed_report_nano,
+        "consumed_estimate_nano": 0,
+        "pool_draw_nano": None,
+        "discount_other_nano": 0,
+        "discount_unclassified_nano": 0,
+        "overage_observed_nano": max(0, consumed_report_nano - pool_nano),
+        "direct_net_nano": 0,
+        "direct_draws_pool": "unknown",
+        "capped_policy": None,
+        "days_final": 30,
+        "days_provisional": 0,
+        "days_in_month": 30,
+        "finality": "closed",
+        "forecast": None,
+        "overage_forecast": None,
+        "regime": "overage" if consumed_report_nano > pool_nano else "slack",
+    }
+    fields.update(kw)
+    return PoolMonth(entity_id=entity_id, month=month,
+                     seats=tuple(sorted(seat_map.items())), **fields)
+
+
+def make_plan_evidence(
+    *,
+    entity_id: str = "enterprise",
+    month: str = "2026-09",
+    plan: str = "unknown",
+    source: str = "none",
+    seats: Mapping[str, int] | None = None,
+    conflict: bool = False,
+    evidence: Iterable[str] = (),
+) -> PlanEvidence:
+    """A ``PlanEvidence``; *seats* default to ``{"unknown": 100}`` (the addendum C.P13 entity)."""
+    seat_map = dict(seats) if seats is not None else {"unknown": 100}
+    return PlanEvidence(entity_id=entity_id, month=month, plan=plan, source=source,
+                        seats=tuple(sorted(seat_map.items())), conflict=conflict,
+                        evidence=tuple(evidence))
+
+
+# ---------------------------------------------------------------------------------------------
 # FlatRates: a trivially simple, exact Pricer
 # ---------------------------------------------------------------------------------------------
 
@@ -569,8 +996,9 @@ class FlatRates:
     """A ``Pricer`` with one flat rate card for every model: $1 input / $5 output per MTok, reads
     ×0.1, 5m writes ×1.25, 1h writes ×2, other-TTL writes ×1.25, web search $0.01 per request,
     minimum cacheable 1,024 tokens. Exact unit rates at scale 8. Basis LIST; the ``subscription``
-    billing path prices on LIST_EQUIVALENT (D26). Implements the per-line exactness table of SPEC
-    §6.3.
+    billing path (D26) and both Copilot billing paths ``copilot_pool`` / ``copilot_direct``
+    (billing class ``pool``, addendum DC2) price on LIST_EQUIVALENT. Implements the per-line
+    exactness table of SPEC §6.3.
     """
 
     rate_card_sha256 = "flat"
@@ -659,7 +1087,8 @@ class FlatRates:
     ) -> PricedInference:
         """One PricedLine per non-zero bucket, each rounded once; exactness per line (SPEC §6.3,
         R9)."""
-        basis = Basis.LIST_EQUIVALENT if ctx.billing_path == "subscription" else self.basis
+        basis = (Basis.LIST_EQUIVALENT if billing_class(ctx.billing_path) in ("allowance", "pool")
+                 else self.basis)
         rates = self.resolve(ctx, ts_ms=ts_ms)
         if rates is None:
             return PricedInference(
