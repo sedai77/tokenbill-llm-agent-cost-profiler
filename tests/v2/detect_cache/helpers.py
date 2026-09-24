@@ -205,13 +205,110 @@ def healthy_lanes(team: str = "core", n: int = 6) -> list[Lane]:
     for d in range(n):
         rows: list[Row] = []
         prefix = 0
+        start = d * 3_600
         for i in range(12):
             if i == 0:
-                rows.append((0, 0, 20_000, 0, 3, 600))
+                rows.append((start, 0, 20_000, 0, 3, 600))
                 prefix = 20_000
             else:
-                rows.append((i * 45 + d, prefix, 2_500, 0, 3, 600))
+                rows.append((start + i * 45 + d, prefix, 2_500, 0, 3, 600))
                 prefix += 2_500
         out.append(lane(f"H-{team}-{d}", rows, model=SONNET5, team=team,
-                        principal=f"r_{team}{d}"))
+                        principal=f"r_{team}{d}", cwd_key=f"h_{d:020x}"))
     return out
+
+
+# ---------------------------------------------------------------------------------------------
+# a small mixed fleet: every cache kind planted, several teams, lane kinds and billing classes
+# ---------------------------------------------------------------------------------------------
+
+ALL_DETECTORS = ("cache.miss-by-cause", "cache.switch-churn", "cache.rebuild",
+                 "cache.cold-resume", "cache.ttl-advisor", "cache.gateway-disabled",
+                 "cache.unread-write", "cache.cold-fanout")
+
+
+def mixed_fleet() -> list[Lane]:
+    """Lanes of six teams planting every cache finding kind (with ``min_usd`` 0.01)."""
+    lanes: list[Lane] = []
+    # payments: Claude Code main lanes idling 7 minutes (TTL expiries, 1h advice), a plan toggle
+    for d in range(3):
+        lanes.append(lane_a1(f"pay-{d}", principal=f"r_pay{d}"))
+    evs = [event("pay-pt", 25, "human_prompt"), event("pay-pt", 55, "human_prompt")]
+    lanes.append(lane("pay-pt", [(0, 0, 100_000, 0, 0, 500), (30, 0, 102_000, 0, 0, 500),
+                                 (60, 0, 104_000, 0, 0, 500)], events=evs,
+                      per_request={1: {"model": SONNET5}}, principal="r_pay0"))
+    lanes.append(lane("pay-ft", [(0, 0, 100_000, 0, 0, 500), (30, 0, 102_000, 0, 0, 500)],
+                      per_request={1: {"speed": "fast"}}, principal="r_pay1"))
+    # payments subagents fanning out cold
+    for i, (off, w) in enumerate(((0, 20_000), (2, 22_000), (5, 30_000))):
+        lanes.append(lane(f"pay-sub-{i}", [(off, 0, w, 0, 0, 300), (off + 30, w, 1_000, 0, 0,
+                                                                     300)],
+                          kind=LaneKind.SUBAGENT, principal="r_pay2"))
+    # mobile (seat allowance): cold resumes of 500k contexts, 1h bursty (oversized) lane
+    for d in range(2):
+        lanes.append(lane_a5(f"mob-{d}", team="mobile", principal=f"r_mob{d}",
+                             billing_path="subscription"))
+    lanes.append(lane_a2("mob-burst", hour=True, team="mobile", principal="r_mob0",
+                         billing_path="subscription"))
+    # agents: SDK lanes with context-edit churn and 7-minute idles; one-shot writers
+    lanes.append(lane_a10("ag-0", principal="r_ag0"))
+    lanes.append(lane_a1("ag-1", kind=LaneKind.API_RUN, product="agent_sdk", team="agents",
+                         principal="r_ag1"))
+    for i in range(2):
+        lanes.append(lane(f"ag-shot-{i}", [(i * 50, 0, 60_000, 0, 10, 200)],
+                          kind=LaneKind.API_RUN, product="api", team="agents",
+                          principal="r_ag2"))
+    # platform: behind a gateway that strips caching; ops: 1h-configured team writing 5m
+    for d in range(2):
+        rows = [(i * 40, 0, 0, 0, 20_000 + 2_000 * i, 400) for i in range(6)]
+        lanes.append(lane(f"plat-{d}", rows, team="platform", principal=f"r_plat{d}",
+                          gateway="litellm-proxy"))
+    lanes.append(lane("ops-0", [(i * 420, 0, 40_000, 0, 0, 200) for i in range(21)],
+                      team="ops", principal="r_ops0"))
+    # data: a cold compaction and a write the next request does not read, a tools-changed
+    # gateway lane
+    ev = event("data-cc", 930, "compaction", trigger="manual", pre_tokens=160_000,
+               post_tokens=20_000, duration_ms=30_000, dropped_tokens=None)
+    lanes.append(lane("data-cc", [(0, 0, 150_000, 0, 0, 500), (30, 150_000, 10_000, 0, 0, 500),
+                                  (990, 0, 25_000, 0, 0, 500)], events=[ev], team="data",
+                      principal="r_data0"))
+    lanes.append(lane("data-wn", [(0, 0, 50_000, 0, 0, 200), (30, 10_000, 42_000, 0, 0, 200),
+                                  (60, 52_000, 1_000, 0, 0, 200)], team="data",
+                      principal="r_data1"))
+    rows = [(0, 0, 30_000, 0, 0, 200)]
+    over: dict[int, dict[str, Any]] = {}
+    prefix = 30_000
+    for i in range(1, 30):
+        if i in (5, 15, 25):
+            rows.append((i * 30, 0, prefix + 1_000, 0, 0, 200))
+            over[i] = {"diagnostics": diag("tools_changed")}
+        else:
+            rows.append((i * 30, prefix, 1_000, 0, 0, 200))
+        prefix = rows[-1][1] + rows[-1][2]
+    lanes.append(lane("data-gw", rows, team="data", principal="r_data2",
+                      gateway="corp-gateway", per_request=over))
+    # core: healthy control
+    lanes.extend(healthy_lanes("core", 3))
+    return lanes
+
+
+def fleet_saving(lane_: Lane, policy: Policy) -> int:
+    """A deterministic stand-in replay: savings by policy family, scaled by lane size, and the
+    TTL re-rating cost for bursty lanes (so healthy lanes never benefit)."""
+    total = sum(r.serving_inference.usage.total_input for r in lane_.requests
+                if r.serving_inference is not None)
+    gaps = [b.ts_start_ms - a.ts_start_ms for a, b in zip(lane_.requests, lane_.requests[1:],
+                                                          strict=False)]
+    idle = sum(1 for g in gaps if 300_000 < g <= 3_600_000)
+    if policy.keepalive is not None:
+        return idle * total * 1_200
+    if policy.ttl:
+        ttl = policy.ttl[0][1]
+        if ttl == "1h":
+            return idle * total * 1_000 - total * 10
+        return (len(gaps) - idle) * 1_000 if lane_.ttl_observed == "1h" else 0
+    if policy.repairs:
+        return total * 1_000
+    if policy.fast_off:
+        return total * 2_000
+    return 0
