@@ -697,3 +697,122 @@ def test_since_until_window(tmp_path: Path) -> None:
     assert all(q.ts_start_ms >= cut for q in part.requests)
     assert 0 < len(part.requests) < len(full.requests)
     assert all(e.ts_ms >= cut for e in part.events)
+
+
+# --- edge paths -------------------------------------------------------------------------------
+
+def test_duplicate_window_is_the_last_2000_uuids(tmp_path: Path) -> None:
+    from tokenbill.adapters.claude_code import UUID_WINDOW
+
+    t = tx()
+    t.human("first")
+    first = t.lines[-1]
+    for i in range(UUID_WINDOW + 5):
+        t.human(f"filler {i}")
+    t.raw(first)                      # beyond the window: kept (bounded memory, same as cursor)
+    t.duplicate_last()                # right after: dropped
+    r = read(tmp_path, t)
+    assert note(r, "dq.duplicate_uuid_lines").count == 1
+
+
+def test_first_line_without_timestamp_takes_a_later_one(tmp_path: Path) -> None:
+    t = tx()
+    line = t.assistant_line("msg_nots", OPUS, bf.usage(5, out=3), None)
+    t.lines[-1] = t.lines[-1].replace(f'"timestamp":"{line["timestamp"]}",', "")
+    t.assistant_line("msg_nots", OPUS, bf.usage(5, out=30), None, stop="end_turn")
+    [req] = read(tmp_path, t).requests
+    assert req.ts_start_ms == t.t
+
+
+def test_quota_reset_formats_and_unset_overage(tmp_path: Path) -> None:
+    t = tx()
+    t.human("go")
+    for i, resets in enumerate((1_790_085_600.5, "2026-09-22T14:00:00.000Z", 1_790_085_600_000,
+                                None)):
+        t.call(f"msg_q{i}", OPUS, inp=5, outputs=(9,), stop="end_turn",
+               line_extra={"quotaLimits": {"status": f"s{i}", "resetsAt": resets,
+                                           "isUsingOverage": "yes"}})
+        t.human("next")
+    r = read(tmp_path, t, billing_path="subscription")
+    resets = [attrs(e)["resets_at_ms"] for e in events(r, LaneEventKind.QUOTA_STATE)]
+    assert resets == [1_790_085_600_500, 1_790_085_600_000, 1_790_085_600_000, None]
+    assert {q.attempts[0].inferences[0].pricing.billing_path for q in r.requests} == {
+        "subscription"}                                 # "yes" is not a bool: no overage
+
+
+def test_pasted_images_and_text_blocks_in_user_entries(tmp_path: Path) -> None:
+    t = tx()
+    t.add(t.base("user", 10, message={"role": "user", "content": [
+        {"type": "text", "text": "look"},
+        {"type": "image", "source": {"type": "base64", "data": "QUJD"}}, "junk"]}))
+    t.call("msg_img", OPUS, inp=5, outputs=(9,), stop="end_turn")
+    [req] = read(tmp_path, t).requests
+    assert [(a.kind, a.n_bytes, a.images) for a in req.appended] == [
+        ("user_text", 4, 0), ("image", 4, 1)]
+
+
+def test_cost_state_without_a_known_amount_is_counted(tmp_path: Path) -> None:
+    t = tx()
+    t.add(t.base("cost-state", 10, spend="n/a"))
+    t.add(t.base("cost-state", 10, totalCostUSD=-1))
+    r = read(tmp_path, t)
+    assert events(r, LaneEventKind.COST_STATE) == []
+    assert note(r, "dq.unknown_fields").count == 2
+
+
+def test_compaction_without_pre_tokens_is_only_an_event(tmp_path: Path) -> None:
+    t = tx()
+    t.system("compact_boundary", compactMetadata={"trigger": "weird", "postTokens": 5})
+    r = read(tmp_path, t)
+    assert r.requests == []
+    [ev] = events(r, LaneEventKind.COMPACTION)
+    assert attrs(ev) == {"post_tokens": 5}
+
+
+def test_unknown_model_is_unpriced_and_noted(tmp_path: Path) -> None:
+    t = tx()
+    t.human("go")
+    t.call("msg_alias", "opus", inp=5, outputs=(9,), stop="end_turn")
+    t.system("compact_boundary", compactMetadata={"preTokens": 10})
+    r = read(tmp_path, t)
+    assert {q.attempts[0].inferences[0].pricing.model for q in r.requests} == {""}
+    assert note(r, "dq.unpriced_model").count == 2
+    assert r.naive_usage == {}
+
+
+def test_bedrock_model_ids_hint_the_channel(tmp_path: Path) -> None:
+    t = tx()
+    t.human("go")
+    t.call("msg_br", "global.anthropic.claude-opus-5-5", inp=5, outputs=(9,), stop="end_turn")
+    [req] = read(tmp_path, t).requests
+    ctx = req.attempts[0].inferences[0].pricing
+    assert (ctx.channel, ctx.model, ctx.endpoint_scope) == ("bedrock", OPUS, "global")
+
+
+def test_gzip_transcripts_are_read(tmp_path: Path) -> None:
+    import gzip
+
+    path = tmp_path / "s.jsonl.gz"
+    path.write_bytes(gzip.compress(bf.alpha_main().text().encode()))
+    assert CC.sniff(path, gzip.decompress(path.read_bytes())[:65536]) is True
+    assert len(CC.read(path, opts()).requests) == 8
+
+
+def test_secrets_are_counted_by_type_only(tmp_path: Path) -> None:
+    t = tx()
+    t.human("my key is sk-ant-" + "Q" * 30)
+    t.call("msg_sec", OPUS, inp=5, outputs=(3, 9), stop="tool_use")
+    t.tool_result("toolu_sec", "AKIA" + "ABCDEFGHIJKLMNOP")
+    r = read(tmp_path, t)
+    n = note(r, "dq.secrets_observed")
+    assert n.count == 2 and "anthropic_key=1" in n.detail and "aws_access_key=1" in n.detail
+    assert "QQQQ" not in canonical(r) and "AKIA" not in canonical(r)
+
+
+def test_read_of_a_missing_path_is_a_source_error(tmp_path: Path) -> None:
+    with pytest.raises(SourceError):
+        CC.read(tmp_path / "nope.jsonl", opts())
+    with pytest.raises(UsageError):
+        CC.read(tmp_path, "not options")  # type: ignore[arg-type]
+    with pytest.raises(UsageError):
+        CC.read(tmp_path, opts(content_tier="bogus"))

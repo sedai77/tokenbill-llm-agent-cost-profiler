@@ -245,3 +245,27 @@ def test_same_file_twice_is_identical(tmp_path: Path) -> None:
     p = tmp_path / "s.jsonl"
     p.write_text(bf.headless_stream().jsonl())
     assert canonical(HEADLESS.read(p, opts())) == canonical(HEADLESS.read(p, opts()))
+
+
+def test_subscription_billing_nan_literals_and_iter_messages(tmp_path: Path) -> None:
+    from tokenbill.adapters.cc_headless import iter_messages
+
+    r = read_headless(tmp_path, bf.headless_stream().jsonl(), billing_path="subscription")
+    assert {i.pricing.billing_path for q in r.requests for i in q.attempts[0].inferences} == {
+        "subscription"}
+    assert note(r, "dq.subscription_allowance").count == 5
+    p = tmp_path / "s.jsonl"
+    p.write_text(bf.headless_stream().jsonl())
+    assert len(list(iter_messages(p))) == len(bf.headless_stream().messages)
+    nan = read_headless(tmp_path, '{"type": "result", "session_id": "s", "total_cost_usd": NaN}\n'
+                        + bf.headless_stream().jsonl())
+    assert [q.reason for q in nan.quarantined] == ["bad_json"]
+
+
+def test_unpriced_step_models_and_ttl_residual_notes(tmp_path: Path) -> None:
+    hx = bf.Hx("9e0d2c3b-0000-4000-8000-0000000c7c7c")
+    hx.assistant("msg_u1", "sonnet", bf.usage(3, 0, 100, 0, 1, total_write=150),
+                 stop="end_turn")
+    r = read_headless(tmp_path, hx.jsonl())
+    assert note(r, "dq.unpriced_model").count == 1
+    assert note(r, "dq.ttl_split_residual").count == 1

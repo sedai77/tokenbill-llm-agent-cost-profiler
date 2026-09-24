@@ -513,11 +513,6 @@ class _Reader:
         if not steps:
             self.result_aggregates(sid, ts, per_model, usage, cost_nano, billing)
             return
-        if cost_nano is not None:
-            run.events.append(LaneEvent(
-                lane_key=main_key, ts_ms=ts, kind=LaneEventKind.COST_STATE,
-                attrs=(("reported_total_nano", cost_nano), ("reporter", "claude_code.headless"))))
-            run.touch_session(session_key, ts)
         step_usage = {s.mid: _step_buckets(s) for s in steps}
         logged: dict[str, int] = {}
         step_in: dict[str, int] = {}
@@ -548,6 +543,11 @@ class _Reader:
         if zero and steps_nonzero:
             run.dq["dq.headless_zeroed_result"] += 1
             return
+        if cost_nano is not None:  # a provider estimate: an event, never a billed number
+            run.events.append(LaneEvent(
+                lane_key=main_key, ts_ms=ts, kind=LaneEventKind.COST_STATE,
+                attrs=(("reported_total_nano", cost_nano), ("reporter", "claude_code.headless"))))
+            run.touch_session(session_key, ts)
         if res_in_total * RESUMED_DEN > steps_in_total * RESUMED_NUM:
             run.dq["dq.headless_resumed_totals"] += 1
             return
@@ -582,6 +582,8 @@ class _Reader:
                       attempts=(attempt,), source=self.source_ref(locator))
         run.emit_request(req)
         run.touch_session(session_key, ts)
+        if billing == "subscription":
+            run.dq["dq.subscription_allowance"] += 1
 
     def result_aggregates(self, sid: str, ts: int, per_model: dict[str, list[int]],
                           usage: Mapping[str, Any], cost_nano: int | None, billing: str) -> None:

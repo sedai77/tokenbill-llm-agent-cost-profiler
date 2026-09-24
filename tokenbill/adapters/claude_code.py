@@ -916,7 +916,6 @@ class _FileParser:
         self.seen: dict[int | str, int] = {}
         for _u, k in self.recent:
             self.seen[k] = self.seen.get(k, 0) + 1
-        self.new_uuids: list[str] = []
         self.lanes: dict[str, _LaneState] = {}
         for lk, d in (ctx.get("lanes") or {}).items():
             if isinstance(lk, str) and isinstance(d, Mapping):
@@ -1153,9 +1152,8 @@ class _FileParser:
             if meta is not None:
                 group = self._reopen(mid, ref, meta)
             else:
-                trigger = st.trigger if st.trigger is not None else None
                 group = _Group(mid, ref, offset, ts, tuple(st.pending),
-                               trigger if trigger is not None else ts)
+                               st.trigger if st.trigger is not None else ts)
                 st.pending = []
             self.open[mid] = group
         group.n_lines += 1
@@ -1431,9 +1429,12 @@ class _FileParser:
         if pre is None:
             return
         st = self.lane_state(ref)
+        start = ts - duration if duration is not None and duration <= ts else ts
         ttl = st.last_write_ttl or "5m"
         tau_ms = 3_600_000 if ttl == "1h" else 300_000
-        warm = st.last_req_ts is not None and 0 <= ts - st.last_req_ts <= tau_ms
+        # the compaction call starts `duration` before the boundary; the prefix is warm when the
+        # previous request of the lane started at most one TTL before it
+        warm = st.last_req_ts is not None and start - st.last_req_ts <= tau_ms
         if warm:
             usage = UsageBuckets(cache_read=pre, output=post or 0)
         elif ttl == "1h":
@@ -1450,7 +1451,8 @@ class _FileParser:
         inf = Inference(inference_id=stable_id("inf", request_id, 0),
                         kind=InferenceKind.COMPACTION, usage=usage, pricing=ctx,
                         usage_source=UsageSource.ESTIMATED, billable=True)
-        start = ts - duration if duration is not None and duration <= ts else ts
+        if not ctx.model:
+            run.dq["dq.unpriced_model"] += 1
         attempt = Attempt(attempt_id=stable_id("at", request_id, 0), attempt_no=0,
                           ts_start_ms=start, ttft_ms=None, duration_ms=duration,
                           outcome=Outcome.OK, http_status=None, error_type=None,
