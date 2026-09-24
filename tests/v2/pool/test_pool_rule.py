@@ -165,6 +165,8 @@ def test_seat_change_details() -> None:
         realize_seat_change(pm, {"pro": -1}, month_fee=FEES)
     with pytest.raises(UsageError):
         realize_seat_change(pm, {"business": -1}, month_fee={"business": object()})  # type: ignore[dict-item]
+    with pytest.raises(UsageError):
+        realize_seat_change(pm, {"business": -1}, month_fee={"business": Decimal("1E+999999")})
     with pytest.raises(ContractViolation):
         realize_seat_change("pm", {}, month_fee=FEES)  # type: ignore[arg-type]
 
@@ -299,3 +301,9 @@ def test_forecast_edges() -> None:
         forecast([("2026-09-01", "5")], month="2026-09", today="2026-09-10")  # type: ignore[list-item]
     with pytest.raises(UsageError):
         forecast([("2026-02-30", 5)], month="2026-02", today="2026-03-10")
+    # calendar edges: December 9999 exists, year 0 and a lag before 0001-01-01 do not
+    assert forecast([], month="9999-12", today="9999-12-31", lag_days=0) == (0, 0, 0, 0)
+    assert pool_credits({"business": 1}, "9999-12", promo_eligible=True)[0] == 1900
+    for month, today in (("0000-01", "2026-01-01"), ("0001-01", "0001-01-01")):
+        with pytest.raises(UsageError):
+            forecast([], month=month, today=today, lag_days=3)

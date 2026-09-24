@@ -132,6 +132,11 @@ def test_build_cells_rejects_bad_arguments() -> None:
         build_cells(["x"], [])  # type: ignore[list-item]
     with pytest.raises(UsageError):
         build_cells([], ["x"])  # type: ignore[list-item]
+    far = b.make_aggregate({"output": 1}, source_kind="github.ai_usage_report",
+                           bucket_start_ms=2**53, bucket_end_ms=2**53,
+                           dims={"channel": "github_copilot"})
+    with pytest.raises(UsageError):     # valid record, but past the last calendar date
+        build_cells([far], [])
 
 
 @pytest.mark.parametrize("field,value", [

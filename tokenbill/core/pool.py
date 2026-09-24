@@ -50,7 +50,7 @@ from decimal import Decimal, InvalidOperation
 from tokenbill.core import facts as _facts
 from tokenbill.core.errors import ContractViolation, UsageError
 from tokenbill.core.labels import Basis, Calibration, Evidence, Figure, Finality, unpriced
-from tokenbill.core.money import EXACT_CTX, decimal_to_nano, fmt_usd, nano_to_credits_str, usd
+from tokenbill.core.money import EXACT_CTX, decimal_to_nano, fmt_usd, nano_to_credits_str
 from tokenbill.core.records import (
     GITHUB_COST_TYPES,
     LICENSE_PLANS,
@@ -111,6 +111,7 @@ _ZERO = Decimal(0)
 _ONE_CENT = Decimal("0.01")      # USD per AI credit
 _DAY_MS = 86_400_000
 _EPOCH = _dt.date(1970, 1, 1)
+_MAX_DATE_MS = 253_402_300_799_999      # 9999-12-31T23:59:59.999Z
 #: Largest magnitude (10**_MAX_ADJ) and finest scale (10**-_MIN_EXP) of a decimal read from records;
 #: anything else is ignored, so sums stay exact under EXACT_CTX's 60 digits.
 _MAX_ADJ = 15
@@ -129,9 +130,12 @@ def _month_bounds(month: object, what: str = "month") -> tuple[_dt.date, _dt.dat
     if not isinstance(month, str) or not _MONTH_RE.match(month):
         raise UsageError(f"{what}: expected a YYYY-MM string")
     year, mon = int(month[:4]), int(month[5:])
+    if year < 1:
+        raise UsageError(f"{what}: year out of range")
     first = _dt.date(year, mon, 1)
-    following = _dt.date(year + 1, 1, 1) if mon == 12 else _dt.date(year, mon + 1, 1)
-    return first, following - _dt.timedelta(days=1)
+    if mon == 12:
+        return first, _dt.date(year, 12, 31)
+    return first, _dt.date(year, mon + 1, 1) - _dt.timedelta(days=1)
 
 
 def _parse_date(value: object, what: str) -> _dt.date:
@@ -144,7 +148,16 @@ def _parse_date(value: object, what: str) -> _dt.date:
 
 
 def _utc_date_of_ms(ms: int) -> str:
+    if ms > _MAX_DATE_MS:     # records allow up to 2**53 ms; dates end on 9999-12-31
+        raise UsageError("timestamp after 9999-12-31")
     return (_EPOCH + _dt.timedelta(days=ms // _DAY_MS)).isoformat()
+
+
+def _days_before(day: _dt.date, days: int) -> _dt.date:
+    try:
+        return day - _dt.timedelta(days=days)
+    except OverflowError:
+        raise UsageError("today: too early for the report lag") from None
 
 
 def _check_mode(entity_mode: object) -> None:
@@ -1256,7 +1269,7 @@ def forecast(daily_nano: Sequence[tuple[str, int]], *, month: str, today: str,
     day → None; no remaining day → all four equal the observed total.
     """
     first, last = _month_bounds(month)
-    cutoff = _parse_date(today, "today") - _dt.timedelta(days=_lag(lag_days))
+    cutoff = _days_before(_parse_date(today, "today"), _lag(lag_days))
     by_day: dict[_dt.date, int] = defaultdict(int)
     for date_utc, nano in daily_nano:
         day = _parse_date(date_utc, "daily date")
@@ -1434,7 +1447,7 @@ def _common(entity: str, month: str, cells: Sequence[Cell], today: _dt.date, lag
         report_days = {c.date_utc for c in pooled + direct}  # type: ignore[misc]
     estimate = sum(n for (e, d), n in estimates.items()
                    if e == entity and d[:7] == month and d not in report_days)
-    lag_passed = last <= today - _dt.timedelta(days=lag)
+    lag_passed = last <= _days_before(today, lag)
     finality = "closed" if lag_passed and days_prov == 0 else "open"
     fc = None
     if finality == "open" and not month_grain:
@@ -1700,10 +1713,10 @@ def realize_credit_saving(saving: Figure, pm: PoolMonth) -> tuple[Figure, Figure
 def _seat_fee(month_fee: Mapping[str, Decimal], plan: str, effective: str) -> Decimal:
     for key in (plan, effective):
         if key in month_fee:
-            try:
-                return usd(month_fee[key])
-            except (TypeError, ValueError):
-                raise UsageError("realize_seat_change: month_fee values must be decimals") from None
+            fee = _as_decimal(month_fee[key])
+            if fee is None:
+                raise UsageError("realize_seat_change: month_fee values must be decimals")
+            return fee
     return _plan_fact(effective).seat_usd_per_month
 
 

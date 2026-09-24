@@ -278,6 +278,35 @@ def test_fuzz_configuration_values(conf: list, mode: str) -> None:
             pass
 
 
+months = st.one_of(st.text(max_size=8), st.from_regex(r"\d{4}-\d{2}", fullmatch=True))
+dates = st.one_of(st.text(max_size=11), st.from_regex(r"\d{4}-\d{2}-\d{2}", fullmatch=True))
+anything = st.one_of(values, st.decimals(allow_nan=True), st.floats(), st.tuples(st.integers()))
+
+
+@settings(max_examples=200, deadline=None,
+          suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large])
+@given(months, dates, st.dictionaries(st.text(max_size=10), anything, max_size=3),
+       st.lists(st.tuples(dates, st.one_of(st.none(), st.text(max_size=8)), anything), max_size=3),
+       st.one_of(st.none(), st.booleans(), st.dictionaries(st.text(max_size=20), anything)),
+       st.integers(-3, 400))
+def test_fuzz_arguments(month, today, mapping, estimates, gil, lag) -> None:
+    pm = b.make_pool_month(consumed_report_nano=10**12)
+    line, agg = b.make_ai_usage_row(date_utc="2026-10-02")
+    cells = build_cells([agg], [line])[0]
+    for call in (lambda: pool_credits(mapping, month, promo_eligible=True),
+                 lambda: forecast([(today, 5)], month=month, today=today, lag_days=lag),
+                 lambda: realize_seat_change(pm, {"business": -1}, month_fee=mapping),
+                 lambda: realize_seat_change(pm, mapping, month_fee={}),
+                 lambda: pool_months(cells, [], [], [], today=today, recent_estimates=estimates,
+                                     gross_is_list=gil),
+                 lambda: seat_months([], [], [], month),
+                 lambda: detect_plans([], [], [], month=month)):
+        try:
+            call()
+        except TokenbillError:
+            pass
+
+
 # ---------- no float in the money module (SPEC §2.4, C-30) ----------
 
 
