@@ -41,7 +41,7 @@ import json
 import math
 import os
 import re
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -106,6 +106,7 @@ __all__ = [
     "cache_scope",
     "canonical_usage_json",
     "clean_label",
+    "member",
     "name_or_hash",
     "normalize_bedrock_converse",
     "normalize_identity",
@@ -626,6 +627,11 @@ def principal_for(opts: IngestOptions, raw: str | None) -> str | None:
     return pseudonym(opts.principal_key, "p", raw)
 
 
+def member(value: object, allowed: Collection[str]) -> bool:
+    """``value in allowed`` for string values only (source values may be unhashable lists)."""
+    return isinstance(value, str) and value in allowed
+
+
 def normalize_identity(value: object) -> str | None:
     """A raw central identity prepared for team lookup and pseudonymization: stripped, emails
     lower-cased (so one person has one ``p_`` across sources); None when empty or over-long."""
@@ -937,7 +943,7 @@ def attribution_from(opts: IngestOptions, scan: SourceScan, meta: Mapping[str, A
                 updates[key] = name_or_hash(opts, value)
             elif key in _HASHED_ATTR and isinstance(value, str) and value.strip():
                 updates[key] = pseudonym(opts.name_key, "h", value.strip())
-            elif key == "workload_class" and value in WorkloadClass._value2member_map_:
+            elif key == "workload_class" and member(value, WorkloadClass._value2member_map_):
                 updates[key] = WorkloadClass(value)
             elif key == "billing_path" and value in BILLING_PATHS:
                 updates[key] = value

@@ -40,6 +40,7 @@ from tokenbill.adapters.conventions_ext import (
     head_record,
     key_part,
     lane_capabilities,
+    member,
     meta_ts,
     source_ref,
     to_int,
@@ -100,7 +101,7 @@ def _is_anthropic(obj: Mapping[str, Any]) -> bool:
     if not isinstance(resp, Mapping):
         return False
     if "custom_id" in resp and isinstance(resp.get("result"), Mapping):
-        return resp["result"].get("type") in _BATCH_TYPES
+        return member(resp["result"].get("type"), _BATCH_TYPES)
     return resp.get("type") == "message" and isinstance(resp.get("usage"), Mapping)
 
 
@@ -171,7 +172,7 @@ class _Reader:
             self.scan.count("outside_window")
             return
         opts = self.opts
-        channel = meta.get("channel") if meta and meta.get("channel") in _CHANNELS \
+        channel = meta.get("channel") if meta and member(meta.get("channel"), _CHANNELS) \
             else "anthropic_api"
         billing = meta.get("billing_path") if meta else None
         billing_path = billing if billing in BILLING_PATHS else (
@@ -180,10 +181,10 @@ class _Reader:
             or clean_label(resp.get("model")) or ""
         mid = normalize_model(model_raw, channel if channel in ("bedrock", "vertex") else None)
         scope = meta.get("endpoint_scope") if meta else None
-        if scope not in _SCOPES:
+        if not member(scope, _SCOPES):
             scope = mid.endpoint_scope if mid.endpoint_scope in _SCOPES else dict(
                 opts.attribution.extra).get("endpoint_scope", "unknown")
-        if scope not in _SCOPES:
+        if not member(scope, _SCOPES):
             scope = "unknown"
         attr_meta = meta.get("attribution") if meta and isinstance(meta.get("attribution"),
                                                                     Mapping) else None

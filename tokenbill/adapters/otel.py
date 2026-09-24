@@ -75,6 +75,7 @@ from tokenbill.adapters.conventions_ext import (
     head_record,
     key_part,
     lane_capabilities,
+    member,
     name_or_hash,
     normalize_claude_code_otel,
     normalize_identity,
@@ -418,7 +419,7 @@ class _Reader:
         parent = _hex(span.get("parentSpanId"))
         oi_kind = attrs.get("openinference.span.kind")
         operation = attrs.get("gen_ai.operation.name")
-        is_agent = oi_kind == "AGENT" or operation in _GENAI_AGENT_OPERATIONS
+        is_agent = oi_kind == "AGENT" or member(operation, _GENAI_AGENT_OPERATIONS)
         if trace and span_id:
             self.span_index[(trace, span_id)] = (parent, is_agent)
         start_ns = _nanos(span.get("startTimeUnixNano"))
@@ -447,7 +448,7 @@ class _Reader:
                 self.oi_spans.append(rec)
             else:
                 self.scan.count("openinference_non_llm_spans")
-        elif operation in _GENAI_OPERATIONS:
+        elif member(operation, _GENAI_OPERATIONS):
             self.genai_spans.append(rec)
         else:
             self.scan.count("ignored_spans")
@@ -711,7 +712,7 @@ class _Reader:
         n = len(attempts)
         att_id = attempt_id(call.request_id, n)
         total_attempts = to_int(merged.get("attempt"))
-        effort = merged.get("effort") if merged.get("effort") in _EFFORTS else None
+        effort = merged.get("effort") if member(merged.get("effort"), _EFFORTS) else None
         attempts.append(Attempt(
             attempt_id=att_id, attempt_no=n, ts_start_ms=call.ts_start,
             ttft_ms=to_int(sattrs.get("ttft_ms")), duration_ms=call.duration,

@@ -54,6 +54,7 @@ from tokenbill.adapters.conventions_ext import (
     head_record,
     key_part,
     lane_capabilities,
+    member,
     meta_ts,
     normalize_openai_chat,
     normalize_openai_responses,
@@ -140,7 +141,7 @@ def _unwrap(obj: Mapping[str, Any]) -> tuple[Mapping[str, Any] | None, Any, bool
     status) of one JSONL record."""
     meta = obj.get("request_meta") if isinstance(obj.get("request_meta"), Mapping) else None
     resp: Any = obj
-    if meta is not None or (obj.get("object") not in _OBJECTS
+    if meta is not None or (not member(obj.get("object"), _OBJECTS)
                             and isinstance(obj.get("response"), Mapping)):
         resp = obj.get("response")
     if isinstance(resp, Mapping) and "body" in resp and "status_code" in resp:
@@ -153,7 +154,7 @@ def _unwrap(obj: Mapping[str, Any]) -> tuple[Mapping[str, Any] | None, Any, bool
 
 def _is_openai(obj: Mapping[str, Any]) -> bool:
     resp = _unwrap(obj)[1]
-    return isinstance(resp, Mapping) and resp.get("object") in _OBJECTS
+    return isinstance(resp, Mapping) and member(resp.get("object"), _OBJECTS)
 
 
 class _Reader:
@@ -181,7 +182,7 @@ class _Reader:
             return
         usage = resp.get("usage")
         kind = resp.get("object")
-        if kind not in _OBJECTS:
+        if not member(kind, _OBJECTS):
             if isinstance(usage, Mapping) and "prompt_tokens" in usage:
                 kind = "chat.completion"
             elif isinstance(usage, Mapping) and "input_tokens" in usage:
@@ -208,7 +209,7 @@ class _Reader:
             return
 
         # channel, scope, billing path
-        channel = meta.get("channel") if meta and meta.get("channel") in _CHANNELS \
+        channel = meta.get("channel") if meta and member(meta.get("channel"), _CHANNELS) \
             else "openai_api"
         account_raw = None
         if meta:
@@ -220,9 +221,9 @@ class _Reader:
         billing_path = billing if billing in BILLING_PATHS else (
             self.opts.attribution.billing_path or BILLING_PATH_BY_CHANNEL[channel])
         endpoint_scope = meta.get("endpoint_scope") if meta else None
-        if endpoint_scope not in _SCOPES:
+        if not member(endpoint_scope, _SCOPES):
             endpoint_scope = dict(self.opts.attribution.extra).get("endpoint_scope")
-        if endpoint_scope not in _SCOPES:
+        if not member(endpoint_scope, _SCOPES):
             endpoint_scope = "unknown"
 
         model_raw = clean_label(meta.get("model_raw")) if meta else None
@@ -298,7 +299,7 @@ class _Reader:
             model_requested=model_raw,
             max_tokens=to_int(resp.get("max_output_tokens" if responses
                                        else "max_completion_tokens")),
-            effort=effort if effort in _EFFORT_LABELS else None,
+            effort=effort if member(effort, _EFFORT_LABELS) else None,
             service_tier_requested=None)
         attribution = attribution_from(
             self.opts, self.scan,
