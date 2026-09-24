@@ -78,6 +78,15 @@ recorded in `tests/v2/kit/RULINGS.md`). A ruling that differs is a small, local 
 - **O-11 Effort.** Reduction `floor(th·(1 − s))` with `th = output_reasoning` or `floor(0.505·O)`;
   `output_reasoning` is reduced by the same amount when known; serving inference only; first
   matching clause in policy order.
+  **Review flag (needs a ruling, both engines agree today):** "first matching clause in policy
+  order" uses the canonical order, which sorts clauses by selector string, so an `@all` clause
+  always shadows a scoped one (`effort=medium;effort=low@lane_kind:main` caps main lanes at
+  `medium`; the same holds for repeated `ttl=` and `model=` clauses). For the documented joint use
+  (`cc.max_effort` on all lanes with `cc.default_effort` on main Claude Code lanes) the default
+  lever would then add nothing in a joint replay. Suggested ruling: the most specific matching
+  selector (most terms) wins, ties in canonical order; for `effort`, the most restrictive
+  `max_level` among the matching clauses (its `s`). The gate's `effort` family replays this case,
+  so both engines move together under any ruling.
 - **O-12 `fast_off` / `geo_global` / `regional_to_global`** apply to every inference (scope becomes
   `global` on every channel; first-party pricing ignores it). `fast-toggle` misses flip only when
   alive_π holds with the fast toggle repaired. A policy made only of these three, with no flip
