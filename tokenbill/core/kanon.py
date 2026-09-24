@@ -414,10 +414,13 @@ def rescope_findings(findings: Sequence[Finding], *, k: int = 5,
             out.append(f)
     for (detector_id, kind, dims), children in sorted(key_scoped.items()):
         parent = Scope(dims=dims)
-        same_scope = [f for f in out if f.detector_id == detector_id and f.kind == kind
-                      and f.scope == parent and f.audience == "org"]
-        out = [f for f in out if f not in same_scope]
-        group = sorted(children + same_scope, key=lambda f: f.finding_id)
+        peers = [f for f in out if f.detector_id == detector_id and f.kind == kind
+                 and f.audience == "org" and _aggregate_parent(f.scope) == parent]
+        same_scope = [f for f in peers if f.scope == parent]
+        # complementary suppression, as below: never the small keys alone beside published keys
+        absorbed = same_scope or sorted(peers, key=_smallness)[:1]
+        out = [f for f in out if f not in absorbed]
+        group = sorted(children + absorbed, key=lambda f: f.finding_id)
         out.append(_merge_findings(group, parent, max(c.n_users for c in group), k))
     for keep in RESCOPE_LEVELS:
         if not pending:

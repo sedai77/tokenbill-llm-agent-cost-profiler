@@ -299,9 +299,14 @@ def test_exemptions_r_e1_self_and_aggregate() -> None:
                    kind="cache-read-share", detector="aggregate.org-scan")
     out = kanon.rescope_findings([dq, dq2, me, ws, key, key2, busy], k=K,
                                  count_users=lambda s: 0)
-    assert dq in out and dq2 in out and me in out and ws in out and busy in out
+    assert dq in out and dq2 in out and me in out and ws in out
     rescoped = [f for f in out if f.scope.dims == (("workspace_id", "w"),)]
-    assert len(rescoped) == 1 and rescoped[0].recoverable.nano == 101
+    # the two small keys merge at the workspace and absorb the published key of that workspace
+    # (complementary suppression), so neither is isolated beside it
+    assert len(rescoped) == 1 and rescoped[0].recoverable.nano == 100 + 1 + 100
+    assert busy not in out and rescoped[0].n_events == 3 * 2
+    alone = kanon.rescope_findings([key, key2], k=K)
+    assert [f.recoverable.nano for f in alone] == [101]
     with pytest.raises(ContractViolation):
         kanon.rescope_findings(["x"])  # type: ignore[list-item]
 
