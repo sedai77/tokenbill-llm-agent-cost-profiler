@@ -38,12 +38,12 @@ The same page says the per-user CSV is downloaded from the organization's "Acces
 page; the addendum's enterprise / org "Licensing → Get activity report" click path is **VERIFY**
 (addendum §19.5 #33).
 
-`activity_report.csv` uses exactly the documented columns in the documented order, a UTF-8 BOM,
-CRLF line ends, ISO timestamps with `Z` and one row with quoted `M/D/YYYY h:mm AM/PM` timestamps (the
-format of spreadsheet re-saves; accepted per the brief), an empty `last_activity_at`, an empty row
-tail, `Unspecified`, `VS Code 1.89.1` (the documented example), `Copilot Chat` (documented GitHub.com
-example), an unknown surface (`Frobnicator IDE 3.1` → `other`), bucket boundaries at 7 / 8, 90 / 91
-days, and `CANARY_LOGIN`.
+`activity_report.csv` uses exactly the documented columns in the documented order, a UTF-8 BOM
+(line ends are LF in the repository; the tests also read a CRLF copy), ISO timestamps with `Z`, one
+row with quoted `M/D/YYYY h:mm AM/PM` timestamps (the format of spreadsheet re-saves; accepted per
+the brief), an empty `last_activity_at`, an empty row tail, `Unspecified`, `VS Code 1.89.1` (the
+documented example), `Copilot Chat` (the documented GitHub.com example), an unknown surface
+(`Frobnicator IDE 3.1` → `other`), bucket boundaries at 7 / 8 and 90 / 91 days, and `CANARY_LOGIN`.
 
 **Unverified (third-party-derived, `verified: false` in `core.facts`):** the JetBrains surface
 string `JetBrains IntelliJ IDEA 2026.2`, and the `Visual Studio`, `Xcode`, `Neovim`, `Eclipse` and

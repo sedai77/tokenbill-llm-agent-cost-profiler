@@ -270,7 +270,7 @@ def write_world(root: Path, teams: Mapping[str, int] = TEAMS, *, email_in_usage:
     for i, login in enumerate(sorted(who)):
         report.append(f"2026-09-20T08:00:00Z,{login},2026-09-19T08:00:00Z,"
                       f"2026-09-{10 + i % 9:02d}T08:00:00Z,VS Code 1.10{i}.0")
-    (root / "activity_report.csv").write_text("﻿" + "\n".join(report) + "\n",
+    (root / "activity_report.csv").write_text("\ufeff" + "\n".join(report) + "\n",
                                               encoding="utf-8")
     (root / "budgets.json").write_text(json.dumps({"fake_budgets": list(budgets)}),
                                        encoding="utf-8")

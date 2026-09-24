@@ -85,6 +85,12 @@ def test_fixture_snapshots() -> None:
     assert CANARY_LOGIN not in blob and "octo-dev" not in blob
 
 
+def test_crlf_copy_reads_identically(tmp_path: Path) -> None:
+    crlf = tmp_path / "crlf.csv"
+    crlf.write_bytes(REPORT.read_bytes().replace(b"\n", b"\r\n"))
+    assert [to_json(x) for x in read(crlf).licenses] == [to_json(x) for x in read(REPORT).licenses]
+
+
 def test_conforms() -> None:
     first = assert_adapter_conforms(ActivityReportAdapter(), REPORT,
                                     expect_capabilities={"licenses"},

@@ -192,7 +192,7 @@ def test_member_order_in_results() -> None:
 def test_harvest_csv_json_ndjson_gz_and_zip(tmp_path: Path) -> None:
     d = tmp_path / "raw"
     d.mkdir()
-    (d / "usage.csv").write_text("﻿date,Username,organization,repository,workflow_path\n"
+    (d / "usage.csv").write_text("\ufeffdate,Username,organization,repository,workflow_path\n"
                                  "2026-09-10,Octo-Cat,acme,acme/payments-api,.github/wf.yml\n"
                                  "2026-09-10,,acme,,\n", encoding="utf-8")
     (d / "seats.json").write_text(json.dumps({"seats": [

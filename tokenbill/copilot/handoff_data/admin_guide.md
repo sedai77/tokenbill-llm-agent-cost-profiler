@@ -190,8 +190,8 @@ the manifest records the rotation, and months before and after it no longer join
 
 ## 8. Erasure requests
 
-To remove one person's data, print their pseudonymous ID (the login is read from standard input and
-never logged):
+To remove one person's data, print their pseudonymous ID. Type the login exactly as GitHub shows
+it (upper and lower case matter); it is read from standard input and never logged:
 
 ```
 tokenbill copilot pseudonym --login -

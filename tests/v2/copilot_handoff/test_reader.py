@@ -20,6 +20,7 @@ from tokenbill.core.errors import ContractViolation, SourceError
 from .helpers import write_round_trip
 
 Members = list[tuple[zipfile.ZipInfo, bytes]]
+pytestmark = pytest.mark.filterwarnings("ignore:Duplicate name:UserWarning")
 
 
 @pytest.fixture
