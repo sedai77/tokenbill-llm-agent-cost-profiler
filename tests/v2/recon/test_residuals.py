@@ -73,9 +73,13 @@ def test_allowance_is_a_magnitude_beside_the_gap() -> None:
 
 
 def test_cents_rounding_claims_up_to_the_remainder() -> None:
-    rows = [row(led=1000, priced=1000, inv=1009)]
-    assert run(rows, remainders_nano=5) == ({"cents_rounding": 5}, 4)
-    assert run(rows, remainders_nano=-50) == ({"cents_rounding": 9}, 0)
+    rows = [row(led=1000, priced=1000, inv=1001), row("cache_read", date="2026-08-11",
+                                                      led=1000, priced=1000, inv=999),
+            row("cache_read", led=1000, priced=1000, inv=1001)]
+    assert run(rows, remainders_nano=1) == ({"cents_rounding": 1}, 0)
+    assert run(rows[:1] + rows[2:], remainders_nano=-1) == ({"cents_rounding": 1}, 1)
+    assert run(rows[:1], remainders_nano=50) == ({"cents_rounding": 1}, 0)
+    assert run([row(led=1000, priced=1000, inv=1009)]) == ({"implied_discount": 9}, 0)
 
 
 def test_channel_specific_codes() -> None:

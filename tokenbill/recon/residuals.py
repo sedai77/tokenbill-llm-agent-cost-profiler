@@ -13,8 +13,8 @@ are classified **in the SPEC order**, each code claiming a part of the gap:
    (never invoiced, D26); a magnitude, reported beside the gap (the ledger side excludes it).
 5. ``unobserved_traffic`` — provider tokens the ledger never saw (uninstrumented apps): the whole
    gap of a model-day with no ledger tokens, else the price of the missing tokens.
-6. ``implied_discount`` — ``invoice − our price of the provider's own tokens`` when it exceeds a
-   cent per invoice row (smaller differences are the source's rounding).
+6. ``implied_discount`` — ``invoice − our price of the provider's own tokens`` when it exceeds the
+   rounding noise of 1 nano per invoice row.
 7. ``estimated_components`` — up to the ledger's estimated (range) parts.
 8. ``ccu_single_line`` / 10. ``no_reporting_api`` — channels billed as one capacity line / without
    a reporting API.
@@ -72,9 +72,11 @@ _ORDER = {code: i for i, code in enumerate(RESIDUAL_CODES)}
 DEFAULT_JOIN = ("join", "default_workspace")
 #: Row-key dim of informational rows (never classified, never in coverage totals).
 INFO_DIM = "info"
-#: One cent in nano: a price difference within a cent per invoice row is the source's rounding,
-#: not a discount (it is left to ``cents_rounding`` / unexplained).
-CENT_NANO = 10_000_000
+#: Rounding noise of one invoice row: the source rounds each line to the nano (a remainder of at
+#: most 0.5 nano) and our rate card rounds each priced line once (at most 0.5 nano). A price
+#: difference within 1 nano per invoice row is rounding, not a discount (it is left to
+#: ``cents_rounding`` / unexplained).
+ROUNDING_NANO_PER_ROW = 1
 
 
 def residual_order(code: str) -> tuple[int, str]:
@@ -145,8 +147,26 @@ def _dominant(claims: Mapping[str, int]) -> str | None:
     return min(claims, key=lambda c: (-abs(claims[c]), residual_order(c)))
 
 
-def _group_claims(rows: Sequence[ReconRow], estimated: int, channel: str | None
-                  ) -> tuple[dict[str, int], int]:
+def _missing_price(rows: Sequence[ReconRow], estimated: Mapping[tuple, int]) -> int:
+    """Our price of the provider tokens the ledger lacks: each bucket row's deficit at that row's
+    average price, scaled down to the model-day's net token deficit (tokens the ledger reports in
+    another bucket, e.g. unknown-TTL writes, are not missing). Rows whose ledger part has estimated
+    components are left to ``estimated_components``."""
+    group_deficit = max(0, sum(r.provider_tokens or 0 for r in rows)
+                        - sum(r.ledger_tokens or 0 for r in rows))
+    if not group_deficit:
+        return 0
+    total = deficit = 0
+    for r in rows:
+        pt, lt = r.provider_tokens or 0, r.ledger_tokens or 0
+        if pt > lt and r.priced_provider_nano and not estimated.get(r.key):
+            total += _share(r.priced_provider_nano, pt - lt, pt)
+            deficit += pt - lt
+    return _share(total, group_deficit, deficit) if deficit > group_deficit else total
+
+
+def _group_claims(rows: Sequence[ReconRow], estimated_by_key: Mapping[tuple, int],
+                  channel: str | None) -> tuple[dict[str, int], int]:
     """Codes 5–10 on one closed model-day group: ``(claims, unexplained)``."""
     inv = sum(r.invoice_nano or 0 for r in rows)
     led = sum(r.ledger_nano or 0 for r in rows)
@@ -157,6 +177,7 @@ def _group_claims(rows: Sequence[ReconRow], estimated: int, channel: str | None
     total_mode = any(key_value(r.key, "bucket") == "total" for r in rows)
     p = None if any(v is None for v in priced) else sum(
         r.priced_provider_nano or 0 for r in rows)
+    estimated = sum(estimated_by_key.get(r.key, 0) for r in rows)
     remaining = inv - led
     claims: dict[str, int] = {}
     if lt == 0 and led == 0 and (pt > 0 or has_inv):
@@ -164,12 +185,13 @@ def _group_claims(rows: Sequence[ReconRow], estimated: int, channel: str | None
         return claims, 0
     if not total_mode and p is not None and has_inv and p > 0:
         coverage = p - led
-        if pt > lt and coverage > 0:
-            claims["unobserved_traffic"] = min(coverage, _share(p, pt - lt, pt))
+        missing = _missing_price(rows, estimated_by_key)
+        if missing and coverage > 0:
+            claims["unobserved_traffic"] = min(coverage, missing)
         remaining = coverage - claims.get("unobserved_traffic", 0)
         price = inv - p
         invoiced_rows = sum(1 for r in rows if r.invoice_nano is not None)
-        if abs(price) > CENT_NANO * invoiced_rows:  # beyond the source's cent rounding
+        if abs(price) > ROUNDING_NANO_PER_ROW * invoiced_rows:  # beyond per-line rounding
             claims["implied_discount"] = price
         else:
             remaining += price
@@ -239,15 +261,18 @@ def classify_rows(rows: Sequence[ReconRow], *, ledger_estimated_nano: Mapping[tu
             out.add("revision_window", gap)
             code, status, rest = "revision_window", "provisional", 0
         else:
-            estimated = sum(ledger_estimated_nano.get(r.key, 0) for r in members)
-            claims, rest = _group_claims(members, estimated, key_value(gkey, "channel"))
+            claims, rest = _group_claims(members, ledger_estimated_nano,
+                                         key_value(gkey, "channel"))
             for c, nano in claims.items():
                 out.add(c, nano)
             code = _dominant({c: n for c, n in claims.items() if n})
             if code is None and claims:
                 code = _dominant(claims)
-            if rest:
+            noise = ROUNDING_NANO_PER_ROW * max(1, len(members))
+            if rest and abs(rest) > noise:
                 status = "unexplained"
+            elif rest:
+                status = "within_tolerance"   # rounding noise (still counted as unexplained)
             elif any(claims.values()):
                 status = "explained"
             else:

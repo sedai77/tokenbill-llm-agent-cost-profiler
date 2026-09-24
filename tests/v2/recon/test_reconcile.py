@@ -378,14 +378,17 @@ def test_subscription_ledger_dollars_are_seat_allowance_unmetered() -> None:
 
 def test_parse_remainders_are_cents_rounding() -> None:
     a = agg()
-    lines = cost_lines(a)
-    lines[0] = dataclasses.replace(lines[0], amount_nano=lines[0].amount_nano + 7)
+    # every one of the five invoice lines rounded one nano up (within per-line rounding noise)
+    lines = [dataclasses.replace(c, amount_nano=c.amount_nano + 1) for c in cost_lines(a)]
     report = reconcile([record()], [a], lines, PRICER, today=TODAY,
-                       rounding_remainders={"anthropic-cost-report": Decimal("7E-9"),
+                       rounding_remainders={"anthropic-cost-report": Decimal("5E-9"),
                                             "github-ai-usage": Decimal("1")})
-    assert residuals(report)["cents_rounding"] == 7
-    assert report.unexplained_nano == 0
+    assert residuals(report)["cents_rounding"] == 5
+    assert report.unexplained_nano == 0 and "implied_discount" not in residuals(report)
     assert verdicts(report) == {"anthropic_api": "reconciled"}
+    bigger = [dataclasses.replace(c, amount_nano=c.amount_nano + 7) for c in cost_lines(a)]
+    shifted = reconcile([record()], [a], bigger, PRICER, today=TODAY)
+    assert residuals(shifted)["implied_discount"] == 35
 
 
 def test_unknown_cost_type_is_unmapped_cost_type() -> None:

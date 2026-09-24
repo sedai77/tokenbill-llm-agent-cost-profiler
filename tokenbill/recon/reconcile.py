@@ -42,7 +42,14 @@ from tokenbill.core.errors import ContractViolation, UsageError
 from tokenbill.core.labels import Basis, Finality
 from tokenbill.core.money import EXACT_CTX, NANO_PER_USD, RATIO_CTX, decimal_to_nano
 from tokenbill.core.protocols import Pricer
-from tokenbill.core.records import CostLine, PricingContext, UsageAggregate, UsageRecord, to_json
+from tokenbill.core.records import (
+    CostLine,
+    PricingContext,
+    UsageAggregate,
+    UsageRecord,
+    UsageSource,
+    to_json,
+)
 from tokenbill.core.types import ChannelVerdict, ContractOverlay, ReconciliationReport, ReconRow
 from tokenbill.recon import costmap
 from tokenbill.recon.costmap import (
@@ -82,7 +89,8 @@ __all__ = [
 
 DEFAULT_TOLERANCE_PCT = Decimal("0.5")
 DEFAULT_UNEXPLAINED_PCT = Decimal("1.0")
-#: Revisable sources are final this many days after the usage date (Enterprise Analytics: ~30).
+#: Revisable sources are final this many days after the end of the usage day (Enterprise
+#: Analytics: ~30; the ADMIN adapters' ``finality`` uses the same rule).
 REVISION_WINDOW_DAYS = 30
 #: Over-count rule: ledger > provider + max(OVER_COUNT_PCT % of provider, OVER_COUNT_MIN_TOKENS).
 OVER_COUNT_PCT = Decimal("1")
@@ -205,7 +213,9 @@ class _Ledger:
     """The streamed ledger of one channel under one pricer.
 
     Cells are keyed ``(date, workspace or None, model, bucket, tier marker)``: ``billed`` →
-    ``[tokens, nano, estimated nano, list-basis nano, unpriced tokens]``; ``allowance`` → nano."""
+    ``[tokens, nano, estimated nano, list-basis nano, unpriced tokens, reconstructed flag]`` (the
+    flag marks usage that is a lower bound or a reconstruction: placeholder output, partial
+    streams, hidden compaction calls); ``allowance`` → nano."""
 
     billed: dict[tuple, list[int]] = field(default_factory=dict)
     allowance: dict[tuple, int] = field(default_factory=dict)
@@ -215,8 +225,19 @@ class _Ledger:
     def cell(self, key: tuple) -> list[int]:
         found = self.billed.get(key)
         if found is None:
-            found = self.billed[key] = [0, 0, 0, 0, 0]
+            found = self.billed[key] = [0] * _LEDGER_SLOTS
         return found
+
+
+_LEDGER_SLOTS = 6
+_RECONSTRUCTED = frozenset({UsageSource.MESSAGE_START_ONLY, UsageSource.PARTIAL_STREAM,
+                            UsageSource.ESTIMATED})
+
+
+def _merge_ledger(cur: list[int], value: list[int]) -> None:
+    for i in range(_LEDGER_SLOTS - 1):
+        cur[i] += value[i]
+    cur[-1] = max(cur[-1], value[-1])
 
 
 @dataclass
@@ -453,6 +474,8 @@ def _account(side: _Ledger, ch: _Channel, rec: UsageRecord, pricer: Pricer) -> N
         if bucket != "web_search":
             _add(cell, 0, line.quantity)
         _add(cell, 1, line.amount_nano)
+        if rec.usage_source in _RECONSTRUCTED:
+            cell[5] = 1
         if not line.exact:  # the most the true amount can differ from the point
             low = line.low_nano if line.low_nano is not None else line.amount_nano
             high = line.high_nano if line.high_nano is not None else line.amount_nano
@@ -537,9 +560,8 @@ def _mapped_rows(ch: _Channel, led: _Ledger, prov: _Provider, inv: _Invoice, out
         row_ws, join = ws_of(ws, True)
         if join:
             joined.add((date, model))
-        cur = slot(date, row_ws, model, bucket, tier).setdefault("led", [0, 0, 0, 0, 0])
-        for i in range(5):
-            cur[i] += value[i]
+        _merge_ledger(slot(date, row_ws, model, bucket, tier).setdefault(
+            "led", [0] * _LEDGER_SLOTS), value)
     for (date, ws, model, bucket, tier), value in led.allowance.items():
         s = slot(date, ws_of(ws, True)[0], model, bucket, tier)
         s["allow"] = int(s.get("allow", 0)) + value  # type: ignore[call-overload]
@@ -560,8 +582,12 @@ def _mapped_rows(ch: _Channel, led: _Ledger, prov: _Provider, inv: _Invoice, out
         invoice = inv_c[0] if inv_c is not None else None
         out.rows.append(_make_row(key, ledger_tokens, provider_tokens, ledger_nano, priced,
                                   invoice))
-        if led_c is not None and led_c[2]:
-            out.estimated[key] = led_c[2]
+        estimated = led_c[2] if led_c is not None else 0
+        if led_c is not None and led_c[5] and prov_c is not None and prov_c[0] > led_c[0]:
+            # reconstructed usage is a lower bound: it may hide up to the provider's excess
+            estimated = max(estimated, _scale(prov_c[1], prov_c[0] - led_c[0], prov_c[0]))
+        if estimated:
+            out.estimated[key] = estimated
         if s.get("allow"):
             out.allowance[key] = int(s["allow"])  # type: ignore[call-overload]
         if inv_c is not None:
@@ -619,9 +645,7 @@ def _total_rows(ch: _Channel, led: _Ledger, prov: _Provider, inv: _Invoice, out:
     for date, value in inv.totals.items():
         days.setdefault(date, {})["inv"] = list(value)
     for (date, *_rest), value in led.billed.items():
-        cur = days.setdefault(date, {}).setdefault("led", [0, 0, 0, 0, 0])
-        for i in range(5):
-            cur[i] += value[i]
+        _merge_ledger(days.setdefault(date, {}).setdefault("led", [0] * _LEDGER_SLOTS), value)
     allow_by_day: dict[str, int] = {}
     for (date, *_rest), value in led.allowance.items():
         allow_by_day[date] = allow_by_day.get(date, 0) + value
@@ -859,7 +883,8 @@ def _finish_rows(out: _Rows, cls: Classification | None,
         if key_group(key) in out.over_groups:
             status = "over"
         elif status != "provisional" and model_day in failing and (
-                key_value(key, "bucket") not in _NOT_PRICED_BUCKETS):
+                key_value(key, "bucket") not in _NOT_PRICED_BUCKETS) and (
+                row.priced_provider_nano is not None or row.invoice_nano is not None):
             status = "unexplained"
         elif status == "match" and row.rate_card_error_pct not in (None, "0"):
             status = "within_tolerance"
@@ -1119,12 +1144,14 @@ class _Engine:
         self.providers = {n: _price_provider(ch, pricer) for n, ch in self.channels.items()}
 
     def provisional(self, date: str) -> bool:
-        """Dates within the revision window of ``today`` (or after it) are provisional."""
+        """Dates within the revision window of ``today`` (or after it) are provisional: a day is
+        final once ``today ≥ its end + 30 days`` (the rule the ADMIN adapters apply to
+        ``finality``)."""
         try:
             ordinal = _dt.date.fromisoformat(date).toordinal()
         except ValueError:
             return True
-        return self.today - ordinal < REVISION_WINDOW_DAYS
+        return self.today - ordinal <= REVISION_WINDOW_DAYS
 
     def keep(self, date: str) -> bool:
         return not (self.closed_only and self.provisional(date))
