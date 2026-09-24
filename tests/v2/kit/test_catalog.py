@@ -50,6 +50,10 @@ def test_levers_are_the_spec_table_in_order() -> None:
     assert catalog.lever("cc.cold_resume_hook").lever_class == "behavioral"
     assert catalog.lever("blocks.breakpoints").replay == "block"
     assert catalog.lever("fanout.stagger").upper_bound
+    # SPEC §10.2: the tool-defs-bloat projection behind both levers is an upper bound
+    assert catalog.lever("cc.tool_search").upper_bound
+    assert catalog.lever("sdk.defer_loading").upper_bound
+    assert catalog.lever("ci.shared_prefix").upper_bound  # "repair=shared_ci_prefix (upper bound)"
     assert catalog.lever("ci.shared_prefix").selector == "workload:ci"
 
 

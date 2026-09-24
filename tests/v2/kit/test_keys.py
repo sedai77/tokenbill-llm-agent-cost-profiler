@@ -151,6 +151,7 @@ def _plant(path: Path, key: bytes) -> None:
     os.chmod(path, 0o600)
 
 
+@posix_only
 def test_creation_race_loads_the_winner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "race.key"
     winner = bytes(range(32))
@@ -165,6 +166,7 @@ def test_creation_race_loads_the_winner(tmp_path: Path, monkeypatch: pytest.Monk
     assert [p.name for p in tmp_path.iterdir()] == ["race.key"]  # the temporary file is gone
 
 
+@posix_only
 def test_a_concurrent_reader_never_sees_a_partial_key(tmp_path: Path,
                                                        monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "partial.key"
@@ -181,6 +183,7 @@ def test_a_concurrent_reader_never_sees_a_partial_key(tmp_path: Path,
     assert seen == [key.hex() + "\n"] and keys.load(path, platform="posix") == key
 
 
+@posix_only
 def test_without_hard_links_the_key_is_written_exclusively(tmp_path: Path,
                                                              monkeypatch: pytest.MonkeyPatch
                                                              ) -> None:
@@ -226,6 +229,7 @@ def test_without_hard_links_the_key_is_written_exclusively(tmp_path: Path,
                            pause_s=0)
 
 
+@posix_only
 def test_load_checks_the_file_it_actually_reads(tmp_path: Path,
                                                 monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "swap.key"

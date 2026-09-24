@@ -158,10 +158,11 @@ LEVERS: tuple[LeverDef, ...] = (
              False, (),
              ("breakpoint-placement", "missing-breakpoint", "lookback-overflow",
               "write-never-read")),
+    # tool-defs-bloat projections are upper bounds (SPEC §10.2: band × tokens, `upper_bound`)
     LeverDef("cc.tool_search", "cache_transform", (), "agent_product:claude_code", "none", False,
-             False, False, ("env.ENABLE_TOOL_SEARCH",),
+             True, False, ("env.ENABLE_TOOL_SEARCH",),
              ("tool-defs-bloat", "static-prefix", "tool-search-disabled")),
-    LeverDef("sdk.defer_loading", "cache_transform", (), "all", "none", False, False, False, (),
+    LeverDef("sdk.defer_loading", "cache_transform", (), "all", "none", False, True, False, (),
              ("tool-defs-bloat",)),
 )
 
