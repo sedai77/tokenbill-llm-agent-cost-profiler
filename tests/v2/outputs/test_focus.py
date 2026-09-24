@@ -182,7 +182,8 @@ def test_identity_below_k_is_one_org_level_row() -> None:
     rows = [row("tiny", 2, 100), row("mini", 1, 50)]
     _n, out, _h = export(rows)
     assert len(out) == 1
-    assert json.loads(out[0]["Tags"])["team"] == other_label(5)
+    tags = json.loads(out[0]["Tags"])
+    assert tags["team"] == other_label(5) and "cost_center" not in tags   # nothing below k named
     assert out[0]["ListCost"] == "0.00000015" and out[0]["x_SuppressedUsers"] == "3"
 
 

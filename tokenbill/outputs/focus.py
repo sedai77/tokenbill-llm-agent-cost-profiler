@@ -305,12 +305,15 @@ def _carrier(cell: _Cell) -> AggRow:
                                      unpriced_tokens=0, coverage="1"))
 
 
-def _merge(cells: list[_Cell], k: int) -> _Cell:
+def _merge(cells: list[_Cell], k: int, *, org_level: bool) -> _Cell:
     first = cells[0]
 
     def same(attr: str) -> str | None:
+        """A dim shared by every merged group survives — unless the row is the org-level
+        remainder of groups ``publish`` withheld (then it could name a group below k)."""
         value = getattr(first, attr)
-        return value if all(getattr(c, attr) == value for c in cells) else None
+        ok = not org_level and all(getattr(c, attr) == value for c in cells)
+        return value if ok else None
 
     merged = _Cell(identity=first.identity, team=other_label(k), cost_center=same("cost_center"),
                    project=same("project"), row=first.row, method_id=first.method_id,
@@ -333,11 +336,12 @@ def _publish(group: dict[str, _Cell], k: int, window: tuple[int, int]) -> list[_
                        window=window)
     published = publish(raw, k=k)
     label = other_label(k)
-    shown = {row.dims[0][1] for row in published.rows if row.dims[0][1] != label}
+    values = [row.dims[0][1] for row in published.rows]
+    shown = {v for v in values if v != label}
     keep = [c for key, c in group.items() if key in shown]
     rest = [c for key, c in group.items() if key not in shown]
     if rest:
-        keep.append(_merge(rest, k))
+        keep.append(_merge(rest, k, org_level=label not in values))
     return keep
 
 
