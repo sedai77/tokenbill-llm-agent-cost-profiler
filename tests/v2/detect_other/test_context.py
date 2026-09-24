@@ -9,12 +9,13 @@ from tokenbill.core.builders import make_block, make_fingerprint
 from tokenbill.core.errors import UsageError
 from tokenbill.core.labels import Basis, Evidence
 from tokenbill.core.records import AppendedItem, LaneKind
-from tokenbill.detect.context import Carry, CompactionWindow, SizeTax, StaticPrefix
+from tokenbill.detect.context import Carry, Cohort, CompactionWindow, SizeTax, StaticPrefix
 
 from .helpers import (
     CAPS,
     HAIKU45,
     OPUS55,
+    PRICER,
     SONNET5,
     CountingReplayer,
     ctx,
@@ -79,6 +80,19 @@ def test_size_tax_allowance_cohort_is_list_equivalent() -> None:
     assert ("billing_class", "allowance") in f.scope.dims
 
 
+def test_list_equivalent_labels_by_billing_class() -> None:
+    # the seat allowance carries the D26 labels; Copilot's pooled credits are list-equivalent
+    # too, but core.findings labels them ("Copilot credits:"), so the detector leaves room only
+    long = "x " * 80
+    seat, pool, billed = (Cohort("t", "main", bc, ()) for bc in ("allowance", "pool", "billed"))
+    assert seat.basis(PRICER) is Basis.LIST_EQUIVALENT and pool.basis(PRICER) is \
+        Basis.LIST_EQUIVALENT and billed.basis(PRICER) is Basis.LIST
+    assert seat.title("T").startswith("Allowance headroom:") and pool.title("T") == "T"
+    assert seat.summary("S").endswith("not invoice dollars.") and pool.summary("S") == "S"
+    assert 110 < len(seat.title(long)) <= 120 and 90 < len(pool.title(long)) <= 100
+    assert 110 < len(billed.title(long)) <= 120
+
+
 def test_size_tax_unknown_ttl_writes_are_a_range() -> None:
     rows = [(0, 0, 0, 0, 0, 1000), (30, 0, 0, 0, 0, 1000)]
     ln = lane("L-u", rows, model=SONNET5, per_request={
@@ -122,8 +136,8 @@ ADDED = {SPECS[200_000]: 5, SPECS[300_000]: 4, SPECS[400_000]: 2, SPECS[500_000]
 def test_compaction_window_curve_with_the_extra_compactions_guard() -> None:
     rep = CountingReplayer(SAVINGS, ADDED)
     f = one(CompactionWindow().detect(_window_lanes(), ctx(replayer=rep)), "compaction-window")
-    # 200k is below min_window; 300k projects 4 extra compactions per session (> 3): the best
-    # eligible window is 500k (2 lanes × $1.75)
+    # 200k is below min_compaction_window; 300k projects 4 extra compactions per session (> 3):
+    # the best eligible window is 500k (2 lanes × $1.75)
     assert f.recoverable is not None and f.recoverable.nano == 3_500_000_000
     assert f.recoverable.evidence is Evidence.ESTIMATED and f.recoverable.upper_bound
     assert f.needs_eval and f.lever_class == "trajectory"
@@ -145,10 +159,24 @@ def test_compaction_window_thresholds_move_the_choice() -> None:
                   thresholds={"context.compaction-window.max_extra_compactions": "5"})
     f = one(CompactionWindow().detect(_window_lanes(), relaxed), "compaction-window")
     assert f.recoverable.nano == 4_000_000_000          # 300k
-    lower = ctx(replayer=rep, thresholds={"context.compaction-window.max_extra_compactions": "5",
-                                          "context.compaction-window.min_window": "200000"})
+    lower = ctx(replayer=rep, thresholds={
+        "context.compaction-window.max_extra_compactions": "5",
+        "context.compaction-window.min_compaction_window": "200000"})
     f = one(CompactionWindow().detect(_window_lanes(), lower), "compaction-window")
     assert f.recoverable.nano == 5_000_000_000          # 200k
+    # a zero guard is valid: only a window that adds no compaction (700k) qualifies
+    none_extra = ctx(replayer=rep,
+                     thresholds={"context.compaction-window.max_extra_compactions": "0"})
+    f = one(CompactionWindow().detect(_window_lanes(), none_extra), "compaction-window")
+    assert f.recoverable.nano == 1_000_000_000          # 700k
+    assert evidence(f, "compaction-window:guard")["min_compaction_window"] == 300_000
+    # thresholds are read at nano resolution: a sub-nano guard is 0, not a Fraction with a
+    # million-digit denominator (which took a minute per call)
+    tiny = ctx(replayer=rep,
+               thresholds={"context.compaction-window.max_extra_compactions": "1e-999999"})
+    f = one(CompactionWindow().detect(_window_lanes(), tiny), "compaction-window")
+    assert f.recoverable.nano == 1_000_000_000
+    assert evidence(f, "compaction-window:guard")["max_extra_per_session"] == "0.00"
     rep_post = CountingReplayer({f"{k},post=18000": v for k, v in SAVINGS.items()},
                                 {f"{k},post=18000": v for k, v in ADDED.items()})
     post = ctx(replayer=rep_post, thresholds={"context.compaction-window.post_tokens": "18000"})
@@ -275,6 +303,18 @@ def test_tool_output_carry_with_the_published_bytes_per_token() -> None:
     assert evidence(f, "tool:Bash")["nano"] == 2_085_200
     assert "claude-4.7+ 2.50 (default)" in str(evidence(f, "carry:distribution")["bytes_per_token"])
     assert evidence(f, "carry:distribution")["top_5pct_share_pct"] == "83.8"
+
+
+def test_tool_output_is_written_at_the_prompt_tail_bucket() -> None:
+    # request 1 writes a 1h prefix part (1,000) and a 5m tail (3,000): the appended tool result
+    # (2,000 tokens at 2.5 bytes/token) sits in the tail, so it is written at 5m (5,000 nano),
+    # not 1h (8,000), then read once by request 2 (200 nano)
+    rows = [(0, 0, 0, 20_000, 0, 500), (30, 20_000, 3_000, 1_000, 0, 500),
+            (60, 24_000, 3_000, 0, 0, 500)]
+    ln = lane("L-tail", rows, per_request={
+        1: {"appended": [AppendedItem(kind="tool_result", name="Read", n_bytes=5_000)]}})
+    f = one(Carry().detect([ln], ctx(thresholds={"min_usd": "0.001"})), "tool-output-carry")
+    assert f.cost_observed.nano == 2_000 * 5_000 + 2_000 * 200
 
 
 def test_tool_output_carry_stops_at_a_reset() -> None:

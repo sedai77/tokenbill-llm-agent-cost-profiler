@@ -10,7 +10,7 @@ from tokenbill.core.labels import Basis, Evidence
 from tokenbill.core.records import LaneKind
 from tokenbill.detect.premium import PremiumModifiers, StickyEscalation, residency_required
 
-from .helpers import OPUS5, OPUS55, attribution, ctx, evidence, lane, one
+from .helpers import OPUS5, OPUS55, ScaledPricer, attribution, ctx, evidence, lane, one
 
 # SPEC §6.9 case 1: uncached 1,000; read 100,000; 5m write 2,000; 1h write 3,000; output 500
 CASE1 = (0, 100_000, 2_000, 3_000, 1_000, 500)
@@ -46,6 +46,20 @@ def test_geo_and_regional_premiums() -> None:
     assert reg.cost_observed.nano == 500_000_000 and reg.recoverable.nano == 500_000_000
     assert reg.cost_observed.evidence is Evidence.EXACT and reg.lever_ids == ("endpoint.global",)
     assert reg.fix.target == "gateway"
+
+
+def test_tier_premium_on_a_card_that_prices_the_priority_tier() -> None:
+    # a rate card pricing the priority service tier at 2× the standard tier: case 1 at priority
+    # = 2 × $0.068, standard = $0.068 → premium $0.068 EXACT (rate arithmetic on identical tokens)
+    tiered = ScaledPricer(lambda c, _ts: 2 if c.service_tier == "priority" else 1)
+    f = one(PremiumModifiers().detect([_case_lane(service_tier="priority")],
+                                      ctx(pricer=tiered, thresholds={"min_usd": "0.01"})),
+            "tier-premium")
+    assert f.cost_observed.nano == 68_000_000 and f.cost_observed.evidence is Evidence.EXACT
+    assert f.recoverable == f.cost_observed and f.lever_ids == ()   # no catalog lever
+    assert (f.category, f.lever_class, f.n_events) == ("premium", "rate", 1)
+    assert evidence(f, f"premium:{OPUS55}")["nano"] == 68_000_000
+    assert "priority service tier" in f.title and f.fix.config_patch is None
 
 
 def test_residency_policy_flags_instead_of_recovering() -> None:
@@ -141,6 +155,11 @@ def test_sticky_org_count_only_when_at_least_k() -> None:
     assert f.audience == "org" and f.n_users == 5
     item = evidence(f, "sticky:count")
     assert (item["principals"], item["fast"], item["effort"]) == (5, 3, 2)
+    # three fast premiums and two escalated spends, each 60,020,000 per day over 6 days:
+    # fast 10,000 × 5,000 + 5 × 4,000 + 500 × 20,000; effort 10,000 × 5,000 + 5 × 4,000 +
+    # 500 × 20,000 at standard speed
+    assert f.cost_observed.nano == 5 * 6 * 60_020_000
+    assert f.cost_observed.evidence is Evidence.EXACT and f.recoverable is None
     assert all(dim != "principal" for dim, _ in f.scope.dims)
     assert "r_a" not in f.summary and "r_a" not in str(f.evidence)
     # the same five with k = 6: withheld

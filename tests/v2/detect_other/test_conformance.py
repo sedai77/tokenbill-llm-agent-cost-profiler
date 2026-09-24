@@ -223,7 +223,7 @@ def test_findings_are_sorted_and_titles_short() -> None:
 
 
 @pytest.mark.parametrize(("key", "value"), [
-    ("context.compaction-window.max_extra_compactions", "0"),
+    ("context.compaction-window.max_extra_compactions", "-1"),
     ("model.routing.default_model_share", "1.5"),
     ("failure.path.retry_share", "-0.1"),
     ("tail.runaway.min_hourly_usd", "-1"),

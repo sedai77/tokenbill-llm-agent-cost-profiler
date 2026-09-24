@@ -16,8 +16,9 @@
   ``effort=medium,scale=0.5@agent_product:claude_code,lane_kind:main`` (``cc.default_effort``).
 * ``effort-mix`` (info, needs ``params``) — spend share by effort level and the thinking share.
 * ``rebaseline`` (info) — a change of the cohort's dominant serving model: the 14 days before vs
-  after (≥ 50 requests each), Δ tokens per request and Δ$ per request at the rate card's rates
-  (observational, ESTIMATED), the tokenizer-family and thinking-default notes and the
+  after (≥ 50 requests each), Δ tokens per request (and in %) and Δ$ per request at current rates
+  (the rate card in force at ``ctx.now_ms``; observational, ESTIMATED), the tokenizer-family and
+  thinking-default notes and the
   stale-prompt flag at +20% output per call (``STALE_PROMPT_OUTPUT_DELTA``).
 
 Replay-based kinds (delegation, default model, default effort) are trade-offs: ESTIMATED,
@@ -122,6 +123,11 @@ def _date(ts_ms: int) -> str:
     return (_dt.date(1970, 1, 1) + _dt.timedelta(days=ts_ms // DAY_MS)).isoformat()
 
 
+def _delta_pct(after: Fraction, before: Fraction) -> str | None:
+    """``100·(after − before)/before`` with one decimal (None when *before* is 0)."""
+    return decimal_str(100 * (after - before) / before, 1) if before else None
+
+
 @dataclasses.dataclass
 class _Window:
     """Means of one rebaseline comparison window."""
@@ -133,6 +139,7 @@ class _Window:
     reasoning_n: int = 0
     cost: int = 0
     priced: int = 0
+    own_date: int = 0      # requests the current rate card cannot price, priced at their date
 
 
 class Routing:
@@ -496,6 +503,7 @@ class Routing:
         lo, hi = change_ms - _COMPARE_DAYS * DAY_MS, change_ms + _COMPARE_DAYS * DAY_MS
         before, after = _Window(), _Window()
         tally = Tally()
+        now = _now(ctx)
         for ts, _model, req, lane in steps:
             if not lo <= ts < hi:
                 continue
@@ -507,10 +515,11 @@ class Routing:
             if u.output_reasoning is not None:
                 win.reasoning += u.output_reasoning
                 win.reasoning_n += 1
-            money = prices.request(req)
+            money, own_date = self._at_current_rates(prices, req, now)
             if money is not None:
                 win.cost += money.point
                 win.priced += 1
+                win.own_date += own_date
             if win is after:
                 tally.hit(lane, ts)
                 if money is None:
@@ -519,6 +528,28 @@ class Routing:
                 not after.priced:
             return None
         return self._rebaseline_finding(ctx, prices, cohort, tally, day, old, new, before, after)
+
+    @staticmethod
+    def _at_current_rates(prices: Prices, req: Request, now_ms: int) -> tuple[Money | None, int]:
+        """The request's billable inferences priced with the rate card in force at *now_ms*
+        (SPEC §10.2 "Δ$/request at current rates"), so a rate change between the two windows
+        does not pass for a behavior change. An inference the current card cannot price (a
+        retired row, an expired promotion) is priced at its own attempt's start instead (never
+        as zero, R2); returns ``(money or None, 1 if any inference fell back else 0)``."""
+        total = Money()
+        fell_back = 0
+        for att in req.attempts:
+            for inf in att.inferences:
+                if inf.billable is False:
+                    continue
+                money = prices.inference(inf, now_ms)
+                if money is None:
+                    money = prices.inference(inf, att.ts_start_ms)
+                    fell_back = 1
+                if money is None:
+                    return None, 0
+                total.add_money(money)
+        return total, fell_back
 
     @staticmethod
     def _change_day(steps: Sequence[tuple[int, str, Request, Lane]], min_requests: int,
@@ -566,8 +597,8 @@ class Routing:
         cost_b, cost_a = Fraction(before.cost, before.priced), Fraction(after.cost, after.priced)
         delta_cost = (cost_a - cost_b) * after.n
         figure = estimated(round_fraction(delta_cost), basis, note=(
-            "observational: (mean $ per request after − before) × requests after, at the rate "
-            "card's rates"))
+            "observational: (mean $ per request after − before) × requests after, at current "
+            "rates"))
         stale_share = STALE_PROMPT_OUTPUT_DELTA.value
         assert isinstance(stale_share, Decimal)
         ratio = mean_out_a / mean_out_b if mean_out_b else None
@@ -598,12 +629,15 @@ class Routing:
                           mean_output_after=decimal_str(mean_out_a, 6),
                           delta_output_per_request=decimal_str(mean_out_a - mean_out_b, 6),
                           output_ratio=decimal_str(ratio, 4) if ratio is not None else None,
+                          delta_input_pct=_delta_pct(mean_in_a, mean_in_b),
+                          delta_output_pct=_delta_pct(mean_out_a, mean_out_b),
                           stale_prompts="yes" if stale else "no", magnitude=1),
             evidence_item("aggregate", "rebaseline:cost",
                           usd_per_request_before_nano=round_fraction(cost_b),
                           usd_per_request_after_nano=round_fraction(cost_a),
                           delta_usd_per_request_nano=round_fraction(cost_a - cost_b),
-                          magnitude=0),
+                          rates_at=_date(_now(ctx)),
+                          priced_at_own_date=before.own_date + after.own_date, magnitude=0),
         ]
         if before.reasoning_n and after.reasoning_n:
             items.append(evidence_item(

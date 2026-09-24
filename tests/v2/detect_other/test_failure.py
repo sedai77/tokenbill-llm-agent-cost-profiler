@@ -93,6 +93,8 @@ def test_cold_retry_attempt_path_with_the_repair_replay() -> None:
     assert f.recoverable.nano == 470_000_000
     assert f.lever_ids == ("retry.single_owner",) and f.lever_class == "cache_transform"
     assert [e.kind for e in f.evidence] == ["attempt_chain"]
+    chain = dict(f.evidence[0].attrs)
+    assert (chain["gap_ms"], chain["attempts"], chain["tokens"]) == (400_000, 2, 100_000)
 
 
 def test_cold_retry_without_a_replayer_uses_the_triage_premium() -> None:
@@ -109,6 +111,7 @@ def test_cold_retry_event_path() -> None:
     f = one(FailurePath().detect([ln], ctx(thresholds={"min_usd": "0.10"})), "cold-retry")
     assert f.cost_observed.nano == 500_000_000 and f.recoverable.nano == 480_000_000
     assert [e.kind for e in f.evidence] == ["event"]
+    assert dict(f.evidence[0].attrs)["gap_ms"] == 400_000      # since the previous request
     quiet = lane("L-q", rows)
     assert by_kind(FailurePath().detect([quiet], ctx(thresholds=ZERO)), "cold-retry") == []
 

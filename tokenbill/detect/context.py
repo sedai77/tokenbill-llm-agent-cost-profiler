@@ -24,8 +24,9 @@ per-kind capability notes); it is internal to DETECT-OTHER. It follows the conve
 cache detectors (SPEC §10.1): cross-lane logic stays inside ``core.findings.cohort_key`` cohorts
 ``(team, lane_kind, billing_class)`` (or finer keys inside one), so per-shard runs concatenate to
 one run; findings aggregate at (team, lane kind, kind[, model]) plus ``billing_class`` when it is
-not the default ``billed`` — list-equivalent classes carry basis LIST_EQUIVALENT, an "Allowance
-headroom:" title and a "list-equivalent, not invoice dollars" summary (D26); ``cost_observed`` is
+not the default ``billed`` — list-equivalent classes carry basis LIST_EQUIVALENT, and the seat
+allowance an "Allowance headroom:" title and a "list-equivalent, not invoice dollars" summary
+(D26; Copilot ``pool`` findings are labeled by ``core.findings``); ``cost_observed`` is
 EXACT only for billed arithmetic; money is int nano-USD (no floats); ``min_usd`` gates every
 finding (the recoverable point, else ``cost_observed`` for triage and info kinds); findings are
 returned unpublished (the caller applies ``core.kanon.rescope_findings``). Only token counts,
@@ -117,6 +118,11 @@ ALLOWANCE_CLASS = "allowance"
 #: allowance (D26) and GitHub Copilot's pooled credits (R-E20). A table, so additive classes need
 #: no code change.
 LIST_EQUIVALENT_CLASSES = frozenset({ALLOWANCE_CLASS, "pool"})
+#: Billing classes whose findings carry the seat-allowance labels of D26 ("Allowance headroom:"
+#: title, "list-equivalent, not invoice dollars" summary). Copilot's pooled credits are
+#: list-equivalent too, but they are not a seat allowance: ``core.findings.build_finding`` labels
+#: ``pool`` findings of generic detectors itself ("Copilot credits:", CORE-AMENDMENTS S-2).
+ALLOWANCE_LABEL_CLASSES = frozenset({ALLOWANCE_CLASS})
 ALLOWANCE_TITLE = "Allowance headroom: "
 ALLOWANCE_SUMMARY = " Figures are list-equivalent, not invoice dollars."
 #: Generated summaries stay this short so ``core.kanon.rescope_findings`` can prefix its
@@ -428,10 +434,11 @@ class Prices:
                    if inf.billable is not False)
 
 
-def write_bucket(usage: UsageBuckets) -> str:
-    """The write bucket a request's writes were (mostly) billed at: the first non-empty bucket of
-    :data:`WRITE_ORDER`, else ``cache_write_5m``."""
-    for bucket in WRITE_ORDER:
+def write_bucket(usage: UsageBuckets, order: Sequence[str] = WRITE_ORDER) -> str:
+    """The write bucket of a request's writes at one end of its prompt: the first non-empty
+    bucket of *order* — :data:`WRITE_ORDER` (the default) for the prompt's start, where the
+    longer TTLs sit, :data:`TAIL_ORDER` for its end — else ``cache_write_5m``."""
+    for bucket in order:
         if getattr(usage, bucket):
             return bucket
     return "cache_write_5m"
@@ -459,6 +466,11 @@ class Cohort:
     def allowance(self) -> bool:
         """True for a list-equivalent cohort (seat allowance, D26; pooled credits, R-E20)."""
         return self.billing_class in LIST_EQUIVALENT_CLASSES
+
+    @property
+    def labeled(self) -> bool:
+        """True for a seat-allowance cohort, whose text carries the D26 labels."""
+        return self.billing_class in ALLOWANCE_LABEL_CLASSES
 
     def basis(self, pricer: Pricer) -> Basis:
         """LIST_EQUIVALENT for the list-equivalent billing classes, else the pricer's billed
@@ -497,14 +509,16 @@ class Cohort:
         return head + "…"
 
     def title(self, text: str) -> str:
-        """*text* with the allowance prefix when needed, at most 120 chars."""
-        prefix = ALLOWANCE_TITLE if self.allowance else ""
-        return prefix + self.fit(text, MAX_TITLE - len(prefix))
+        """*text* with the allowance prefix when needed, at most 120 chars; other list-equivalent
+        cohorts keep the same room free for the label core adds (``pool``)."""
+        prefix = ALLOWANCE_TITLE if self.labeled else ""
+        room = len(ALLOWANCE_TITLE) if self.allowance else 0
+        return prefix + self.fit(text, MAX_TITLE - room)
 
     def summary(self, text: str, note: str = "") -> str:
-        """*text*, then *note* and (for list-equivalent cohorts) the "list-equivalent, not invoice
+        """*text*, then *note* and (for seat-allowance cohorts) the "list-equivalent, not invoice
         dollars" statement, within :data:`SUMMARY_BUDGET` chars; only *text* is shortened."""
-        tail = note + (ALLOWANCE_SUMMARY if self.allowance else "")
+        tail = note + (ALLOWANCE_SUMMARY if self.labeled else "")
         return self.fit(text, SUMMARY_BUDGET - len(tail)) + tail
 
 
@@ -601,18 +615,27 @@ def premium_family(model: str) -> bool:
 #: Upper bound of every numeric threshold (tokens, seconds, counts, USD, multiples): larger
 #: values are nonsense and would only produce giant integers in generated text.
 _THRESHOLD_MAX = Decimal(2**53)
+#: Resolution of every numeric threshold (one nano): a finer value such as ``"1e-999999"`` would
+#: otherwise become a Fraction with a million-digit denominator and stall the detector.
+_THRESHOLD_QUANTUM = Decimal(1).scaleb(-9)
+_THRESHOLD_CTX = Context(prec=40, rounding=ROUND_HALF_EVEN)
 
 
 def _bounded(ctx: AnalysisContext, key: str, default: str) -> Decimal:
     value = threshold(ctx, key, default)
     if abs(value) > _THRESHOLD_MAX:
         raise UsageError(f"threshold {key}: out of range")
+    exponent = value.as_tuple().exponent
+    if isinstance(exponent, int) and exponent < -9:
+        value = value.quantize(_THRESHOLD_QUANTUM, context=_THRESHOLD_CTX)
     return value
 
 
 def int_threshold(ctx: AnalysisContext, key: str, default: int) -> int:
     """A non-negative integer threshold ``ctx.thresholds[key]`` (else *default*); decimals are
-    truncated toward zero; negative or absurdly large (> 2**53) values raise ``UsageError``."""
+    truncated toward zero; negative or absurdly large (> 2**53) values raise ``UsageError``.
+    Every numeric threshold helper reads values at nano resolution (finer digits round
+    half-even), so a value like ``"1e-999999"`` cannot stall the arithmetic."""
     value = _bounded(ctx, key, str(default))
     if value < 0:
         raise UsageError(f"threshold {key}: must not be negative")
@@ -620,9 +643,9 @@ def int_threshold(ctx: AnalysisContext, key: str, default: int) -> int:
 
 
 def share_threshold(ctx: AnalysisContext, key: str, default: str) -> Decimal:
-    """A share threshold in [0, 1] ``ctx.thresholds[key]`` (else *default*); out of range raises
-    ``UsageError``."""
-    value = threshold(ctx, key, default)
+    """A share threshold in [0, 1] ``ctx.thresholds[key]`` (else *default*), at nano
+    resolution; out of range raises ``UsageError``."""
+    value = _bounded(ctx, key, default)
     if not 0 <= value <= 1:
         raise UsageError(f"threshold {key}: must be a share between 0 and 1")
     return value
@@ -634,6 +657,15 @@ def positive_threshold(ctx: AnalysisContext, key: str, default: str) -> Decimal:
     value = _bounded(ctx, key, default)
     if value <= 0:
         raise UsageError(f"threshold {key}: must be positive")
+    return value
+
+
+def nonneg_threshold(ctx: AnalysisContext, key: str, default: str) -> Decimal:
+    """A threshold that must be ≥ 0 (a count or a per-session limit that may be zero) and
+    ≤ 2**53; otherwise ``UsageError``."""
+    value = _bounded(ctx, key, default)
+    if value < 0:
+        raise UsageError(f"threshold {key}: must not be negative")
     return value
 
 
@@ -1051,9 +1083,10 @@ class CompactionWindow:
     smallest grid value are replayed (``ctx.replayer``) under ``compact-window=w`` for w ∈ {200k,
     300k, 400k, 500k, 700k} (with ``post=<S_c>`` when ``ctx.thresholds[
     "context.compaction-window.post_tokens"]`` carries the org median, R-E24). A window is
-    eligible when ``w ≥ min_window`` (``context.compaction-window.min_window``, default 300,000)
-    and the projected extra compactions per session are at most
-    ``context.compaction-window.max_extra_compactions`` (default 3); the best RR-adjusted p50
+    eligible when ``w ≥ min_compaction_window`` (``context.compaction-window.
+    min_compaction_window``, the SPEC §10.2 name; default 300,000) and the projected extra
+    compactions per session are at most ``context.compaction-window.max_extra_compactions``
+    (default 3; 0 allows no extra compaction); the best RR-adjusted p50
     saving is recommended. ``cost_observed`` is the replayed lanes' observed spend; the
     recoverable is ESTIMATED, trade-off, ``needs_eval``, ``upper_bound``; the full curve is in the
     evidence. No findings without a replayer. Needs ``usage_sequence``, ``timing``.
@@ -1069,8 +1102,8 @@ class CompactionWindow:
         if ctx.replayer is None:
             return []
         prices = Prices(ctx.pricer)
-        min_window = int_threshold(ctx, f"{self.id}.min_window", 300_000)
-        max_extra = Fraction(positive_threshold(ctx, f"{self.id}.max_extra_compactions", "3"))
+        min_window = int_threshold(ctx, f"{self.id}.min_compaction_window", 300_000)
+        max_extra = Fraction(nonneg_threshold(ctx, f"{self.id}.max_extra_compactions", "3"))
         post = ctx.thresholds.get(f"{self.id}.post_tokens") if ctx.thresholds else None
         post_tokens = int_threshold(ctx, f"{self.id}.post_tokens", 0) if post is not None else 0
         out = []
@@ -1136,7 +1169,7 @@ class CompactionWindow:
                 magnitude=len(_WINDOW_GRID) - _WINDOW_GRID.index(window)))
         default_ctx = CC_AUTOCOMPACT_DEFAULT_TOKENS.value
         items.append(evidence_item("aggregate", "compaction-window:guard", sessions=sessions,
-                                   min_window=min_window,
+                                   min_compaction_window=min_window,
                                    max_extra_per_session=decimal_str(max_extra, 2),
                                    default_window=default_ctx if isinstance(default_ctx, int)
                                    else None, summary_tokens=post_tokens or None))
@@ -1400,7 +1433,8 @@ class Carry:
     Bytes become tokens with ``t = ceil(n_bytes / cpt)``, ``cpt`` from ``core.findings.fit_cpt``
     over the cohort's lanes of each tokenizer family (≥ 30 samples, else the published default
     2.5 / 3.3 bytes per token). An item entering at request ``i`` costs ``t·wτ`` (written once at
-    request ``i``'s billed write bucket) plus ``t·r`` on each later request of the lane before the
+    request ``i``'s billed write bucket: the prompt's tail bucket for a tool result, its leading
+    bucket for a context injection) plus ``t·r`` on each later request of the lane before the
     next reset (COMPACTION / CLEAR / CONTEXT_EDIT event, applied edits) — ESTIMATED.
 
     * ``tool-output-carry`` (needs ``appended``): every appended ``tool_result`` item, with the
@@ -1488,13 +1522,17 @@ class Carry:
                 idx = next((j for j, ts in enumerate(starts) if ts >= ev.ts_ms), None)
                 if idx is not None:
                     found.append((idx, att, size))
+        # tool results are appended at the end of the prompt (its shortest-TTL writes); context
+        # injections (CLAUDE.md, skills, MCP listings) sit in the session's leading context
+        order = TAIL_ORDER if kind == "tool-output-carry" else WRITE_ORDER
         out: list[tuple[Request, _Item | None]] = []
         for i, name, n_bytes in found:
             req = steps[i]
             inf = serving(req)
             tokens = int((Decimal(n_bytes) / cpt).to_integral_value(rounding=ROUND_CEILING))
             ts = req.ts_start_ms
-            cost = combine((1, prices.line(inf.pricing, ts, write_bucket(inf.usage), tokens)),
+            bucket = write_bucket(inf.usage, order)
+            cost = combine((1, prices.line(inf.pricing, ts, bucket, tokens)),
                            (1, prices.line(inf.pricing, ts, "cache_read", tokens * later[i])))
             out.append((req, None if cost is None else _Item(name, tokens, cost, later[i])))
         return out

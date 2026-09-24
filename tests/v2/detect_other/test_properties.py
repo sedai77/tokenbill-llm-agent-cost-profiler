@@ -147,7 +147,8 @@ def test_no_replayer_never_breaks(lanes: list[Lane]) -> None:
             assert f.finding_id and f.references
 
 
-KEYS = ("min_usd", "context.size-tax.threshold_tokens", "context.compaction-window.min_window",
+KEYS = ("min_usd", "context.size-tax.threshold_tokens",
+        "context.compaction-window.min_compaction_window",
         "context.compaction-window.max_extra_compactions", "model.routing.default_model_share",
         "failure.path.retry_share", "automation.cadence_cv", "tail.runaway.min_hourly_usd",
         "tail.runaway.p99_multiple", "premium.sticky-escalation.min_days", "defaults.effort",

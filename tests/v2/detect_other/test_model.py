@@ -11,12 +11,15 @@ from tokenbill.detect.model import Routing
 
 from .helpers import (
     CAPS,
+    DAY_MS,
     FABLE5,
     OPUS5,
     OPUS48,
     OPUS55,
     SONNET5,
     SONNET46,
+    T0,
+    ScaledPricer,
     by_kind,
     ctx,
     evidence,
@@ -189,6 +192,7 @@ def test_rebaseline_on_a_synthetic_migration() -> None:
     tokens = evidence(f, "rebaseline:tokens")
     assert tokens["delta_output_per_request"] == "300.000000"
     assert tokens["output_ratio"] == "1.3000" and tokens["stale_prompts"] == "yes"
+    assert (tokens["delta_output_pct"], tokens["delta_input_pct"]) == ("30.0", "0.0")
     assert Decimal(str(tokens["output_ratio"])) - 1 == Decimal("0.3")
     # Δ$ per request = 300 output tokens × 25,000 nano; × 140 requests after
     assert evidence(f, "rebaseline:cost")["delta_usd_per_request_nano"] == 7_500_000
@@ -197,6 +201,27 @@ def test_rebaseline_on_a_synthetic_migration() -> None:
     assert f.lever_class == "behavioral" and f.category == "attribution"
     assert "thinking is on by default on claude-opus-5" in f.fix.text
     assert "stale prompts" in f.fix.text and "tokenizer" not in f.fix.text
+
+
+def test_rebaseline_prices_both_windows_at_current_rates() -> None:
+    # the old model's price doubles after the window; at current rates (now = day 30) a before
+    # request costs 2 × (10,000 × 6,250 + 5 × 5,000 + 1,000 × 25,000) = 175,050,000 and an after
+    # request 10,000 × 6,250 + 5 × 5,000 + 1,300 × 25,000 = 95,025,000: Δ −80,025,000 per request
+    # (at each request's own date the old model would look 7,500,000 cheaper instead)
+    later = T0 + 29 * DAY_MS
+    repriced = ScaledPricer(lambda c, ts: 2 if c.model == OPUS48 and ts >= later else 1)
+    now = T0 + 30 * DAY_MS
+    f = one(Routing().detect(_migration(), ctx(pricer=repriced, now_ms=now)), "rebaseline")
+    cost = evidence(f, "rebaseline:cost")
+    assert cost["delta_usd_per_request_nano"] == -80_025_000
+    assert (cost["rates_at"], cost["priced_at_own_date"]) == ("2026-10-23", 0)
+    assert f.cost_observed.nano == -80_025_000 * 140 and "current rates" in f.cost_observed.note
+    # before the Opus 5 row takes effect the current card cannot price the new model: those
+    # requests are priced at their own date (never as zero)
+    early = T0 - 90 * DAY_MS
+    f = one(Routing().detect(_migration(), ctx(now_ms=early)), "rebaseline")
+    cost = evidence(f, "rebaseline:cost")
+    assert cost["priced_at_own_date"] == 140 and cost["delta_usd_per_request_nano"] == 7_500_000
 
 
 def test_rebaseline_tokenizer_note_and_signed_delta() -> None:

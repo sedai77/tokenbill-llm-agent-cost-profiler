@@ -190,9 +190,12 @@ class FailurePath:
                     retried_lane = True
                 else:
                     triage.add_money(premium)
+                # the gap that outlived τ: from the first attempt (attempt path) or from the
+                # previous request (event path)
+                since = first.ts_start_ms if attempt_path else lo
                 tally.items.append(evidence_item(
                     "attempt_chain" if attempt_path else "event", req.request_id,
-                    attempts=len(req.attempts), gap_ms=final.ts_start_ms - (start or last),
+                    attempts=len(req.attempts), gap_ms=final.ts_start_ms - since,
                     tokens=tokens, nano=cost.point))
             if retried_lane:
                 replay_lanes.append(lane)

@@ -79,8 +79,8 @@ shares in [0, 1], counts non-negative, magnitudes ≤ 2**53, else `UsageError`):
 | key | default | meaning |
 |---|---|---|
 | `context.size-tax.threshold_tokens` | 200000 | the `X` of `cost_observed` |
-| `context.compaction-window.min_window` | 300000 | smallest recommendable window |
-| `context.compaction-window.max_extra_compactions` | 3 | extra compactions per session |
+| `context.compaction-window.min_compaction_window` | 300000 | smallest recommendable window (SPEC §10.2 name) |
+| `context.compaction-window.max_extra_compactions` | 3 | extra compactions per session (0 allowed) |
 | `context.compaction-window.post_tokens` | — | the org median `S_c`, passed as `post=` (R-E24) |
 | `context.static-prefix.tool_defs_threshold` | 10000 | rescaled non-deferred tool tokens |
 | `premium.sticky-escalation.min_days` | 5 | sticky when on more days than this |
@@ -119,14 +119,17 @@ Policy values read raw (not decimals): `defaults.effort` (a level, default `medi
   mix, rebaseline, retry storm, never-succeeding 400, tool-error loop, ci-run-cost, tail) gate on
   `cost_observed`; the others on their recoverable point (or `cost_observed` when it is unpriced
   or absent). The rebaseline Δ$ is signed and gates on its absolute value.
-- **Compaction window.** Eligible windows need `w ≥ min_window`, ≤ `max_extra_compactions`
+- **Compaction window.** Eligible windows need `w ≥ min_compaction_window`, ≤ `max_extra_compactions`
   (replay `added_calls` ÷ sessions) and a positive saving; the argmax of the saving × the
   trajectory RR p50 (a constant, so the argmax of the saving; ties → larger window) is
   recommended; `cost_observed` is the replay baseline of the qualifying lanes.
 - **Rebaseline.** The change day is the first UTC day on which a model serves ≥ 50% of the
   cohort's requests that day and over the next 7 days, having served < 50% of the 14 days before,
   whose plurality model differs; the comparison windows are the 14 UTC days before and after that
-  midnight. "Δ$ per request at current rates" prices every request with the run's rate card.
+  midnight. "Δ$ per request at current rates" prices every request with the rate card in force at
+  `ctx.now_ms` (else the window end), so a rate change between the windows is not reported as a
+  behavior change; an inference the current card cannot price (a retired row, an expired
+  promotion) is priced at its own date (counted in the evidence as `priced_at_own_date`).
 - **Effort.** An effort-capable model is one whose requests report an effort (`params.effort`);
   default effort uses the output-weighted share of requests at effort ≥ high. Sticky escalation
   uses `params.session_effort` and "more than 5 distinct UTC days" for fast mode and effort
@@ -140,7 +143,8 @@ Policy values read raw (not decimals): `defaults.effort` (a level, default `medi
 - **Automation.** CI chains are consecutive qualifying runs of one (cache scope, model) starting
   within the previous run's write TTL; `cost_observed` counts the later runs of each chain. A CI
   run is a session; repo and workflow appear as their `h_` pseudonyms or an opaque stable id.
-- **Carry.** An item costs `t·w` at the request's billed write bucket plus `t·r` per later request
+- **Carry.** An item costs `t·w` at the request's billed write bucket (the prompt's tail bucket
+  for a tool result, its leading bucket for a context injection) plus `t·r` per later request
   of the lane before the next reset (COMPACTION / CLEAR / CONTEXT_EDIT event or an edited request);
   a context injection lands on the first request at or after it.
 - **Tail.** Sessions are the lanes of one session key inside the cohort; rolling-hour spend uses

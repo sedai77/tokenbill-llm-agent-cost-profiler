@@ -24,13 +24,22 @@ from tokenbill.core.records import (
     Lane,
     LaneEvent,
     LaneKind,
+    PricingContext,
     Request,
     RequestParams,
     UsageBuckets,
+    UsageSource,
     WorkloadClass,
 )
 from tokenbill.core.testing import FakePricer, FakeReplayer
-from tokenbill.core.types import AnalysisContext, Finding, Policy, ReplayResult
+from tokenbill.core.types import (
+    AnalysisContext,
+    Finding,
+    Policy,
+    PricedInference,
+    ReplayResult,
+    UnitRates,
+)
 
 T0 = 1_790_121_600_000  # 2026-09-23T00:00:00Z
 DAY_MS = 86_400_000
@@ -154,11 +163,53 @@ def multi_request(lane_key: str, seq: int, attempts: Sequence[Attempt], *,
 
 
 def ctx(*, replayer: Any = None, thresholds: Mapping[str, str] | None = None,
-        capabilities: frozenset[str] = CAPS, **kw: Any) -> AnalysisContext:
-    """An AnalysisContext over FakePricer and the SPEC cache rules."""
-    return AnalysisContext(pricer=PRICER, rules=RULES, replayer=replayer, calibration=None,
+        capabilities: frozenset[str] = CAPS, pricer: Any = PRICER, **kw: Any) -> AnalysisContext:
+    """An AnalysisContext over FakePricer (or *pricer*) and the SPEC cache rules."""
+    return AnalysisContext(pricer=pricer, rules=RULES, replayer=replayer, calibration=None,
                            window=(T0, T0 + 30 * DAY_MS), capabilities=capabilities,
-                           thresholds=dict(thresholds or {}), now_ms=T0, **kw)
+                           thresholds=dict(thresholds or {}), now_ms=kw.pop("now_ms", T0),
+                           **kw)
+
+
+class ScaledPricer(FakePricer):
+    """FakePricer whose prices are multiplied by ``scale(context, ts_ms)`` (an int ≥ 1): a pricing
+    the reference card lacks, e.g. a priority service tier or a later rate change. Exact unit rates
+    are offered only where the scale is 1, so scaled contexts take ``price_usage``."""
+
+    def __init__(self, scale: Callable[[PricingContext, int], int]) -> None:
+        super().__init__()
+        self._scale = scale
+
+    def unit_rates(self, ctx: PricingContext, *, ts_ms: int) -> UnitRates | None:
+        if self._scale(ctx, ts_ms) != 1:
+            return None
+        return super().unit_rates(ctx, ts_ms=ts_ms)
+
+    def price_usage(self, usage: UsageBuckets, ctx: PricingContext, *, ts_ms: int,
+                    billable: bool | None = True, usage_source: UsageSource = UsageSource.FINAL,
+                    output_upper: int | None = None) -> PricedInference:
+        priced = super().price_usage(usage, ctx, ts_ms=ts_ms, billable=billable,
+                                     usage_source=usage_source, output_upper=output_upper)
+        k = self._scale(ctx, ts_ms)
+        if k == 1 or priced.unpriced_reason is not None:
+            return priced
+
+        def times(x: int | None) -> int | None:
+            return None if x is None else x * k
+
+        lines = tuple(dataclasses.replace(ln, amount_nano=ln.amount_nano * k,
+                                          low_nano=times(ln.low_nano),
+                                          high_nano=times(ln.high_nano))
+                      for ln in priced.lines)
+        fig = priced.figure
+        fig = dataclasses.replace(fig, nano=times(fig.nano), low_nano=times(fig.low_nano),
+                                  high_nano=times(fig.high_nano))
+        est = priced.estimated
+        if est is not None:
+            est = dataclasses.replace(est, nano=times(est.nano), low_nano=times(est.low_nano),
+                                      high_nano=times(est.high_nano))
+        return dataclasses.replace(priced, lines=lines, figure=fig,
+                                   exact_nano=priced.exact_nano * k, estimated=est)
 
 
 def table_replayer(savings: Mapping[str, int] | Callable[[Lane, Policy], int]) -> FakeReplayer:
