@@ -348,28 +348,28 @@ class AwsCurAdapter:
                 tokens, rounded = usage_tokens(amount_text, unit)
                 if rounded:
                     ctx.stat("token_amounts_rounded")
+        model = model_id(rule.model, "bedrock") if rule and rule.model else None
+        if tokens is not None:  # validated side effects last: a bad row adds nothing
+            dims: dict[str, str | None] = {"channel": self.channel, "workspace_id": account,
+                                           "team": team}
+            if rule is None:
+                dims["sku"] = sku
+                bucket = "uncached_input"
+            else:
+                dims.update(model=model, endpoint_scope=rule.endpoint_scope,
+                            service_tier=rule.service_tier)
+                bucket = rule.bucket
+            start_day = day_start(start)
+            if ctx.add_aggregate(self.source_kind, start_day, start_day + DAY_MS, dims,
+                                 _usage_of(bucket, tokens)) and rule is None:
+                unmapped[0] += 1
+                unmapped[1] += tokens
         ctx.add_cost(source_kind=self.source_kind, date_utc=day, channel=self.channel,
                      amount=amount, listed=listed, workspace_id=account,
-                     description=sku or "", model=rule.model if rule else None,
-                     cost_type=line_type or None, token_type=rule.bucket if rule else None,
-                     sku=sku, service_tier=rule.service_tier if rule else None,
+                     description=sku or "", model=model, cost_type=line_type or None,
+                     token_type=rule.bucket if rule else None, sku=sku,
+                     service_tier=rule.service_tier if rule else None,
                      endpoint_scope=rule.endpoint_scope if rule else None, principal=principal)
-        if tokens is None:
-            return
-        dims: dict[str, str | None] = {"channel": self.channel, "workspace_id": account,
-                                       "team": team}
-        if rule is None:
-            dims["sku"] = sku
-            bucket = "uncached_input"
-            unmapped[0] += 1
-            unmapped[1] += tokens
-        else:
-            dims.update(model=rule.model, endpoint_scope=rule.endpoint_scope,
-                        service_tier=rule.service_tier)
-            bucket = rule.bucket
-        start_day = day_start(start)
-        ctx.add_aggregate(self.source_kind, start_day, start_day + DAY_MS, dims,
-                          _usage_of(bucket, tokens))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -531,57 +531,68 @@ class GcpBillingExportAdapter:
         scope: str | None
         if not region:
             scope = rule.endpoint_scope if rule else None
-            if scope is None:
-                state["scope_unknown"] += 1
         else:
             scope = "global" if region.lower() == "global" else "regional"
         labels = _labels(row)
         dims: dict[str, str | None] = {"channel": self.channel, "workspace_id": project,
                                        "endpoint_scope": scope}
+        dropped = 0
         for key in sorted(labels):
             dim = GCP_LABEL_DIMS.get(key)
             value = labels[key].strip()
             if dim is None or not _LABEL_VALUE_RE.fullmatch(value):
-                state["labels_dropped"] += 1
+                dropped += 1
                 continue
             dims[dim] = value
+        model = model_id(rule.model, "vertex") if rule and rule.model else None
+        tokens = self._tokens(ctx, row, rule) if cost_type.lower() in GCP_TOKEN_COST_TYPES \
+            else None
+        # validated: record the row (a malformed row above adds nothing)
+        state["labels_dropped"] += dropped
+        if scope is None:
+            state["scope_unknown"] += 1
+        if tokens is not None:
+            if rule is None:
+                dims["sku"] = sku_id
+                bucket = "uncached_input"
+            else:
+                dims.update(model=model, service_tier=rule.service_tier)
+                bucket = rule.bucket
+            start_day = day_start(start)
+            if ctx.add_aggregate(self.source_kind, start_day, start_day + DAY_MS, dims,
+                                 _usage_of(bucket, tokens)) and rule is None:
+                state["unmapped"][0] += 1
+                state["unmapped"][1] += tokens
         ctx.add_cost(source_kind=self.source_kind, date_utc=day, channel=self.channel,
                      amount=cost + credits, listed=cost, workspace_id=project,
-                     description=sku_desc, model=model_id(rule.model, "vertex") if rule and
-                     rule.model else None, cost_type=cost_type or None,
+                     description=sku_desc, model=model, cost_type=cost_type or None,
                      token_type=rule.bucket if rule else None, sku=sku_id,
                      service_tier=rule.service_tier if rule else None, endpoint_scope=scope)
-        if cost_type.lower() not in GCP_TOKEN_COST_TYPES:
-            return
+
+    @staticmethod
+    def _tokens(ctx: ReadContext, row: Mapping[str, Any], rule: catalog.SkuRule | None
+                ) -> int | None:
+        """Tokens of a usage row: ``usage.amount`` × the tokens per ``usage.unit`` (or the
+        amount in pricing units × the pricing unit, or a verified rule's unit); None when the row
+        has no amount or no known token unit."""
         amount = gcp_get(row, "usage.amount")
         if amount in (None, ""):
-            return
+            return None
         unit = token_unit(gcp_get(row, "usage.unit"))
         if unit is None:
             pricing_unit = token_unit(gcp_get(row, "usage.pricing_unit"))
-            if pricing_unit is not None and gcp_get(row, "usage.amount_in_pricing_units") not in (
-                    None, ""):
-                amount, unit = gcp_get(row, "usage.amount_in_pricing_units"), pricing_unit
+            in_pricing = gcp_get(row, "usage.amount_in_pricing_units")
+            if pricing_unit is not None and in_pricing not in (None, ""):
+                amount, unit = in_pricing, pricing_unit
         if unit is None and rule is not None:
             unit = rule.unit_tokens
         if unit is None:
             ctx.stat("rows_unit_unknown")
-            return
+            return None
         tokens, rounded = usage_tokens(amount, unit)
         if rounded:
             ctx.stat("token_amounts_rounded")
-        if rule is None:
-            dims["sku"] = sku_id
-            bucket = "uncached_input"
-            state["unmapped"][0] += 1
-            state["unmapped"][1] += tokens
-        else:
-            dims.update(model=model_id(rule.model, "vertex") if rule.model else None,
-                        service_tier=rule.service_tier)
-            bucket = rule.bucket
-        start_day = day_start(start)
-        ctx.add_aggregate(self.source_kind, start_day, start_day + DAY_MS, dims,
-                          _usage_of(bucket, tokens))
+        return tokens
 
 
 def _str_or_none(value: Any) -> Any:

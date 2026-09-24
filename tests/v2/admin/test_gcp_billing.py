@@ -195,3 +195,13 @@ def test_label_and_credit_shapes(tmp_path: Path, monkeypatch) -> None:
     row = _row(location={}, sku={"id": "A1B2-0001", "description": "SKU"})
     result = read("gcp-billing", write_jsonl(tmp_path / "g3.jsonl", [row]))
     assert result.cost_lines[0].endpoint_scope == "global"      # rule scope without a region
+
+
+def test_quarantined_row_adds_nothing(tmp_path: Path) -> None:
+    rows = [_row(), _row(usage={"amount": "-5", "unit": "tokens"},
+                         sku={"id": "A1B2-0002", "description": "Claude Opus 5 Output"},
+                         labels=[{"key": "junk", "value": "x"}], location={})]
+    result = read("gcp-billing", write_jsonl(tmp_path / "g.jsonl", rows))
+    assert [q.reason for q in result.quarantined] == ["bad_usage"]
+    assert [c.sku for c in result.cost_lines] == ["A1B2-0001"]
+    assert not [n for n in result.notes if n.code in ("dq.unknown_fields", "dq.scope_unknown")]

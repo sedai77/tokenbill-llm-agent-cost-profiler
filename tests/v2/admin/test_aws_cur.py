@@ -239,6 +239,8 @@ def test_bad_rows_quarantined_and_strict_mode(tmp_path: Path) -> None:
         "missing:line_item_unblended_cost", "bad_type:line_item_usage_start_date",
         "bad_usage", "bad_type:line_item_net_unblended_cost", "missing:line_item_usage_type"]
     assert [q.locator for q in result.quarantined][0] == "line:3"
+    (line,) = result.cost_lines                    # a quarantined row adds nothing
+    assert line.amount_nano == 9_900_000 and len(result.aggregates) == 1
     with pytest.raises(SourceError, match="line:3"):
         read("aws-cur", path, lenient=False)
 
