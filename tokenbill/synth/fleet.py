@@ -422,12 +422,15 @@ class _Builder:
     # ---------- shared pieces ----------
 
     def rng(self, *scope: object) -> random.Random:
+        """The seeded RNG of one scope (team, developer, day, …)."""
         return _rng(self.seed, "fleet", *scope)
 
     def day_ms(self, day: int) -> int:
+        """UTC midnight (ms) of window day *day*."""
         return self.start_ms + day * _DAY_MS
 
     def dev(self, team: str, index: int) -> DevInfo:
+        """Developer *index* of *team* (created on first use, registered in the team map)."""
         ref = f"{team}-{index:02d}"
         info = self.hints.devs.get(ref)
         if info is None:
@@ -446,6 +449,7 @@ class _Builder:
 
     def ctx(self, channel: str, model: str, model_raw: str, speed: str, tier: str,
             billing_path: str, endpoint_scope: str) -> PricingContext:
+        """A shared PricingContext."""
         key = (channel, model, model_raw, speed, tier, billing_path, endpoint_scope)
         got = self._ctx.get(key)
         if got is None:
@@ -457,6 +461,7 @@ class _Builder:
 
     def attribution(self, spec: _LaneSpec, billing_path: str, client_version: str | None,
                     query_source: str) -> Attribution:
+        """A shared Attribution for a lane's requests."""
         key = (spec.team, spec.dev.ref, spec.agent_product, spec.agent_type, query_source,
                spec.workload, spec.entrypoint, client_version, billing_path, spec.extra,
                spec.repo, spec.scope)
@@ -473,6 +478,7 @@ class _Builder:
         return got
 
     def params(self, spec: _LaneSpec, row: _Row, requested: str) -> RequestParams:
+        """Shared RequestParams of a request."""
         effort = row.effort if row.effort is not None else spec.effort
         session_effort = row.session_effort if row.session_effort is not None else spec.effort
         key = (requested, spec.max_tokens, spec.stream, spec.thinking, effort, session_effort,
@@ -489,6 +495,7 @@ class _Builder:
     # ---------- sessions and lanes ----------
 
     def open_session(self, team: str, dev: DevInfo, native: str, source_kind: str) -> str:
+        """Start a session (its key is ``stable_id("ses", source_kind, native id)``)."""
         session_key = stable_id("ses", source_kind, native)
         self.hints.session_native[session_key] = native
         self.hints.session_dev[session_key] = dev.ref
@@ -498,6 +505,7 @@ class _Builder:
         return session_key
 
     def lane_key(self, session_key: str, agent: str) -> str:
+        """``stable_id("ln", native session id, agent id or "main")``."""
         native = self.hints.session_native[session_key]
         key = stable_id("ln", native, agent)
         self.hints.lane_agent[key] = agent
@@ -563,6 +571,7 @@ class _Builder:
         self._session = (session_key, source_kind, dev, team, lo, hi)
 
     def close_session(self) -> None:
+        """Finish the open session: its shell (lanes without requests) is recorded."""
         assert self._session is not None
         session_key, source_kind, dev, team, lo, hi = self._session
         if lo < 2**62:
@@ -1350,6 +1359,7 @@ class _Blocks:
         self.tokens = sum(bl.est_tokens or 0 for bl in self.items)
 
     def append(self, block: BlockRef) -> None:
+        """Append a block with its collapsed lookback position."""
         last = self.items[-1]
         same = block.kind == last.kind and block.kind in ("tool_use", "tool_result")
         pos = last.lookback_pos if same else last.lookback_pos + 1
@@ -1375,6 +1385,7 @@ class _Blocks:
         return cleared, first
 
     def fingerprint(self) -> ContentFingerprint:
+        """The current block list as a ContentFingerprint."""
         n = len(self.items)
         return ContentFingerprint(key_id=_FP_KEY_ID, blocks=tuple(self.items),
                                   tier_end=(_TOOL_DEFS, _TOOL_DEFS + 1, n))
@@ -1476,6 +1487,8 @@ class ProviderPages:
 
 @dataclass
 class ProviderRecords:
+    """The provider-side canonical records, the raw page rows and the reconciliation truth."""
+
     aggregates: tuple[UsageAggregate, ...]
     cost_lines: tuple[CostLine, ...]
     outcomes: tuple[OutcomeAggregate, ...]
@@ -1866,6 +1879,7 @@ class _StreamBuilder(_Builder):
         self._sink = sink
 
     def close_session(self) -> None:
+        """Hand the session's records to the sink and forget them."""
         super().close_session()
         self._sink(self.requests, self.events, self.sessions)
         self.requests, self.events, self.sessions = [], [], []

@@ -16,6 +16,9 @@ Package: `tokenbill/synth/{fleet,truth,writers}.py` — the deterministic synthe
 | `test_gate_files_through_adapters.py` | **gate** (`importorskip` CC, TELEM, TRACE, ADMIN adapters): every written family read by the real adapter reproduces the canonical token totals per team; cost-report and CUR invoice totals equal the canonical cost lines |
 | `test_gate_truth_vs_oracle.py` | **gate** (`importorskip("tokenbill.synth.oracle")`): each replay-based plant truth equals `ReferenceReplay` on the plant's lanes within 1 nano |
 
+Contract notes: `CONTRACT-CHANGE-SYNTH-FLEET-1.md` (advisory, TRACE §4.2: `lookback_pos` in trace@2
+`blocks` records is position-dependent).
+
 ## Fixtures and provenance
 
 No fixture files are checked in: every input is generated (seeded, synthetic) by `synth.fleet.generate`

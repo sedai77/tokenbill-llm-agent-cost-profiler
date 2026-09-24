@@ -157,12 +157,14 @@ class TokenTotals:
 
     @property
     def cache_write(self) -> int:
+        """All write buckets."""
         return self.cache_write_5m + self.cache_write_1h + self.cache_write_unknown
 
     def __add__(self, other: TokenTotals) -> TokenTotals:
         return TokenTotals(*(a + b for a, b in zip(self.as_tuple(), other.as_tuple(), strict=True)))
 
     def as_tuple(self) -> tuple[int, int, int, int, int, int]:
+        """The six totals in field order."""
         return (self.uncached_input, self.cache_read, self.cache_write_5m, self.cache_write_1h,
                 self.cache_write_unknown, self.output)
 
@@ -174,6 +176,7 @@ class TokenTotals:
 
     @classmethod
     def of(cls, usage: UsageBuckets) -> TokenTotals:
+        """Totals of one usage (other-TTL writes count as unknown-TTL writes)."""
         return cls(usage.uncached_input, usage.cache_read, usage.cache_write_5m,
                    usage.cache_write_1h, usage.cache_write_unknown + usage.cache_write_other,
                    usage.output)
@@ -181,6 +184,8 @@ class TokenTotals:
 
 @dataclass(frozen=True, slots=True)
 class TeamTruth:
+    """Per-team facts of the generated world (sizes, principals, spend at list)."""
+
     team: str
     devs: int
     principals: tuple[str, ...]
@@ -262,12 +267,14 @@ class FleetTruth:
                      and (kind is None or p.kind == kind))
 
     def team(self, name: str) -> TeamTruth:
+        """The team with this name (``UsageError`` when unknown)."""
         for t in self.teams:
             if t.team == name:
                 return t
         raise UsageError(f"no team {name!r}")
 
     def source(self, family: str) -> SourceTruth:
+        """The written source family (``UsageError`` when unknown or not written)."""
         for s in self.sources:
             if s.family == family:
                 return s
@@ -289,6 +296,7 @@ class Coster:
         self._units: dict[tuple[PricingContext, int], UnitRates | None] = {}
 
     def unit(self, ctx: PricingContext, ts_ms: int) -> UnitRates | None:
+        """Unit rates of *ctx* on the day of *ts_ms* (cached; None when unpriced)."""
         key = (ctx, ts_ms // 86_400_000)
         if key not in self._units:
             self._units[key] = self.pricer.unit_rates(ctx, ts_ms=ts_ms)
@@ -587,10 +595,12 @@ def rate_premium(lanes: Iterable[Lane], coster: Coster,
 
 
 def fast_to_standard(ctx: PricingContext) -> PricingContext:
+    """``fast_off``: the same context at standard speed."""
     return replace(ctx, speed="standard") if ctx.speed == "fast" else ctx
 
 
 def regional_to_global(ctx: PricingContext) -> PricingContext:
+    """``regional_to_global``: the same context on the global endpoint."""
     return replace(ctx, endpoint_scope="global") if ctx.endpoint_scope in (
         "regional", "multi_region") else ctx
 
