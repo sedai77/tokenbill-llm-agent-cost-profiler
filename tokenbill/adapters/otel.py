@@ -887,6 +887,8 @@ class _Reader:
             raw_usage_json=canonical_usage_json(raw) if raw else None,
             convention_id=convention if raw else None)
         attribution = self._attribution(rec.attrs, product=None)
+        if attribution.billing_path is None and billing_path != "unknown":
+            attribution = dataclasses.replace(attribution, billing_path=billing_path)
         return Draft(request_id=request_id, session_key=session_key, lane_key=lane, ts_ms=ts,
                      order=rec.order, attribution=attribution,
                      params=RequestParams(model_requested=requested, max_tokens=max_tokens),

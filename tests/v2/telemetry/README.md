@@ -126,9 +126,17 @@ asserts the canary never reaches an output.
   OpenAI: `request_meta`, conversation, `previous_response_id` chain. Bedrock: `requestMetadata`
   `session`/`lane`. Anthropic responses: `request_meta`. Anything else is one request per lane with
   `lane_exact=False` and `dq.lanes_inferred`.
+* **Duplicates.** A record exported twice (same request id within a file) collapses to the copy with
+  the larger output (the split-entry rule), counted in `stats["duplicate_records"]`. Across files the
+  store merges by message id or provider request id (§7.3); OTLP logs and traces exported to separate
+  files therefore join in the store, not in the adapter.
+* **Memory.** The OTLP adapter joins events, spans and metrics within one file, so it holds that
+  file's decoded records in memory (bounded by the file, not the fleet); rotate exporter files.
+* **Billing path.** `Attribution.billing_path` mirrors the pricing context's billing path when the
+  source implies one (Bedrock, Vertex, OpenAI, Azure …) and stays unset when it is unknown.
 * **Timestamps.** Anthropic and Converse response objects carry none; without `request_meta.ts_ms`
-  (or `ts`) such records are quarantined (`missing:request_meta.ts_ms`) rather than dated by the
-  ingest clock.
+  (or `ts`, or for boto3 Converse responses the `ResponseMetadata.HTTPHeaders.date`) such records are
+  quarantined (`missing:request_meta.ts_ms`) rather than dated by the ingest clock.
 * **Channels and billing paths** are table-driven (`CHANNEL_BY_BILLING_PATH`,
   `BILLING_PATH_BY_CHANNEL`, `SCOPE_PREFIX_BY_CHANNEL`, `TTL_HINT_BY_BILLING_PATH`, provider tables)
   so additive values (e.g. the Copilot addendum, R-E4/R-E15) need data, not code.

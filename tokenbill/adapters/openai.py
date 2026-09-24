@@ -308,6 +308,8 @@ class _Reader:
             else None)
         if attribution.agent_product is None:
             attribution = dataclasses.replace(attribution, agent_product="api")
+        if attribution.billing_path is None:
+            attribution = dataclasses.replace(attribution, billing_path=billing_path)
         draft = Draft(
             request_id=request_id, session_key="", lane_key="", ts_ms=ts,
             order=(line_no,), attribution=attribution, params=params, attempts=[attempt],

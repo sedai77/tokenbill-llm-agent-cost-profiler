@@ -186,3 +186,12 @@ def test_sniff_bare_messages_batch_lines_and_huge_heads() -> None:
     assert ADAPTER.sniff(Path("x"), b'{"id": "msg_01", "content": "' + b"x" * 70_000)
     assert not ADAPTER.sniff(Path("x"), b'{"type": "assistant", "message": {}}\n')
     assert not ADAPTER.sniff(Path("x"), b'{"request_meta": {}, "response": 3}\n')
+
+
+def test_attribution_billing_path_mirrors_the_pricing_context(fixture: IngestResult) -> None:
+    for req in fixture.requests:
+        infs = req.final_attempt.inferences
+        if infs and infs[0].pricing.billing_path != "unknown":
+            assert req.attribution.billing_path == infs[0].pricing.billing_path
+    assert by_msg(fixture)["msg_vertex_1"].attribution.billing_path == "vertex"
+    assert by_msg(fixture)["msg_01"].attribution.billing_path is None  # unknown stays unset

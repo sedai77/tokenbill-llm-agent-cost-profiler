@@ -21,6 +21,7 @@ read.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -190,6 +191,8 @@ class _Reader:
         attr_meta = meta.get("attribution") if meta and isinstance(meta.get("attribution"),
                                                                     Mapping) else None
         attribution = attribution_from(opts, self.scan, attr_meta)
+        if attribution.billing_path is None and billing_path != "unknown":
+            attribution = dataclasses.replace(attribution, billing_path=billing_path)
         account_raw = meta.get("account") if meta else None
         account = pseudonym(opts.name_key, "h", account_raw.strip()) \
             if isinstance(account_raw, str) and account_raw.strip() else None

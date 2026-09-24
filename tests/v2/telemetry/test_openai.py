@@ -290,3 +290,10 @@ def test_a_response_exported_twice_is_one_request(tmp_path: Path) -> None:
     (req,) = result.requests
     assert req.final_attempt.inferences[0].usage.output == 9
     assert result.stats["duplicate_records"] == 2
+
+
+def test_attribution_billing_path_mirrors_the_pricing_context(fixture: IngestResult) -> None:
+    paths = {rid: (r.attribution.billing_path, ctx_of(r).billing_path)
+             for rid, r in by_id(fixture).items()}
+    assert paths["resp_1"] == ("openai", "openai")
+    assert paths["resp_az_1"] == ("azure_openai", "azure_openai")
