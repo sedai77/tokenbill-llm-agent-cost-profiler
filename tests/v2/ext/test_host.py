@@ -230,6 +230,17 @@ def test_run_reconcilers_rounding_remainders_from_source_stats(install: Install)
     assert str(value) == "10000000000000000000000.000000000000000001"
 
 
+def test_run_reconcilers_remainders_that_cancel_in_total(install: Install) -> None:
+    install(fake_spec(), fake_spec(name="zzz", channels=("zzz_a",)))
+    ledger = StatsLedger({"github-ai-usage": {"rounding_remainder_e18": 5},
+                          "github-metered-usage": {"rounding_remainder_e18": -5}})
+    _reconcile(ledger, [])
+    first, second = hooks.calls("reconciler")
+    expected = {"github-ai-usage": Decimal("5E-18"), "github-metered-usage": Decimal("-5E-18")}
+    assert first[1]["rounding_remainders"] == expected == second[1]["rounding_remainders"]
+    assert first[1]["rounding_remainders"] is not second[1]["rounding_remainders"]  # own copies
+
+
 def test_run_reconcilers_stats_without_remainders_is_empty_dict(install: Install) -> None:
     install(fake_spec())
     ledger = StatsLedger({"claude-code": {"lines": 9}})

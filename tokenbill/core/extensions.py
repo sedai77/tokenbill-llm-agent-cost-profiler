@@ -530,7 +530,7 @@ def _adapter_names() -> list[str]:
 
 def _rounding_remainders(store: LedgerStats) -> dict[str, Decimal]:
     """Adapter name → Σ parse remainder in USD (exact), from ``source_stats`` (see module doc)."""
-    if not store.source_stats().get(ROUNDING_REMAINDER_STAT):
+    if ROUNDING_REMAINDER_STAT not in store.source_stats():  # (per-adapter sums may cancel)
         return {}
     out: dict[str, Decimal] = {}
     for name in _adapter_names():
@@ -548,8 +548,8 @@ def run_reconcilers(store: LedgerStore, record_stores: Sequence[ExtRecordStore],
     reconciler, in extension-name order (RECON's ``merge_reports`` combines them with its own).
 
     ``rounding_remainders`` is computed from ``store.source_stats()`` only when
-    ``isinstance(store, LedgerStats)`` (adapter name → USD, see the module doc), else ``None``.
-    A report of the wrong type raises ``ContractViolation``."""
+    ``isinstance(store, LedgerStats)`` (adapter name → USD, see the module doc; each reconciler
+    gets its own copy), else ``None``. A report of the wrong type raises ``ContractViolation``."""
     missing = _Unavailable(notes)
     reports: list[ReconciliationReport] = []
     remainders: dict[str, Decimal] | None = None
@@ -565,7 +565,8 @@ def run_reconcilers(store: LedgerStore, record_stores: Sequence[ExtRecordStore],
             computed = True
         report = fn(store, record_stores, pricer, since_ms=since_ms, until_ms=until_ms,
                     tolerance_pct=tolerance_pct, unexplained_pct=unexplained_pct,
-                    closed_only=closed_only, today=today, rounding_remainders=remainders)
+                    closed_only=closed_only, today=today,
+                    rounding_remainders=None if remainders is None else dict(remainders))
         if not isinstance(report, ReconciliationReport):
             raise ContractViolation("a channel reconciler must return a ReconciliationReport")
         reports.append(report)
