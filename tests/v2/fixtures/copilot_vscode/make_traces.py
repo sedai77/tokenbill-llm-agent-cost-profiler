@@ -196,18 +196,22 @@ def _denorm(value: Any) -> Any:
     return value
 
 
-def insert_spans(conn: sqlite3.Connection, spans: list[Span]) -> None:
-    """``insertSpan`` for each span (one transaction per span, as VS Code does)."""
+def insert_spans(conn: sqlite3.Connection, spans: list[Span], *, bulk: bool = False) -> None:
+    """``insertSpan`` for each span (one transaction per span, as VS Code does; *bulk*: one
+    transaction for all, for large fixtures)."""
     cols = ["span_id", "trace_id", "parent_span_id", "name", "start_time_ms", "end_time_ms",
             "status_code", "status_message", *DENORMALIZED, "ttft_ms"]
     sql = (f"INSERT OR REPLACE INTO spans ({', '.join(cols)}) "
            f"VALUES ({', '.join('?' * len(cols))})")
+    if bulk:
+        conn.execute("BEGIN")
     for s in spans:
         a = s.attributes
         row = [s.span_id, s.trace_id, s.parent_span_id, s.name, s.start, s.end, s.status_code,
                s.status_message, *(_denorm(a.get(k)) for k in DENORMALIZED.values()),
                a.get("copilot_chat.time_to_first_token")]
-        conn.execute("BEGIN")
+        if not bulk:
+            conn.execute("BEGIN")
         conn.execute(sql, row)
         conn.executemany("INSERT OR REPLACE INTO span_attributes (span_id, key, value) "
                          "VALUES (?, ?, ?)", [(s.span_id, k, _js_string(v)) for k, v in a.items()])
@@ -215,14 +219,17 @@ def insert_spans(conn: sqlite3.Connection, spans: list[Span]) -> None:
                          "VALUES (?, ?, ?, ?)",
                          [(s.span_id, n, t, json.dumps(ea) if ea else None)
                           for n, t, ea in s.events])
+        if not bulk:
+            conn.execute("COMMIT")
+    if bulk:
         conn.execute("COMMIT")
 
 
-def write_db(path: Path, spans: list[Span], *, wal: bool = True) -> Path:
+def write_db(path: Path, spans: list[Span], *, wal: bool = True, bulk: bool = False) -> Path:
     """Create *path* (a new database) holding *spans*; the connection is closed afterwards."""
     conn = create_db(path, wal=wal)
     try:
-        insert_spans(conn, spans)
+        insert_spans(conn, spans, bulk=bulk)
     finally:
         conn.close()
     return path
