@@ -8,7 +8,9 @@ every other request keeps its priced ledger figure exactly (``changed=False``); 
 ``cost(observed) − cost(policy)`` **per request, then summed**, so model error on unaffected
 traffic never leaks into them (an unchanged request saves exactly 0; an unpriced *changed* request
 makes the saving unpriced, R2). ``replay(Policy.observed())`` returns ``cost == baseline`` to the
-nano (points and bounds). One billing class per call (mixed input raises ``UsageError``).
+nano (points and bounds). One billing class per call (mixed input raises ``UsageError``);
+``allowance`` (seat subscription, D26) and ``pool`` (GitHub Copilot pooled credits; late change
+request A-6, R-E23) replay on LIST_EQUIVALENT figures, ``billed`` on the pricer's basis.
 
 Per request, the fixed application order is (1) rate transforms (model remap with the tokenizer
 band, effort, ``fast=off``, ``geo=global``, ``regional=global``) → (2) context transforms
@@ -51,6 +53,7 @@ from tokenbill.core.labels import Basis, Calibration, Evidence, Figure, zero
 from tokenbill.core.policy import EFFORT_LEVELS, lane_matches, selector_terms, to_spec
 from tokenbill.core.protocols import CacheRulesProvider, Pricer
 from tokenbill.core.records import (
+    BILLING_CLASSES,
     Inference,
     InferenceKind,
     Lane,
@@ -598,6 +601,11 @@ class _State:
     changed: bool = False
 
 
+#: Billing classes replayed on LIST_EQUIVALENT figures: the seat allowance (D26) and GitHub
+#: Copilot's pooled credits, treated like it (late change request A-6, R-E23).
+_LIST_EQUIVALENT_CLASSES = frozenset({"allowance", "pool"})
+
+
 # ---------------------------------------------------------------------------------------------
 # the engine
 # ---------------------------------------------------------------------------------------------
@@ -644,7 +652,9 @@ class _Run:
                 raise UsageError("replay: lanes must be Lane records")
         classes = {lane.billing_class for lane in lanes if lane.requests}
         if len(classes) > 1:
-            raise UsageError("replay: lanes of one billing class only (billed | allowance)")
+            raise UsageError("replay: lanes of one billing class only ("
+                             + " | ".join(BILLING_CLASSES) + "), got "
+                             + " + ".join(sorted(classes)))
         self.lanes = sorted(lanes, key=lambda lane: lane.lane_key)
         self.c = _Compiled(policy)
         self.policy = policy
@@ -657,7 +667,7 @@ class _Run:
         self.policy_rows: set[str] = set()
         self._ctx_cache: dict[tuple, PricingContext] = {}
         self._band_cache: dict[tuple, tuple[Fraction, Fraction] | None] = {}
-        if classes == {"allowance"}:
+        if classes and classes <= _LIST_EQUIVALENT_CLASSES:
             self.basis = Basis.LIST_EQUIVALENT
         else:
             self.basis = pricer.basis if pricer.basis in (Basis.LIST, Basis.CONTRACT) \
