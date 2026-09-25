@@ -413,11 +413,11 @@ def seat_counts(finding: Finding) -> SeatCounts:
                 continue
             if type(value) is not int or value < 0:
                 continue
-            if value > _MAX_COUNT:
-                raise UsageError("seat_counts: seat count out of range")
             target = _COUNT_ALIASES.get(nk)
             if target is None:
-                continue
+                continue  # not a seat count (e.g. a nano-dollar amount): never range-checked
+            if value > _MAX_COUNT:
+                raise UsageError("seat_counts: seat count out of range")
             if target == "total":
                 item_total += value
             else:
