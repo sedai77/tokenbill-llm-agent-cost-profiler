@@ -6,9 +6,9 @@ Synthetic data only, shaped after ``github/copilot-sdk`` ``nodejs/src/generated/
 (prompts, responses, reasoning, tool arguments and results, summaries, paths, branch, repository,
 error text, changed files) carries the canary ``TB-CANARY-7f3a91``.
 
-Session A (``…0a``): interactive, Claude Sonnet 4.5, long-context tier; a chunked response with a tool
-call; a checkpoint with a 300 s cache TTL; a subagent call; a model switch to GPT-5.4; a truncation;
-an error; a clean shutdown whose rollup arithmetic is 23,399 = 6 + 10,069 + 13,324.
+Session A (``…0a``): interactive, Claude Sonnet 4.5, long-context tier; a chunked response with a
+tool call; a checkpoint with a 300 s cache TTL; a subagent call; a model switch to GPT-5.4; a
+truncation; an error; a clean shutdown whose rollup arithmetic is 23,399 = 6 + 10,069 + 13,324.
 Session B (``…0b``): Auto model selection; a threshold compaction carrying the G11 ``tokenDetails``
 payload (Appendix C); a clean shutdown.
 """
