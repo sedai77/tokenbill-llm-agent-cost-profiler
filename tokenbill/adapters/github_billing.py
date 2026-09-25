@@ -467,7 +467,9 @@ class _Reader:
             raise PrivacyError(f"{self.adapter}: rows with a username need a principal key "
                                "(the org or export key); none was given")
         self.principal_used = True
-        return pseudonym(key, "p", login)
+        # GitHub logins are case-insensitive: pseudonymize the stripped, lower-cased login exactly
+        # like the seats / metrics adapters (``github_config.login_key``) so people join.
+        return pseudonym(key, "p", login.strip().lower())
 
     def team(self, login: str) -> str | None:
         return self._team.get(login) or self._team_folded.get(login.casefold())

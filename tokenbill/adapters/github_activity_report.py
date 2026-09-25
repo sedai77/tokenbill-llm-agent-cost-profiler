@@ -295,7 +295,7 @@ class _ReadState:
             team, cc = self._team(row.login)
             licenses.append(LicenseSnapshot(
                 snapshot_date=row.report_day.isoformat(), product="github_copilot",
-                plan="unknown", principal=pseudonym(key, "p", row.login), team=team,
+                plan="unknown", principal=pseudonym(key, "p", row.login.strip().lower()), team=team,
                 cost_center=cc, org=org, seat_created=None, pending_cancellation=None,
                 last_activity_bucket=bucket(row.report_day, row.activity),
                 last_activity_surface=row.surface,

@@ -2031,13 +2031,14 @@ def read_team_map_csv(path: Path) -> dict[str, str]:
 
 def pseudonym_of(login: str, *, key: bytes) -> str:
     """The ``p_`` value the adapters produce for *login* under the export *key*
-    (``core.ids.pseudonym(key, "p", login)`` of the stripped login, SPEC §5.1 central-ingest), for
+    (``core.ids.pseudonym(key, "p", login)`` of the stripped, lower-cased login — GitHub logins are
+    case-insensitive, ``github_config.login_key`` — SPEC §5.1 central-ingest), for
     ``copilot pseudonym`` (erasure requests). Never logs the login."""
     if not isinstance(login, str) or not login.strip():
         raise UsageError("pseudonym: a login is required")
     if not isinstance(key, (bytes, bytearray)) or len(key) < 16:
         raise UsageError("pseudonym: an export key of at least 16 bytes is required")
-    return pseudonym(bytes(key), "p", login.strip())
+    return pseudonym(bytes(key), "p", login.strip().lower())
 
 
 def admin_guide_text() -> str:

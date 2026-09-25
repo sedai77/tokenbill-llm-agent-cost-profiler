@@ -115,7 +115,7 @@ def test_team_and_cost_center_maps_case_insensitive(tmp_path: Path) -> None:
     res = read(path, team_map=(("octo-dev-01", "platform"),),
                cost_center_map=(("OCTO-DEV-02", "Data"),))
     by = {x.principal: x for x in res.licenses}
-    assert by[pseudonym(KEY, "p", "Octo-Dev-01")].team == "platform"
+    assert by[pseudonym(KEY, "p", "octo-dev-01")].team == "platform"  # logins are case-insensitive
     assert by[pseudonym(KEY, "p", "octo-dev-02")].cost_center == "Data"
 
 
