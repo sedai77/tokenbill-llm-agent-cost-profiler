@@ -206,7 +206,8 @@ def test_one_finding_per_model() -> None:
     found = only(run([vs], ctx(min_usd="0.10")), "long-context-band")
     assert {dict(f.scope.dims)["model"] for f in found} == {GPT55, "grok-4.6"}
     grok = one(found, "long-context-band", model="grok-4.6")
-    # C.G10 (Grok 4.7 rates; 4.6 on this day): 420,000,000 at band rates vs 50,000×2,000 + 160,000×500 + 5,000×6,000 = 210,000,000
+    # C.G10 (Grok 4.7 rates; 4.6 is the row on this day): 420,000,000 at band rates vs
+    # 50,000×2,000 + 160,000×500 + 5,000×6,000 = 210,000,000 at default rates
     assert grok.cost_observed.nano == 210_000_000
 
 

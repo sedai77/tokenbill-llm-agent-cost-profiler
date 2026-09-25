@@ -1,6 +1,6 @@
-"""``static-overhead`` (addendum §10.3): static tokens from COMPACTION events (else the static-prefix
-floor) carried at each request's read / write / uncached mix; the tool-definition carry ×
-``TOOL_SEARCH_REDUCTION_BAND`` is the ESTIMATED upper-bound recoverable (lever
+"""``static-overhead`` (addendum §10.3): static tokens from COMPACTION events (else the
+static-prefix floor) carried at each request's read / write / uncached mix; the tool-definition
+carry × ``TOOL_SEARCH_REDUCTION_BAND`` is the ESTIMATED upper-bound recoverable (lever
 ``copilot.mcp_trim``)."""
 
 from __future__ import annotations
