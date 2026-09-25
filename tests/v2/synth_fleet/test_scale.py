@@ -24,8 +24,12 @@ SCRIPT = textwrap.dedent("""
     world = generate(scale_requests=n)
     count = sum(1 for _ in world.requests)
     elapsed = time.perf_counter() - t
-    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    rss_mb = rss / 2**20 if sys.platform == "darwin" else rss / 2**10
+    try:  # Linux: own high-water mark (ru_maxrss of an exec'd child carries the parent's peak)
+        with open("/proc/self/status") as f:
+            rss_mb = next(int(x.split()[1]) for x in f if x.startswith("VmHWM:")) / 2**10
+    except (OSError, StopIteration):
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        rss_mb = rss / 2**20 if sys.platform == "darwin" else rss / 2**10
     print(count, round(elapsed, 3), round(rss_mb, 1))
 """)
 

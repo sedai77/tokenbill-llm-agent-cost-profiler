@@ -1,7 +1,8 @@
 """Import performance (SPEC §17: ≥ 25,000 assistant lines/s; 200,000 synthetic lines ≤ 30 s;
 peak RSS ≤ 150 MB, streaming per file).
 
-The measurement runs in a fresh interpreter so the peak RSS is the importer's, not pytest's. The
+The measurement runs in a fresh interpreter so the peak RSS is the importer's, not pytest's (on
+Linux read from ``VmHWM``: ``ru_maxrss`` of an exec'd child still carries the parent's peak). The
 full-size budget is marker ``perf`` (nightly); the PR variant reads 20,000 lines against the
 budgets scaled by 1/10 (≤ 3 s) and the same RSS bound.
 """
@@ -29,12 +30,16 @@ t = time.perf_counter()
 r = ClaudeCodeAdapter().read(Path(sys.argv[1]), opts)
 dt = time.perf_counter() - t
 rss = None
-try:
-    import resource
-    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    rss = rss if sys.platform == "darwin" else rss * 1024
-except ImportError:
-    pass
+try:  # Linux: this process's own high-water mark (ru_maxrss inherits the parent's peak on exec)
+    with open("/proc/self/status") as f:
+        rss = next(int(x.split()[1]) * 1024 for x in f if x.startswith("VmHWM:"))
+except (OSError, StopIteration):
+    try:
+        import resource
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        rss = rss if sys.platform == "darwin" else rss * 1024
+    except ImportError:
+        pass
 print(json.dumps({"seconds": dt, "assistant_lines": r.stats["assistant_lines"],
                   "requests": len(r.requests), "rss": rss}))
 """
