@@ -349,6 +349,8 @@ class CopilotWorld:
     team_map: Mapping[str, str]          # login → team (writers, handoff exports)
     cost_center_map: Mapping[str, str]   # login → cost center
     people: tuple[User, ...] = ()
+    #: the generator's facts of every AI usage report row, in the order of the report's cost lines
+    rows: tuple[RowFact, ...] = ()
     principal_key: bytes = PRINCIPAL_KEY
     name_key: bytes = NAME_KEY
 
@@ -737,9 +739,9 @@ def _profile_rows(st: _State, user: User, date: str) -> list[tuple[str, int]]:
     if p == "payments":
         a = st.units(user, month, "opus")
         return [(_OPUS55 if date == _OPUS55_DAY else _OPUS48, a), (_SONNET, a + 2)]
-    if p == "mobile":
-        return [(_OPUS48_FAST, st.units(user, month, "fast")),
-                (_SONNET, st.units(user, month, "fast_sonnet"))]
+    if p == "mobile":           # Opus 4.8 is used only before 2026-09-22 (brief)
+        fast = [] if date >= _OPUS55_DAY else [(_OPUS48_FAST, st.units(user, month, "fast"))]
+        return [*fast, (_SONNET, st.units(user, month, "fast_sonnet"))]
     if p == "data":
         rows = [(_GPT54, st.units(user, month, "gpt54"))]
         if date >= _GPT55_FROM:
@@ -1169,8 +1171,9 @@ def _guard(used: Iterable[tuple[str, str]]) -> None:
         model = key.partition("#")[0]
         if model == "gpt-5.6-sol" or _truth.rate_row(model, date) is None:
             raise UsageError(f"pricing guard: {model} has no rate row on {date}")
-        if model == "claude-opus-5-5" and date != _OPUS55_DAY:
-            raise UsageError("pricing guard: Opus 5.5 is used only on 2026-09-22")
+        if (model == "claude-opus-5-5") != (date == _OPUS55_DAY) and model.startswith(
+                "claude-opus"):
+            raise UsageError("pricing guard: Opus 4.8 before 2026-09-22, Opus 5.5 only then")
         day = _dt.date.fromisoformat(date)
         for k in changes.get(model, ()):
             if abs((day - _dt.date.fromisoformat(k)).days) <= 2:
@@ -1274,7 +1277,7 @@ def generate(seed: int = 7, *, users: int = BASE_USERS, start: str = WINDOW_STAR
         conventions=convs_wanted, records=records, reports=reports, truth=truth,
         team_map={u.login: u.team for u in st.people},
         cost_center_map={u.login: u.cost_center for u in st.people if u.cost_center},
-        people=tuple(st.people))
+        people=tuple(st.people), rows=tuple(all_facts))
 
 
 # ---------------------------------------------------------------------------------------------
