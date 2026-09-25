@@ -808,34 +808,35 @@ class _Mapper:
         return conv
 
     def _lane(self, span: SpanView, *, include_self: bool = False
-              ) -> tuple[LaneKind, str | None, str | None]:
-        """(lane kind, agent id, query source) of a span."""
+              ) -> tuple[LaneKind, str | None, str | None, object]:
+        """(lane kind, agent id, query source, raw agent name) of a span."""
         explicit = _first(span.attributes, _INITIATOR_KEYS)
         value = explicit.strip().lower() if isinstance(explicit, str) else ""
         agents = self._agents(span, include_self=include_self)
         if value in _SUBAGENT_VALUES or len(agents) >= 2:
             agent = agents[0] if agents else span
-            agent_id = _ident(agent.attributes.get(_K_AGENT_ID)) \
-                or _ident(agent.attributes.get(_K_AGENT_NAME)) or agent.span_id or "subagent"
-            return LaneKind.SUBAGENT, agent_id, "subagent"
+            name = span.attributes.get(_K_AGENT_NAME) or agent.attributes.get(_K_AGENT_NAME)
+            agent_id = _ident(agent.attributes.get(_K_AGENT_ID)) or _ident(name) \
+                or agent.span_id or "subagent"
+            return LaneKind.SUBAGENT, agent_id, "subagent", name
         if value in _BACKGROUND_VALUES:
-            return LaneKind.HELPER, None, "auxiliary"
+            return LaneKind.HELPER, None, "auxiliary", None
         if value in _COMPACTION_VALUES:
-            return LaneKind.COMPACTION, None, "compaction"
-        return LaneKind.MAIN, None, "main"
+            return LaneKind.COMPACTION, None, "compaction", None
+        return LaneKind.MAIN, None, "main", None
 
     def _lane_keys(self, span: SpanView, *, include_self: bool = False
-                   ) -> tuple[str, str, LaneKind, str | None]:
-        """(session key, lane key, kind, query source); registers the lane shells."""
+                   ) -> tuple[str, str, str | None, object]:
+        """(session key, lane key, query source, raw agent name); registers the lane shells."""
         session_key = copilot_session_key(self._conversation(span))
-        kind, agent_id, query_source = self._lane(span, include_self=include_self)
+        kind, agent_id, query_source, agent_name = self._lane(span, include_self=include_self)
         main_key = copilot_lane_key(session_key, LaneKind.MAIN.value, None)
         self.shells.setdefault(main_key, (session_key, LaneKind.MAIN, None))
         lane_key = main_key
         if kind is not LaneKind.MAIN:
             lane_key = copilot_lane_key(session_key, kind.value, agent_id)
             self.shells.setdefault(lane_key, (session_key, kind, main_key))
-        return session_key, lane_key, kind, query_source
+        return session_key, lane_key, query_source, agent_name
 
     # ---------- identity ----------
     def _is_extract(self, span: SpanView) -> bool:
@@ -882,7 +883,7 @@ class _Mapper:
         return principal or opts.attribution.principal, team
 
     def _attribution(self, span: SpanView, query_source: str | None, product: str,
-                     billing_path: str) -> Attribution:
+                     billing_path: str, agent_name: object) -> Attribution:
         principal, team = self._identity(span)
         updates: dict[str, Any] = {"principal": principal, "team": team,
                                    "agent_product": product, "billing_path": billing_path}
@@ -895,7 +896,6 @@ class _Mapper:
         version = _label(span.resource.get("service.version"), 32)
         if version is not None and opts_version_ok(version):
             updates["client_version"] = version
-        agent_name = span.attributes.get(_K_AGENT_NAME) if query_source == "subagent" else None
         if isinstance(agent_name, str) and agent_name.strip() and len(agent_name) <= 256:
             name = agent_name.strip()
             if name in self.opts.name_allowlist and len(name) <= 64:
@@ -984,8 +984,9 @@ class _Mapper:
             self.billing_path = billing_path_of(opts, self.scan, "copilot_pool")
         elif opts.attribution.billing_path not in COPILOT_BILLING_PATHS:
             self.scan.note(DQ_BILLING_PATH_ASSUMED)
-        session_key, lane_key, _kind, query_source = self._lane_keys(span)
-        attribution = self._attribution(span, query_source, product, self.billing_path)
+        session_key, lane_key, query_source, agent_name = self._lane_keys(span)
+        attribution = self._attribution(span, query_source, product, self.billing_path,
+                                        agent_name)
         conv = self._conversation(span)
         response_id = _label(attrs.get(_K_RESP_ID), 256)
         turn = _int(attrs.get(_K_TURN))
@@ -1058,7 +1059,7 @@ class _Mapper:
             ts = ev.ts_ms if ev.ts_ms is not None else (span.end_ms or span.start_ms)
             if ts is None or not self.scan.in_window(ts):
                 continue
-            _session, lane_key, _k, _q = self._lane_keys(span, include_self=True)
+            _session, lane_key, _q, _n = self._lane_keys(span, include_self=True)
             self._session_seen(span)
             attrs = self._event_attrs(kind, ev.attributes)
             self.events.append(LaneEvent(lane_key=lane_key, ts_ms=ts, kind=kind, attrs=attrs))
@@ -1106,7 +1107,7 @@ class _Mapper:
             ts = span.end_ms if span.end_ms is not None else span.start_ms
             if nano is None or ts is None or not self.scan.in_window(ts):
                 continue
-            session_key, _lane, _k, _q = self._lane_keys(span)
+            session_key, _lane, _q, _n = self._lane_keys(span)
             self._session_seen(span)
             lanes[session_key] = copilot_lane_key(session_key, LaneKind.MAIN.value, None)
             entry = totals.setdefault(session_key, [0, ts])
