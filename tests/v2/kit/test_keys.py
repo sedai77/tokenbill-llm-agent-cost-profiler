@@ -64,7 +64,9 @@ def test_group_or_world_access_is_refused(tmp_path: Path, mode: int) -> None:
 
 
 def test_windows_path_warns_through_the_fake_runner(tmp_path: Path,
-                                                    caplog: pytest.LogCaptureFixture) -> None:
+                                                    caplog: pytest.LogCaptureFixture,
+                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("USERNAME", "tester")  # always set on Windows; CI containers may lack it
     path = tmp_path / "win" / "key"
     notes: list = []
     failing = Runner(5)

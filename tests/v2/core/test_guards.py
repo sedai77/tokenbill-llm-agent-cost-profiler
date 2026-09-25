@@ -34,15 +34,20 @@ def test_non_loopback_connect_is_refused(socket_guard: list[str]) -> None:
         socket.create_connection(("example.com", 443), timeout=1)
     with pytest.raises(RuntimeError):
         socket.getaddrinfo("api.anthropic.com", 443)
-    with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as s, pytest.raises(RuntimeError):
-        s.connect(("2001:db8::1", 443, 0, 0))
+    try:
+        six = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    except OSError:  # a kernel / container without IPv6 support: nothing to guard
+        six = None
+    if six is not None:
+        with six, pytest.raises(RuntimeError):
+            six.connect(("2001:db8::1", 443, 0, 0))
     assert socket_guard == [
         "connect",
         "connect_ex",
         "sendto",
         "create_connection",
         "getaddrinfo",
-        "connect",
+        *(["connect"] if six is not None else []),
     ]
     socket_guard.clear()  # the refusals above were intended
 
