@@ -151,7 +151,13 @@ _TAIL = "tail.runaway"
 _TOLERANCE_PCT = "0.5"
 _UNEXPLAINED_PCT = "1.0"
 _DQ_BREAK_GLASS = "break-glass"
-_SAMPLE_DEFAULT_SEED = 0
+#: Ledgers with at most this many requests in the window keep their lanes in memory between the
+#: passes of an in-process run (survey, two calibration passes, detectors, joint replay); larger
+#: ones stream every pass from the store (bounded memory, SPEC §17).
+LANE_CACHE_MAX_REQUESTS = 200_000
+#: Shapley sample of ``demo --fleet`` (the plan's credits are scaled to one full-scope joint
+#: replay, SPEC §11.2 step 6; a small sample keeps the demo within its 60 s budget, §17).
+DEMO_SAMPLE_LANES = 64
 
 
 # =============================================================================================
@@ -338,7 +344,9 @@ class LaneSource:
     """Loads lanes of the window for ``build_action_plan`` (``load_lanes(lane_keys, shard)``) and
     the shard tasks: from the running ``map_shards`` store, else a read-only store opened on
     ``db_path``, else the in-memory ``memory`` store (``--jobs 1`` only). With ``principal`` only
-    that person's lanes are returned (the self view; stores never filter by person)."""
+    that person's lanes are returned (the self view; stores never filter by person). ``cache``
+    (in-process runs of small ledgers only; never pickled) keeps each shard's lanes between the
+    passes of one run — lanes are immutable, so every pass sees identical data."""
 
     since_ms: int
     until_ms: int
@@ -346,20 +354,13 @@ class LaneSource:
     principal: str | None = None
     team: str | None = None
     memory: Any = field(default=None, repr=False, compare=False)
+    cache: dict[ShardKey, list[Lane]] | None = field(default=None, repr=False, compare=False)
 
     def __getstate__(self) -> dict[str, Any]:
         state = dict(self.__dict__)
         state["memory"] = None           # a worker reads the store it opened by path
+        state["cache"] = None
         return state
-
-    def _load(self, store: LedgerStore, lane_keys: Collection[str] | None,
-              shard: ShardKey | None) -> list[Lane]:
-        where = shard_where(shard) if shard is not None else (
-            {"team": self.team} if self.team is not None else None)
-        keys = None if lane_keys is None else sorted(lane_keys)
-        lanes = store.iter_lanes(since_ms=self.since_ms, until_ms=self.until_ms, where=where,
-                                 lane_keys=keys)
-        return [lane for lane in lanes if self.mine(lane)]
 
     def mine(self, lane: Lane) -> bool:
         """Whether *lane* belongs to the self principal (always True without one)."""
@@ -367,8 +368,15 @@ class LaneSource:
             return True
         return any(req.attribution.principal == self.principal for req in lane.requests)
 
-    def __call__(self, lane_keys: Collection[str] | None,
-                 shard: ShardKey | None) -> list[Lane]:
+    def _load(self, store: LedgerStore, lane_keys: Collection[str] | None,
+              shard: ShardKey | None) -> list[Lane]:
+        where = shard_where(shard) if shard is not None else (
+            {"team": self.team} if self.team is not None else None)
+        keys = None if lane_keys is None else sorted(lane_keys)
+        return list(store.iter_lanes(since_ms=self.since_ms, until_ms=self.until_ms,
+                                     where=where, lane_keys=keys))
+
+    def _fetch(self, lane_keys: Collection[str] | None, shard: ShardKey | None) -> list[Lane]:
         try:
             store = common.shard_store()
         except UsageError:
@@ -387,6 +395,16 @@ class LaneSource:
             close = getattr(opened, "close", None)
             if callable(close):
                 close()
+
+    def __call__(self, lane_keys: Collection[str] | None,
+                 shard: ShardKey | None) -> list[Lane]:
+        if self.cache is not None and lane_keys is None and shard is not None:
+            lanes = self.cache.get(shard)
+            if lanes is None:
+                lanes = self.cache[shard] = self._fetch(None, shard)
+        else:
+            lanes = self._fetch(lane_keys, shard)
+        return [lane for lane in lanes if self.mine(lane)]
 
 
 @dataclass(frozen=True)
@@ -504,6 +522,7 @@ class _Analysis:
     caps: frozenset[str] = frozenset()
     post_median: int | None = None
     floor: dict[tuple[str, str], int] = field(default_factory=dict)
+    lane_cache: dict[ShardKey, list[Lane]] | None = None
 
     @property
     def window(self) -> tuple[int, int]:
@@ -513,7 +532,8 @@ class _Analysis:
         return LaneSource(self.since_ms, self.until_ms,
                           db_path=str(self.db_path) if self.db_path is not None else None,
                           principal=self.principal, team=self.team,
-                          memory=None if self.db_path is not None else self.store)
+                          memory=None if self.db_path is not None else self.store,
+                          cache=self.lane_cache)
 
     def map(self, fn: Callable[[ShardKey], Any], shards: Sequence[ShardKey]) -> list[Any]:
         jobs = self.jobs if self.db_path is not None else 1
@@ -531,6 +551,9 @@ class _Analysis:
         if self.team is not None:
             index = [row for row in index if (row.team or "") == self.team]
         shards = plan_shards(index, max_requests=self.shard_cap)
+        in_process = self.db_path is None or self.jobs == 1
+        if in_process and sum(row.requests for row in index) <= LANE_CACHE_MAX_REQUESTS:
+            self.lane_cache = {}
         explicit = self.principal is not None
         parts: list[_SurveyPart] = self.map(_Survey(self.source(), keep_keys=explicit), shards)
         caps: set[str] = set()
