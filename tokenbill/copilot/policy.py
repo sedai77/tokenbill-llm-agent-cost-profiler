@@ -450,7 +450,7 @@ def _budget_list(budgets: object) -> list[dict[str, object]]:
                 "method", "path", "api_version", "body", "note", "lever_id", "auth"} <= set(req)):
             raise UsageError("a budget request spec lacks request fields")
         out.append(dict(spec))
-    return out
+    return sorted(out, key=_budget_order)
 
 
 class _Want:
