@@ -79,7 +79,7 @@ class JsonAdapter:
 def test_sniff_adapter_notes_missing_modules(tmp_path: Path,
                                              monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(reg, "BUILTIN_ADAPTERS", {
-        "copilot-export": "tokenbill.adapters.copilot_export:CopilotExportAdapter",
+        "gone-too": "tokenbill.adapters.also_does_not_exist:Nope",
         "gone": "tokenbill.adapters.does_not_exist:Nope",
         "bad-attr": "tokenbill.core.builders:NoSuchAdapter",
     })
