@@ -1836,6 +1836,12 @@ def private_workdir(*, parent: Path | None = None, keep_raw: Path | None = None,
             raise UsageError(f"--keep-raw {keep.name} already holds files; choose a new or empty "
                              "directory")
     base = Path(parent) if parent is not None else None
+    if base is not None and not base.is_dir():
+        try:
+            base.mkdir(mode=0o700, parents=True)
+        except OSError as exc:
+            raise UsageError(f"the temporary directory parent {base.name} cannot be created "
+                             f"({type(exc).__name__})") from None
     work = Path(tempfile.mkdtemp(prefix="tokenbill-pull-", dir=base))
     try:
         _harden_dir(work, runner=runner, platform=platform, notes=notes)
