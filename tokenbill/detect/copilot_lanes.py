@@ -10,10 +10,11 @@ gh-aw runs:
   rates: hypothesis A, or the A/B range of addendum §6.2 #4 when the lane's context tier
   disagrees) minus the same line at ``Pricer.unit_rates`` (base rates, never band rates). EXACT
   when hypothesis A alone decided, an ESTIMATED range when A and B disagree (Appendix C.G5 /
-  G5b). ``recoverable`` = the premium on lanes the lever ``copilot.context_default`` reaches (the
-  repository ``contextTier`` default reaches the Copilot CLI only, in trusted directories: the
-  trusted share is unknown, so low 0; addendum §9.3), ESTIMATED ``upper_bound``; None when no
-  lane of the cohort is reached (VS Code: keep the default tier and ``/compact`` by hand).
+  G5b). ``recoverable`` = the premium (the standalone counterfactual "every banded request at the
+  default tier"), ESTIMATED ``upper_bound``; the lever ``copilot.context_default`` carries its
+  delivery reach as evidence (``reach:copilot.context_default``: the repository ``contextTier``
+  default reaches the Copilot CLI only, in trusted directories, trusted share unknown; addendum
+  §9.3 — projections multiply by it, the finding does not).
 * ``compaction-cost`` — COMPACTION inferences priced exactly, joined within the lane to their
   COMPACTION events by timestamp for ``copilot_trigger``; the forced share (``context_limit_retry``,
   ``memory_pressure``) is counted over every compaction (an event without an inference counts,
@@ -23,8 +24,8 @@ gh-aw runs:
   model)]``), carried by every request at its own read / write / uncached mix (the prefix is read
   first, then written, then sent uncached), ESTIMATED. ``recoverable`` = the tool-definition
   carry (tools tier first) × ``TOOL_SEARCH_REDUCTION_BAND`` [0.50, 0.85], point 0.70, ESTIMATED
-  ``upper_bound``, on lanes ``copilot.mcp_trim`` reaches (CLI, VS Code, JetBrains, Copilot app);
-  None when only the floor is known (the tool share is unknown).
+  ``upper_bound``; None when only the floor is known (the tool share is unknown). The reach of
+  ``copilot.mcp_trim`` (CLI, VS Code, JetBrains, Copilot app; not the cloud agent) is evidence.
 * ``subagent-share`` (info) — SUBAGENT lane spend by ``agent_type`` inside the cohort.
 * ``ci-uncapped`` (info) — Copilot CI lanes (``workload_class=ci``: CLI ``--ci`` lanes, gh-aw
   lanes), per agent product: spend per session p50 / p90 and the share of CLI sessions without a
@@ -60,6 +61,7 @@ Money is int nano and exact fractions, rounded half-even once per figure; no flo
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from fractions import Fraction
@@ -92,7 +94,6 @@ from tokenbill.core.records import (
     UsageSource,
     WorkloadClass,
 )
-from tokenbill.core.textsafe import sanitize
 from tokenbill.core.types import (
     AnalysisContext,
     EvidenceItem,
@@ -151,8 +152,9 @@ CI_PRODUCT_GH_AW = "copilot_gh_aw"
 _CI_LEVER_CLI = "copilot.session_limits"
 _CI_LEVER_GH_AW = "copilot.agentic_workflow_caps"
 _COMPACTION_JOIN_MS = 60_000     # a COMPACTION inference joins its event within ±60 s
-_TRIGGER_MAX = 40
-_AGENT_TYPE_MAX = 64
+#: Names (agent types, compaction triggers) are echoed only when they look like identifiers; a
+#: free-text value (a custom name with spaces, content) is reported as ``custom``.
+_SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,63}\Z")
 _BAND_POINT = Fraction(7, 10)     # SPEC §10.2 tool-defs-bloat: band [0.50, 0.85], point 0.70
 _CAP_FACTOR = Fraction(3, 2)      # max-ai-credits N ≈ p99 × 1.5 (addendum §10.3 fix)
 _CI_PERCENTILES = (50, 90, 99)
@@ -195,6 +197,14 @@ def _pct(num: int, den: int) -> str:
         return "0.0"
     tenths = _round(Fraction(1000 * num, den))
     return f"{tenths // 10}.{tenths % 10}"
+
+
+def _safe_name(value: object) -> str | None:
+    """*value* when it is an identifier-like name, ``custom`` for any other non-empty string,
+    None when absent (free text never reaches a finding)."""
+    if not isinstance(value, str) or not value:
+        return None
+    return value if _SAFE_NAME.match(value) else "custom"
 
 
 def _nearest_rank(values: Sequence[int], pct: int) -> int:
@@ -499,7 +509,7 @@ def _emit(detector: CopilotLanes, ctx: AnalysisContext, cohort: _Cohort, spec: _
         detector_id=detector.id, kind=spec.kind, detector_version=detector.version,
         category=spec.category, lever_class=spec.lever_class,
         audience="self" if ctx.self_principal is not None else "org",
-        title=sanitize(spec.title), summary=sanitize(spec.summary),
+        title=spec.title, summary=spec.summary,
         scope=make_scope(**cohort.dims(**scope_extra)),
         n_events=tally.events, n_lanes=len(tally.lanes), n_users=len(tally.principals),
         first_seen_ms=tally.first_seen or 0, cost_observed=cost, recoverable=recoverable,
@@ -540,7 +550,8 @@ def _long_context(det: CopilotLanes, ctx: AnalysisContext, cohort: _Cohort) -> l
                     prem = band_premium(ctx.pricer, inf, att.ts_start_ms)
                     if prem is None or prem.high <= 0:
                         continue
-                    rec = models.setdefault(inf.pricing.model or _UNKNOWN, _BandModel())
+                    model = _safe_name(inf.pricing.model) or _UNKNOWN
+                    rec = models.setdefault(model, _BandModel())
                     rec.premium.add(prem.point, prem.low, prem.high, prem.exact)
                     rec.ranged += prem.low != prem.high
                     rec.tier_known += prem.tier_known
@@ -554,18 +565,19 @@ def _long_context(det: CopilotLanes, ctx: AnalysisContext, cohort: _Cohort) -> l
     for model, rec in sorted(models.items()):
         cost = rec.premium.figure(cohort.basis, "long-context band hypotheses A/B differ: "
                                                 "range, point A (dq.copilot_band_hypothesis)")
-        recoverable = None
-        if rec.reached.n:
-            recoverable = estimated(
-                rec.reached.point, cohort.basis, low=0, high=rec.reached.high, upper_bound=True,
-                note="upper bound: the band premium on lanes the repository contextTier default "
-                     "reaches (Copilot CLI in trusted directories; trusted share unknown, low 0)")
+        prem = rec.premium
+        ranged = prem.low != prem.point or prem.high != prem.point
+        recoverable = estimated(
+            prem.point, cohort.basis, low=prem.low if ranged else None,
+            high=prem.high if ranged else None, upper_bound=True,
+            note="upper bound: the band premium if every banded request had stayed at the "
+                 "default tier; the managed delivery reaches CLI lanes only (reach evidence)")
         how = ("exact rate arithmetic on identical tokens" if cost.evidence is Evidence.EXACT
                else f"a range: on {rec.ranged} of them the context tier and the request size "
                     f"disagree about the band")
-        reach = (" The repository contextTier default reaches only the Copilot CLI; on other "
-                 "surfaces keep the default tier and /compact at task boundaries."
-                 if recoverable is None else "")
+        reach = (" The repository contextTier default reaches only the Copilot CLI (trusted "
+                 "directories); elsewhere keep the default tier and /compact at task boundaries."
+                 if len(rec.reached_lanes) < len(rec.tally.lanes) else "")
         spec = _Spec(
             kind="long-context-band", category="lever",
             title=f"Long-context band premium on {model} in {cohort.label()}",
@@ -580,7 +592,8 @@ def _long_context(det: CopilotLanes, ctx: AnalysisContext, cohort: _Cohort) -> l
                   high_nano=rec.premium.high),
             _item("reach:copilot.context_default", reached_lanes=len(rec.reached_lanes),
                   lanes=len(rec.tally.lanes), reached_nano=rec.reached.point,
-                  trusted_share=_UNKNOWN),
+                  reached_high_nano=rec.reached.high,
+                  reached_share_pct=_pct(rec.reached.high, prem.high), trusted_share=_UNKNOWN),
         ]
         found = _emit(det, ctx, cohort, spec, rec.tally, cost, recoverable, items, model=model)
         if found is not None:
@@ -596,9 +609,9 @@ def _long_context(det: CopilotLanes, ctx: AnalysisContext, cohort: _Cohort) -> l
 def _trigger(ev: LaneEvent) -> str:
     attrs = dict(ev.attrs)
     for key in ("copilot_trigger", "trigger"):
-        value = attrs.get(key)
-        if isinstance(value, str) and value:
-            return sanitize(value, _TRIGGER_MAX)
+        name = _safe_name(attrs.get(key))
+        if name is not None:
+            return name
     return _UNKNOWN
 
 
@@ -726,7 +739,9 @@ def _static_for(statics: Sequence[_Static], ts_ms: int) -> _Static:
 class _StaticRec:
     carry: Fraction = Fraction(0)
     tools_carry: Fraction = Fraction(0)
-    tools_reached: bool = False
+    tools_reached_carry: Fraction = Fraction(0)
+    tools_known: bool = False
+    reached_lanes: set[str] = field(default_factory=set)
     unpriced: int = 0
     from_events: set[str] = field(default_factory=set)
     from_floor: set[str] = field(default_factory=set)
@@ -761,10 +776,14 @@ def _static_overhead(det: CopilotLanes, ctx: AnalysisContext, cohort: _Cohort) -
                 continue
             rec.carry += static_carry(priced, inf, static)
             rec.static_max = max(rec.static_max, static)
-            if tools is not None and reached:
-                rec.tools_carry += static_carry(priced, inf, tools)
+            if tools is not None:
+                carry = static_carry(priced, inf, tools)
+                rec.tools_carry += carry
                 rec.tools_max = max(rec.tools_max, tools)
-                rec.tools_reached = True
+                rec.tools_known = True
+                if reached:
+                    rec.tools_reached_carry += carry
+                    rec.reached_lanes.add(lane.lane_key)
             rec.tally.events += 1
             rec.tally.touch(lane, (req,), req.ts_start_ms)
     if not rec.tally.events:
@@ -777,16 +796,16 @@ def _static_overhead(det: CopilotLanes, ctx: AnalysisContext, cohort: _Cohort) -
                           f"/ uncached mix")
     recoverable = None
     low, point, high = _band()
-    if rec.tools_reached:
+    if rec.tools_known:
         recoverable = estimated(
             _round(rec.tools_carry * point), cohort.basis, low=_round(rec.tools_carry * low),
             high=_round(rec.tools_carry * high), upper_bound=True,
             note="upper bound: tool-definition carry x tool-search reduction band "
-                 "[0.50, 0.85], point 0.70, on lanes managed MCP settings reach")
+                 "[0.50, 0.85], point 0.70")
     lever_ids, lever_class, needs_eval = _levers("static-overhead")
     tail = ("" if recoverable is not None else
-            " The tool-definition share is unknown here (no COMPACTION static-token report on a "
-            "lane managed MCP settings reach), so no reduction is projected.")
+            " The tool-definition share is unknown (no COMPACTION static-token report), so no "
+            "reduction is projected.")
     unpriced = (f" {rec.unpriced} requests had no priced rate and are left out."
                 if rec.unpriced else "")
     spec = _Spec(
@@ -805,6 +824,8 @@ def _static_overhead(det: CopilotLanes, ctx: AnalysisContext, cohort: _Cohort) -
         _item("static:tool_definitions", tool_definitions_tokens_max=rec.tools_max,
               carry_nano=_round(rec.tools_carry), band_low="0.50", band_point="0.70",
               band_high="0.85"),
+        _item("reach:copilot.mcp_trim", reached_lanes=len(rec.reached_lanes),
+              lanes=len(rec.from_events), reached_carry_nano=_round(rec.tools_reached_carry)),
     ]
     found = _emit(det, ctx, cohort, spec, rec.tally, cost, recoverable, items)
     return [found] if found is not None else []
@@ -816,14 +837,17 @@ def _static_overhead(det: CopilotLanes, ctx: AnalysisContext, cohort: _Cohort) -
 
 
 def _agent_type(lane: Lane) -> str:
+    """The first request's ``agent_type`` (else a SESSION_META ``agent_type``), identifier-like
+    names only (:func:`_safe_name`)."""
     for req in lane.requests:
-        if req.attribution.agent_type:
-            return sanitize(req.attribution.agent_type, _AGENT_TYPE_MAX)
+        name = _safe_name(req.attribution.agent_type)
+        if name is not None:
+            return name
     for ev in lane.events:
         if ev.kind is LaneEventKind.SESSION_META:
-            value = dict(ev.attrs).get("agent_type")
-            if isinstance(value, str) and value:
-                return sanitize(value, _AGENT_TYPE_MAX)
+            name = _safe_name(dict(ev.attrs).get("agent_type"))
+            if name is not None:
+                return name
     return _UNKNOWN
 
 
