@@ -151,3 +151,14 @@ def test_compaction_events_without_static_attrs_do_not_qualify() -> None:
     ln = lane(key, [req(key, 0, 0, r=40_000, u=10, o=10, model=OPUS48)],
               events=[compaction_event(key, 30, "threshold", system=0)])
     assert only(run([ln], ctx(min_usd="0")), "static-overhead") == []
+
+
+def test_summary_names_the_tool_share_only_when_known() -> None:
+    with_tools = one(run([vscode_static_lane()], ctx(min_usd="0.01")), "static-overhead")
+    assert "up to 30000 of them tool definitions, from COMPACTION events" in with_tools.summary
+    key = "vs-f2"
+    ln = lane(key, [req(key, 0, 0, r=40_000, u=2_000, o=500, model=OPUS48)], scope="ws:vs")
+    floor_only = one(run([ln], ctx(min_usd="0", floor={("ws:vs", OPUS48): 20_000})),
+                     "static-overhead")
+    assert "(from the static-prefix floor)" in floor_only.summary
+    assert "tool definitions, from" not in floor_only.summary

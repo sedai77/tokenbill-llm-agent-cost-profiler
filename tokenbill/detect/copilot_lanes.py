@@ -821,13 +821,13 @@ def _static_overhead(det: CopilotLanes, ctx: AnalysisContext, cohort: _Cohort) -
             "reduction is projected.")
     unpriced = (f" {rec.unpriced} requests had no priced rate and are left out."
                 if rec.unpriced else "")
+    tools = (f"up to {rec.tools_max} of them tool definitions, " if rec.tools_known else "")
     spec = _Spec(
         kind="static-overhead", category="lever",
         title=f"Static prompt overhead (system + tool definitions) in {cohort.label()}",
         summary=(f"{rec.tally.events} requests in {cohort.label()} re-sent a static prefix of up "
-                 f"to {rec.static_max} tokens (up to {rec.tools_max} of them tool definitions, "
-                 f"from {source}); its carry at the lanes' read / write mix is an estimate."
-                 f"{tail}{unpriced}"),
+                 f"to {rec.static_max} tokens ({tools}from {source}); its carry at the lanes' "
+                 f"read / write mix is an estimate.{tail}{unpriced}"),
         confidence="medium" if not rec.from_floor else "low",
         lever_ids=lever_ids, lever_class=lever_class, needs_eval=needs_eval)
     items = [
