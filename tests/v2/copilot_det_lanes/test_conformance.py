@@ -171,3 +171,12 @@ def test_deterministic_across_thresholds(min_usd: str) -> None:
     second = [to_json(f) for f in run(list(reversed(world())), c)]
     assert first == second
     assert T0 > 0
+
+
+@pytest.mark.parametrize("billing_path", ["copilot_pool", "unknown"])
+def test_long_team_names_fit_the_finding_limits(billing_path: str) -> None:
+    team = "platform-" + "x" * 300
+    a = attr(team=team, billing_path=billing_path, product=CLI)
+    ln = lane("vs-long", [req("vs-long", 0, 0, a=a, **G5)])
+    [f] = only(run([ln], ctx(min_usd="0.10")), "long-context-band")
+    assert len(f.title) <= 120 and len(f.summary) <= 400 and f.title.endswith("…")

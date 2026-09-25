@@ -73,6 +73,8 @@ from tokenbill.core import facts as _facts
 from tokenbill.core.evidence import TOOL_SEARCH_REDUCTION_BAND
 from tokenbill.core.findings import (
     COPILOT_FAMILY,
+    MAX_SUMMARY,
+    MAX_TITLE,
     build_finding,
     cohort_key,
     make_scope,
@@ -154,7 +156,7 @@ _CI_LEVER_GH_AW = "copilot.agentic_workflow_caps"
 _COMPACTION_JOIN_MS = 60_000     # a COMPACTION inference joins its event within ±60 s
 #: Names (agent types, compaction triggers) are echoed only when they look like identifiers; a
 #: free-text value (a custom name with spaces, content) is reported as ``custom``.
-_SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,63}\Z")
+_SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
 _BAND_POINT = Fraction(7, 10)     # SPEC §10.2 tool-defs-bloat: band [0.50, 0.85], point 0.70
 _CAP_FACTOR = Fraction(3, 2)      # max-ai-credits N ≈ p99 × 1.5 (addendum §10.3 fix)
 _CI_PERCENTILES = (50, 90, 99)
@@ -205,6 +207,17 @@ def _safe_name(value: object) -> str | None:
     if not isinstance(value, str) or not value:
         return None
     return value if _SAFE_NAME.match(value) else "custom"
+
+
+def _fit(text: str, limit: int) -> str:
+    """*text* within *limit* chars, cut at a word boundary with "…" (team and model names are
+    free-length, the finding limits are not)."""
+    if len(text) <= limit:
+        return text
+    head = text[:limit - 1]
+    if " " in head:
+        head = head.rsplit(" ", 1)[0]
+    return head.rstrip() + "…"
 
 
 def _nearest_rank(values: Sequence[int], pct: int) -> int:
@@ -509,7 +522,7 @@ def _emit(detector: CopilotLanes, ctx: AnalysisContext, cohort: _Cohort, spec: _
         detector_id=detector.id, kind=spec.kind, detector_version=detector.version,
         category=spec.category, lever_class=spec.lever_class,
         audience="self" if ctx.self_principal is not None else "org",
-        title=spec.title, summary=spec.summary,
+        title=_fit(spec.title, MAX_TITLE), summary=_fit(spec.summary, MAX_SUMMARY),
         scope=make_scope(**cohort.dims(**scope_extra)),
         n_events=tally.events, n_lanes=len(tally.lanes), n_users=len(tally.principals),
         first_seen_ms=tally.first_seen or 0, cost_observed=cost, recoverable=recoverable,
