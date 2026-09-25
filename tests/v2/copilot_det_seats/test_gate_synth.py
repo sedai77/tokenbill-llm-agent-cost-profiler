@@ -108,17 +108,30 @@ def test_gate_synth_world_through_adapters_and_enricher(tmp_path: Path) -> None:
     pytest.importorskip("tokenbill.copilot.enrich")
     from tokenbill.core import extensions, registry
     from tokenbill.core import testing as kit
+    from tokenbill.core.ids import key_id
     from tokenbill.core.types import IngestOptions
 
     world = synth.generate(seed=7)
     paths = writers.write_world(world, tmp_path)
-    store = kit.MemoryStore(pricer=kit.FakePricer(), adopt_key_ids=True)
+    # Central-ingest options with the world's keys and login->team map: the billing / metrics
+    # adapters pseudonymize repos and source ids with the name key and logins with the principal
+    # key, so every adapter must read under the same keys for the store to join people across
+    # sources (SPEC-v0.2-COPILOT central-ingest).
+    opts = IngestOptions(
+        identity_mode="central-ingest",
+        name_key=world.name_key, name_key_id=key_id(world.name_key),
+        principal_key=world.principal_key, principal_key_id=key_id(world.principal_key),
+        team_map=tuple(world.team_map.items()), now_ms=0)
+    # the store's org key must match the key the adapters pseudonymize logins under, so the
+    # record store accepts the seat/activity rows (R-E21 key-id check in persist).
+    store = kit.MemoryStore(org_key=world.principal_key, pricer=kit.FakePricer(),
+                            adopt_key_ids=True)
     records = [kit.MemoryRecordStore(store)]
     for path in sorted(paths.values() if isinstance(paths, dict) else paths):
         adapter = registry.sniff_adapter(Path(path))
         if adapter is None:
             continue
-        result = adapter.read(Path(path), IngestOptions())
+        result = adapter.read(Path(path), opts)
         store.ingest(result)
         extensions.persist(records, result)
     base = ctx()

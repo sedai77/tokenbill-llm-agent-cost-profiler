@@ -17,7 +17,6 @@ from tokenbill.core.records import (
     Attribution,
     CostLine,
     InferenceKind,
-    LaneEventKind,
     LaneKind,
     Request,
     UsageAggregate,
@@ -77,13 +76,6 @@ def test_claude_code_transcripts(world: FleetWorld) -> None:
     got = {q.request_id: q for q in requests}
     hidden = {rid for rid, q in canonical.items() if q.serving_inference is None}
     assert set(canonical) - hidden <= set(got)
-    boundaries = [(e.lane_key, e.ts_ms) for e in world.events
-                  if e.kind is LaneEventKind.COMPACTION]
-    after_compaction = {min((q for q in canonical.values()
-                             if q.lane_key == lane_key and q.ts_start_ms > ts),
-                            key=lambda q: q.ts_start_ms).request_id
-                        for lane_key, ts in boundaries
-                        if any(q.lane_key == lane_key for q in canonical.values())}
     for rid, want in canonical.items():
         if rid in hidden:
             continue
@@ -93,8 +85,9 @@ def test_claude_code_transcripts(world: FleetWorld) -> None:
         assert _inputs(have) == _inputs(want), rid
         assert [inf.kind for a in have.attempts for inf in a.inferences] == [
             inf.kind for a in want.attempts for inf in a.inferences], rid
-        if rid not in after_compaction:     # whether a compact summary is appended input is
-            assert have.appended == want.appended, rid     # the importer's call (§5.3 #8/#9)
+        # R-E33: a compact summary is not appended user text, so requests right after a
+        # compaction compare too
+        assert have.appended == want.appended, rid
 
 
 def test_headless_execution_files(world: FleetWorld) -> None:

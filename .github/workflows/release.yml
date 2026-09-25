@@ -1,73 +1,160 @@
-# Release pipeline, triggered by pushing a v* tag (e.g. v0.1.0).
+# Release pipeline, triggered by pushing a v* tag (e.g. v0.2.0). See docs/SUPPLY-CHAIN.md.
 #
-# No API tokens anywhere: PyPI uses Trusted Publishing (OIDC).
-# One-time setup by the repo owner:
-#   1. pypi.org -> account -> Publishing -> add a (pending) trusted publisher:
+#   build   -> sdist + wheel with SOURCE_DATE_EPOCH = the tagged commit's time; twine check;
+#              tag-vs-version guard; zero-runtime-dependency gate; rebuild-and-diff
+#              (scripts/repro_check.sh) BEFORE anything is published; CycloneDX SBOMs.
+#   attest  -> SLSA build provenance for dist/* and the SBOMs (actions/attest-build-provenance,
+#              Sigstore-signed, stored in this repository's attestations).
+#   pypi    -> Trusted Publishing (OIDC; no token, no secret) with PEP 740 attestations.
+#   github-release -> the release with dist/* and the SBOMs attached, notes from CHANGELOG.md.
+#
+# No API tokens anywhere. One-time setup by the repo owner:
+#   1. pypi.org -> account -> Publishing -> add a trusted publisher:
 #      project "tokenbill", owner "sedai77",
 #      repository "tokenbill-llm-agent-cost-profiler",
 #      workflow "release.yml", environment "pypi".
-#   2. GitHub repo Settings -> Environments -> create "pypi".
-# Then: bump __version__ in tokenbill/__init__.py, move the CHANGELOG.md
-# Unreleased entries into a dated section, and push the matching tag.
+#   2. GitHub repo Settings -> Environments -> create "pypi" (optionally: required reviewers,
+#      deployment tags matching v*).
+#   3. GitHub repo Settings -> General -> Releases -> enable immutable releases.
+# Then: bump __version__ in tokenbill/__init__.py, move the CHANGELOG.md Unreleased entries into
+# a dated section, and push the matching tag.
 name: Release
 
 on:
   push:
     tags: ["v*"]
 
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
-    name: build (wheel + sdist)
+    name: build (wheel + sdist), verify, SBOM
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read # checkout
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           python-version: "3.12"
-      - name: Build
-        run: uv build
+          enable-cache: false # never restore a cache into a publishing workflow
+      - name: Build (SOURCE_DATE_EPOCH = the tagged commit's time)
+        run: |
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          export SOURCE_DATE_EPOCH
+          echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
+          uv build
       - name: Check metadata
-        run: uvx twine check dist/*
+        run: uvx --from twine==7.0.0 twine check --strict dist/*
       - name: Tag must match the package version
         run: |
           version="${GITHUB_REF_NAME#v}"
-          if [ ! -f "dist/tokenbill-${version}.tar.gz" ]; then
+          if [ ! -f "dist/tokenbill-${version}.tar.gz" ] \
+             || [ ! -f "dist/tokenbill-${version}-py3-none-any.whl" ]; then
             echo "tag ${GITHUB_REF_NAME} does not match the built version:" >&2
             ls dist/ >&2
             echo "bump __version__ in tokenbill/__init__.py before tagging" >&2
             exit 1
           fi
-      - uses: actions/upload-artifact@v4
+      - name: Zero runtime dependencies
+        run: |
+          uv venv --no-project --python 3.12 "$RUNNER_TEMP/clean"
+          "$RUNNER_TEMP/clean/bin/python" scripts/check_zero_deps.py \
+            --wheel "dist/tokenbill-${GITHUB_REF_NAME#v}-py3-none-any.whl"
+      - name: Reproducible build (rebuild twice, diff against dist/)
+        run: scripts/repro_check.sh dist
+      - name: SBOM (CycloneDX 1.5; asserts zero runtime components)
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
+          uv run --no-project python scripts/sbom.py \
+            --wheel "dist/tokenbill-${version}-py3-none-any.whl" \
+            -o "sbom/tokenbill-${version}.cdx.json" \
+            --dev-out "sbom/tokenbill-${version}.dev.cdx.json"
+      - name: Checksums
+        run: |
+          (cd dist && sha256sum -- *) | tee SHA256SUMS
+          (cd sbom && sha256sum -- *) | tee -a SHA256SUMS
+          mv SHA256SUMS sbom/
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
           path: dist/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom
+          path: sbom/
+          if-no-files-found: error
+
+  attest:
+    name: build provenance
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write # Sigstore signing identity (OIDC)
+      attestations: write # store the attestations in this repository
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sbom
+          path: sbom/
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*
+            sbom/*.cdx.json
 
   pypi:
     name: publish to PyPI (trusted publishing)
-    needs: build
+    needs: [build, attest]
     runs-on: ubuntu-latest
-    environment: pypi
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/tokenbill/
     permissions:
-      id-token: write # OIDC is the whole credential — no token, no secret
+      id-token: write # OIDC is the whole credential (and signs the PEP 740 attestations)
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          attestations: true # PEP 740 (the default since 1.11; stated so it cannot silently drift)
 
   github-release:
     name: GitHub release
-    needs: [build, pypi]
+    needs: [build, attest, pypi]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
-      contents: write
+      contents: write # create the release and upload its assets
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dist
           path: dist/
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sbom
+          path: sbom/
       - name: Extract this version's notes from CHANGELOG.md
         run: |
           awk -v heading="## [${GITHUB_REF_NAME#v}]" '
@@ -79,10 +166,19 @@ jobs:
             echo "no CHANGELOG.md section for ${GITHUB_REF_NAME#v}" >&2
             echo "See CHANGELOG.md." > notes.md
           fi
-      - name: Create the release
+          cat >> notes.md <<EOF
+
+          ---
+          **Verify this release** (see docs/SUPPLY-CHAIN.md):
+          \`gh attestation verify tokenbill-${GITHUB_REF_NAME#v}-py3-none-any.whl --repo ${GITHUB_REPOSITORY}\`;
+          the CycloneDX SBOM \`tokenbill-${GITHUB_REF_NAME#v}.cdx.json\` lists zero runtime components;
+          \`scripts/repro_check.sh <dir with the downloaded files>\` rebuilds them byte for byte.
+          EOF
+      - name: Create the release (all assets in one step, so it can be immutable)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          gh release create "$GITHUB_REF_NAME" dist/* sbom/* \
+            --verify-tag \
             --title "Token Bill ${GITHUB_REF_NAME#v}" \
             --notes-file notes.md
