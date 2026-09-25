@@ -37,6 +37,13 @@ What becomes what:
   is its own lane. A model-call span that wraps another model-call span of the same trace (a
   framework span around an instrumented SDK call) is skipped: only the innermost span is a
   request (``stats["nested_model_spans"]``).
+* GitHub Copilot resources (``core.models.is_copilot_resource`` over the resource's
+  ``service.name`` — ``opts.otel_service_names`` included —, its instrumentation scope names and
+  the attribute keys of its spans, log records and metric data points) are skipped whole and
+  counted in ``stats["defer:copilot-otel"]``: WIRING's ingest loop re-reads the file with
+  ``copilot-otel`` (CP-OTEL), which reads only those resources, so a mixed file keeps every
+  non-Copilot record here and nothing is counted twice (SPEC-v0.2-COPILOT §5.10, §21.4a A-4,
+  ruling R-E23).
 
 Identity (``central-ingest``): ``user.email`` / ``user.account_uuid`` / ``user.account_id`` /
 ``user.id`` map to a team through ``opts.team_map``, the first one present becomes a ``p_``
@@ -52,7 +59,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import re
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -99,7 +106,7 @@ from tokenbill.adapters.conventions_ext import (
 )
 from tokenbill.core.conventions import BadUsageError
 from tokenbill.core.ids import pseudonym, request_id_for, stable_id
-from tokenbill.core.models import normalize_model
+from tokenbill.core.models import is_copilot_resource, normalize_model
 from tokenbill.core.records import (
     AppendedItem,
     Attempt,
@@ -118,7 +125,7 @@ from tokenbill.core.records import (
 )
 from tokenbill.core.types import IngestOptions, IngestResult
 
-__all__ = ["BUILTIN_TOOLS", "OtlpJsonAdapter"]
+__all__ = ["BUILTIN_TOOLS", "DEFER_COPILOT_OTEL", "OtlpJsonAdapter"]
 
 #: Claude Code built-in tool names emitted in clear (§5.1); anything else is ``h_`` unless
 #: allowlisted.
@@ -128,6 +135,10 @@ BUILTIN_TOOLS = frozenset({
     "SlashCommand", "Task", "TodoRead", "TodoWrite", "ToolSearch", "WebFetch", "WebSearch",
     "Write",
 })
+
+#: ``IngestResult.stats`` key: the number of GitHub Copilot resources skipped and left to the
+#: ``copilot-otel`` adapter (WIRING's ``defer:<adapter>`` re-read; A-4, R-E23).
+DEFER_COPILOT_OTEL = "defer:copilot-otel"
 
 _PRIORITY = 20  # SourceRef.priority of otlp (§3.2)
 _OTLP_KEYS = ("resourceLogs", "resourceMetrics", "resourceSpans")
@@ -270,6 +281,24 @@ def _resource_attrs(block: object) -> dict[str, Any]:
     return _attrs(res.get("attributes")) if isinstance(res, dict) else {}
 
 
+def _record_attr_keys(scopes: list[Any], records_key: str) -> Iterator[object]:
+    """The attribute keys (never the values) of every record under a resource's scope blocks:
+    spans, log records, or the data points of metrics (lazy, so the Copilot predicate stops at
+    the first match)."""
+    for sc in scopes:
+        for rec in _list(sc, records_key):
+            if not isinstance(rec, dict):
+                continue
+            if records_key == "metrics":
+                holders = [pt for data in rec.values() for pt in _list(data, "dataPoints")]
+            else:
+                holders = [rec]
+            for holder in holders:
+                for kv in _list(holder, "attributes"):
+                    if isinstance(kv, dict):
+                        yield kv.get("key")
+
+
 def _event_name(rec: dict[str, Any]) -> str | None:
     """The event name of a log record without decoding its other attributes (raw-body events
     must never be decoded): ``eventName``, a ``claude_code.*`` body, or ``event.name``."""
@@ -397,10 +426,30 @@ class _Reader:
         return self.scan.finish(requests=requests, sessions=sessions, events=events,
                                 aggregates=aggregates, capabilities=caps)
 
+    def _copilot(self, block: object, res: Mapping[str, Any], scopes_key: str,
+                 records_key: str) -> bool:
+        """Whether *block* is a GitHub Copilot resource, left to ``copilot-otel`` and counted in
+        :data:`DEFER_COPILOT_OTEL` (A-4, R-E23)."""
+        scopes = _list(block, scopes_key)
+        service = res.get("service.name")
+        names = [sc["scope"].get("name") for sc in scopes
+                 if isinstance(sc, dict) and isinstance(sc.get("scope"), dict)]
+        if not is_copilot_resource(service if isinstance(service, str) else None, names,
+                                   _record_attr_keys(scopes, records_key),
+                                   extra_service_names=self.opts.otel_service_names):
+            return False
+        self.scan.count(DEFER_COPILOT_OTEL)
+        return True
+
     def _line(self, obj: dict[str, Any], line_no: int) -> None:
+        # a skipped Copilot resource still advances the record index k: locators keep naming a
+        # record's position in the line
         k = 0
         for rl in _list(obj, "resourceLogs"):
             res = _resource_attrs(rl)
+            if self._copilot(rl, res, "scopeLogs", "logRecords"):
+                k += sum(len(_list(sl, "logRecords")) for sl in _list(rl, "scopeLogs"))
+                continue
             for sl in _list(rl, "scopeLogs"):
                 for rec in _list(sl, "logRecords"):
                     k += 1
@@ -408,6 +457,9 @@ class _Reader:
                         self._log(rec, res, line_no, k)
         for rs in _list(obj, "resourceSpans"):
             res = _resource_attrs(rs)
+            if self._copilot(rs, res, "scopeSpans", "spans"):
+                k += sum(len(_list(ss, "spans")) for ss in _list(rs, "scopeSpans"))
+                continue
             for ss in _list(rs, "scopeSpans"):
                 for span in _list(ss, "spans"):
                     k += 1
@@ -415,6 +467,8 @@ class _Reader:
                         self._span(span, res, line_no, k)
         for rm in _list(obj, "resourceMetrics"):
             res = _resource_attrs(rm)
+            if self._copilot(rm, res, "scopeMetrics", "metrics"):
+                continue
             for sm in _list(rm, "scopeMetrics"):
                 for metric in _list(sm, "metrics"):
                     if isinstance(metric, dict):
