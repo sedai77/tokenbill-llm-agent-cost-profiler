@@ -2612,8 +2612,6 @@ def write_otel_file(records: Any, out_dir: Path, *, dialect: str = "otlp",
     else:
         claude = _claude_spans(recs)
         by_owner = _group(_cli_calls(calls), lambda c: c.principal or "")
-        if not by_owner:
-            by_owner = {"": []}
         for n, owner in enumerate(sorted(by_owner)):
             copilot_spans = []
             for key, group in sorted(_group(by_owner[owner], lambda c: c.session_key).items()):
