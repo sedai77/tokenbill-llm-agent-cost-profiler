@@ -42,7 +42,8 @@ def _world(consumed: int, idle: list, *, config: list | None = None, **pool_kw: 
 def test_p2_p3_p4_idle_removable_business_seats(consumed: int, saving_usd: int,
                                                  regime: str) -> None:
     [f] = of_kind(detect(_world(consumed, seats(50))), "idle-seat")
-    assert dims(f) == {"entity": "enterprise", "product": "copilot", "team": "t1"}
+    assert dims(f) == {"entity": "enterprise", "plan": "business", "product": "copilot",
+                       "team": "t1"}  # plan dim: CONTRACT-CHANGE-CP-PLAN-1 item 1
     assert (f.category, f.lever_class, f.n_users, f.n_events) == ("lever", "rate", 50, 50)
     assert (f.cost_observed.nano, f.cost_observed.evidence, f.cost_observed.basis) == (
         950 * USD, Evidence.ESTIMATED, Basis.LIST)

@@ -1312,9 +1312,15 @@ def _idle_seat(run: _Run) -> list[Finding]:
             if count["team"]:
                 lever_ids.append("copilot.seat_reclaim_team")
             where = f"team {team}" if team else "no team"
+            # The seat plan, when every idle seat of the team is on one known plan: the aggregate
+            # plan prices the reclaim lever with it (CONTRACT-CHANGE-CP-PLAN-1 item 1).
+            seat_plans = {k[3] for k, _ in groups}
+            one_plan = (next(iter(seat_plans)) if len(seat_plans) == 1
+                        and seat_plans <= {"business", "enterprise"} else None)
             out.append(_finding(
                 run, "idle-seat",
-                scope={"entity": entity, "team": team, "plan_scenario": scen},
+                scope={"entity": entity, "team": team, "plan_scenario": scen,
+                       "plan": one_plan},
                 title=_title(scen, f"Idle Copilot seats in {where} ({entity}): "
                                    f"{count['removable']} removable of {total}"),
                 summary=_summary(
