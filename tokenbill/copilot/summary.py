@@ -428,7 +428,7 @@ class _Bill:
                                   reconciled=credits_ok, open_note=open_note),
                              "observed net of pooled report rows (GitHub's per-row net); the "
                              "plan-dependent overage is shown per scenario")
-            self.line("ai_credits.overage", fig, quantity=_dec_str(em.pooled_credits),
+            self.line("ai_credits.overage", fig, quantity=nano_to_credits_str(em.pooled_net),
                       unit="ai-credits")
         if em.direct_cells:
             direct = pools[0].direct_net_nano if pools else em.direct_net
@@ -499,16 +499,22 @@ class _Bill:
             note += (f"; plan unknown: scenario {scenario}, never combined with the other "
                      "scenario")
         fig = combine_weakest([p.amount for p in parts], note=note)
+        # the core note also names non-invoice inputs by position; the line names say it better
+        kept = [p for p in fig.note.split("; ") if not p.startswith("non-invoice: input ")]
+        fig = _renote(fig, "; ".join(kept))
         self.line("total.invoice", fig, scenario=scenario, components=names)
+
+
+def _renote(fig: Figure, note: str) -> Figure:
+    return Figure(nano=fig.nano, evidence=fig.evidence, basis=fig.basis, finality=fig.finality,
+                  low_nano=fig.low_nano, high_nano=fig.high_nano, ci_level_pct=fig.ci_level_pct,
+                  calibration=fig.calibration, upper_bound=fig.upper_bound,
+                  provenance=fig.provenance, note=note)
 
 
 def with_note(fig: Figure, note: str) -> Figure:
     """*fig* with *note* appended to its note."""
-    text = note if not fig.note else f"{fig.note}; {note}"
-    return Figure(nano=fig.nano, evidence=fig.evidence, basis=fig.basis, finality=fig.finality,
-                  low_nano=fig.low_nano, high_nano=fig.high_nano, ci_level_pct=fig.ci_level_pct,
-                  calibration=fig.calibration, upper_bound=fig.upper_bound,
-                  provenance=fig.provenance, note=text)
+    return _renote(fig, note if not fig.note else f"{fig.note}; {note}")
 
 
 def bill_lines(cost_lines: Sequence[CostLine], aggregates: Sequence[UsageAggregate],

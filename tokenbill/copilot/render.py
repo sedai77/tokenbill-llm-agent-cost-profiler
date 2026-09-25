@@ -335,6 +335,7 @@ def _pool_lines(pm: PoolMonth, verdicts: Mapping[str, str], width: int) -> list[
     t.add(f"{head} · consumed {credits_text(pm.consumed_report_nano)} · regime {pm.regime}",
           indent=2)
     t.add(_bar(pm, max(10, min(40, width - 6))), indent=4)
+    t.add("(# consumed in pool · ! over pool · . pool left · ~ forecast p10–p90)", indent=4)
     if pm.forecast is not None:
         t.add(f"forecast {chip(pm.forecast)} (month-end consumption, p10–p90)", indent=4)
     if pm.overage_forecast is not None:
@@ -354,11 +355,13 @@ def _line_rows(lines: Sequence[CopilotBillLine], width: int) -> list[str]:
     """The bill table: name, quantity, amount and label (label wraps under narrow widths)."""
     t = _Text(width)
     wide = width >= 90
+    if wide and lines:
+        t.add(f"{'line':<32}{'quantity':>15}{'amount':>15}  label", indent=2)
     for bl in lines:
         qty = _qty(bl)
         if wide:
-            row = f"{bl.line:<32}{qty:>18}{money(bl.amount):>18}  {label(bl.amount)}"
-            t.add(row, indent=2, cont=52)
+            row = f"{bl.line:<32}{qty:>15}{money(bl.amount):>15}  {label(bl.amount)}"
+            t.add(row, indent=2, cont=62)
         else:
             t.add(f"{bl.line} {qty}".strip(), indent=2)
             t.add(f"{money(bl.amount)} {label(bl.amount)}", indent=6)
@@ -368,7 +371,7 @@ def _line_rows(lines: Sequence[CopilotBillLine], width: int) -> list[str]:
 def _notes_of(lines: Sequence[CopilotBillLine], width: int) -> list[str]:
     t = _Text(width)
     for bl in lines:
-        if bl.amount.note and (bl.amount.basis is not Basis.INVOICE or bl.line == "total.invoice"):
+        if bl.amount.note:
             t.add(f"- {bl.line}: {bl.amount.note}", indent=2, cont=4)
     return t.lines
 
@@ -377,7 +380,8 @@ def _block(title: str, lines: Sequence[CopilotBillLine], pool: PoolMonth | None,
            verdicts: Mapping[str, str], width: int) -> list[str]:
     """One bill block (the same renderer for a known-plan entity and for each scenario column)."""
     t = _Text(width)
-    t.add(title)
+    if title:
+        t.add(title)
     t.extend(_line_rows(lines, width))
     if pool is not None:
         t.extend(_pool_lines(pool, verdicts, width))
@@ -438,7 +442,7 @@ def _terminal(s: CopilotSummary, width: int) -> str:
         t.add(f"COPILOT BILL — {entity} · {month} · {state}")
         t.add(f"PLAN {info.text()}", indent=2, cont=2)
         shared = [bl for bl in lines if bl.scenario is None]
-        t.extend(_block("lines:", shared, known, verdicts, width))
+        t.extend(_block("", shared, known, verdicts, width))
         scen = [p for p in pools if p.plan_scenario is not None]
         if scen:
             t.add("SCENARIOS (plan unknown; each ESTIMATED; never combined)", indent=2)
