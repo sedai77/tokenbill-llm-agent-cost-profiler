@@ -3489,9 +3489,17 @@ def _rec_window(window: Mapping[str, int]) -> tuple[int, int]:
     return (lo if lo is not None else 0, hi if hi is not None else _FOREVER_MS)
 
 
+def _source_rank(rec: Any) -> int:
+    """0 for a 28-day rollup row (``source_kind`` ending ``.28day``), else 1: a daily row of the
+    same natural key always wins over a 28-day row, whatever the fetch order (addendum §5.5)."""
+    return 0 if str(getattr(rec, "source_kind", "")).endswith(".28day") else 1
+
+
 def _newer(new: Any, old: Any) -> bool:
-    """Latest-fetch-wins upsert; ties go to the canonically larger version (order independent)."""
-    return (new.fetched_ms, _canonical(to_json(new))) > (old.fetched_ms, _canonical(to_json(old)))
+    """Daily-over-28-day, then latest-fetch-wins upsert; ties go to the canonically larger version
+    (order independent)."""
+    return ((_source_rank(new), new.fetched_ms, _canonical(to_json(new)))
+            > (_source_rank(old), old.fetched_ms, _canonical(to_json(old))))
 
 
 class MemoryRecordStore:

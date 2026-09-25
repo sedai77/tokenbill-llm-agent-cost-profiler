@@ -882,8 +882,9 @@ class _Records:
 
 
 def _latest(items: Iterable[Any], key: Any) -> list[Any]:
-    """One record per natural key: the latest ``fetched_ms`` wins, ties by canonical JSON
-    (computed only for colliding keys)."""
+    """One record per natural key: a daily row wins over a 28-day rollup row (``source_kind``
+    ending ``.28day``, addendum §5.5 — as the record store), then the latest ``fetched_ms``, ties by
+    canonical JSON (computed only for colliding keys)."""
     groups: dict[str, list[Any]] = {}
     for rec in items:
         groups.setdefault(key(rec), []).append(rec)
@@ -891,7 +892,8 @@ def _latest(items: Iterable[Any], key: Any) -> list[Any]:
     for k in sorted(groups):
         recs = groups[k]
         out.append(recs[0] if len(recs) == 1 else max(
-            recs, key=lambda r: (getattr(r, "fetched_ms", 0), _line(r))))
+            recs, key=lambda r: (not str(getattr(r, "source_kind", "")).endswith(".28day"),
+                                 getattr(r, "fetched_ms", 0), _line(r))))
     return out
 
 

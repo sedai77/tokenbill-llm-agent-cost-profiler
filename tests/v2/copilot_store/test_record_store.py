@@ -596,3 +596,21 @@ def test_error_paths_are_usage_errors_and_atomic(tmp_path: Path) -> None:
         blocker.close()
     store.put(result([lic(ORG_KEY, "u9")]), principal_key_id=key_id(ORG_KEY))
     assert len(store.licenses(**W)) == 4
+
+
+@pytest.mark.parametrize("daily_first", [True, False])
+def test_daily_row_wins_over_a_28_day_row_in_either_order(tmp_path: Path,
+                                                          daily_first: bool) -> None:
+    who = p(ORG_KEY, "u1")
+    daily = make_activity(who, date_utc=DAY, counts={"interactions": 3}, fetched_ms=10)
+    rollup = make_activity(who, date_utc=DAY, counts={"interactions": 90}, fetched_ms=20,
+                           source_kind="github.copilot_metrics.28day")
+    kid = key_id(ORG_KEY)
+    fake = kit.MemoryRecordStore(org_key_id=kid)
+    with open_store(tmp_path) as store:
+        for rec in ((daily, rollup) if daily_first else (rollup, daily)):
+            store.put(result(activity=[rec]), principal_key_id=kid)
+            fake.put(result(activity=[rec]), principal_key_id=kid)
+        store.put(result(activity=[rollup, daily]), principal_key_id=kid)  # one batch, too
+        assert store.activity(**W) == [daily]
+    assert fake.activity(**W) == [daily]

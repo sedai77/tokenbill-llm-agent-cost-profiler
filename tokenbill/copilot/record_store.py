@@ -11,12 +11,13 @@ Rules (binding text in the addendum and the CP-STORE brief; choices where they a
 marked *decision*):
 
 * **Natural keys.** ``rec_key = stable_id("rk", core.records.record_key(rec))`` — never NULL (an
-  activity-report seat with ``org=None`` re-ingests idempotently). An upsert keeps the version with
-  the larger ``fetched_ms``; equal ``fetched_ms`` go to the canonically larger version (the
-  canonical JSON of ``core.records.to_json``, as ``core.testing.MemoryRecordStore``), so ingest is
-  idempotent and order independent. ``org`` is stored as ``''`` for None (§7.2 DDL,
-  ``NOT NULL DEFAULT ''``) and read back as None; ``assigned_via_team`` is a nullable INTEGER
-  (None = unknown, the activity report).
+  activity-report seat with ``org=None`` re-ingests idempotently). An upsert keeps a daily row
+  over a 28-day rollup row of the same key (``source_kind`` ending ``.28day``, addendum §5.5),
+  then the version with the larger ``fetched_ms``; equal ``fetched_ms`` go to the canonically
+  larger version (the canonical JSON of ``core.records.to_json``, as
+  ``core.testing.MemoryRecordStore``), so ingest is idempotent and order independent. ``org`` is
+  stored as ``''`` for None (§7.2 DDL, ``NOT NULL DEFAULT ''``) and read back as None;
+  ``assigned_via_team`` is a nullable INTEGER (None = unknown, the activity report).
 * **Key ids (R-E21).** ``put(result, principal_key_id=…)`` stores license and activity rows only
   when *principal_key_id* is one of the key ids the ledger's SPEC §7.1 ``meta`` accepts —
   ``org_key_id`` and, after an adoption, ``adopted_key_id`` (read at every ``put``, read-only).
@@ -155,6 +156,11 @@ _FOREVER_MS = 2**53
 # ---------------------------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------------------------
+
+
+def _source_rank(source_kind: object) -> int:
+    """0 for a 28-day rollup row, else 1 (a daily row always wins; see the module docstring)."""
+    return 0 if str(source_kind).endswith(".28day") else 1
 
 
 def _canonical(rec: object) -> str:
@@ -462,24 +468,28 @@ class CopilotRecordStore:
             rk = stable_id("rk", record_key(rec))
             canon = _canonical(rec)
             cur = best.get(rk)
-            if cur is None or (rec.fetched_ms, canon) > (cur[0].fetched_ms, cur[1]):
+            if cur is None or ((_source_rank(rec.source_kind), rec.fetched_ms, canon)
+                               > (_source_rank(cur[0].source_kind), cur[0].fetched_ms, cur[1])):
                 best[rk] = (rec, canon)
         if not best:
             return
         keys = sorted(best)
-        existing: dict[str, int] = {}
+        existing: dict[str, tuple[int, int]] = {}
         for chunk in _chunks(keys, _CHUNK):
             marks = ",".join("?" * len(chunk))
-            existing.update(self._query(
-                f"SELECT rec_key, fetched_ms FROM {table} WHERE rec_key IN ({marks})", chunk))
+            for rk, fetched, kind in self._query(
+                    f"SELECT rec_key, fetched_ms, source_kind FROM {table} "
+                    f"WHERE rec_key IN ({marks})", chunk):
+                existing[rk] = (_source_rank(kind), fetched)
         rows = []
         for rk in keys:
             rec, canon = best[rk]
-            old_fetched = existing.get(rk)
-            if old_fetched is not None:
-                if rec.fetched_ms < old_fetched:
+            old_order = existing.get(rk)
+            if old_order is not None:
+                new_order = (_source_rank(rec.source_kind), rec.fetched_ms)
+                if new_order < old_order:
                     continue
-                if rec.fetched_ms == old_fetched:
+                if new_order == old_order:
                     old = self._load(table, rk)
                     if old is not None and canon <= _canonical(old):
                         continue
