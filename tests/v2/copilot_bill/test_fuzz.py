@@ -3,8 +3,6 @@ and exactness properties of the AI usage report parser."""
 
 from __future__ import annotations
 
-import csv
-import io
 import json
 import os
 import tempfile
@@ -47,12 +45,14 @@ cells = st.one_of(
     st.decimals(allow_nan=False, allow_infinity=False, places=12).map(str))
 
 
+def _csv_cell(cell: str) -> str:
+    return '"' + cell.replace('"', '""') + '"' if any(c in cell for c in ',"\r\n') else cell
+
+
 def _csv_text(header: list[str], rows: list[list[str]]) -> str:
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(header)
-    writer.writerows(rows)
-    return buf.getvalue()
+    """The rows as CSV text, written by hand (QUOTE_MINIMAL, as the 3.11+ ``csv`` writer does):
+    Python 3.10's writer refuses a NUL cell, and the adapter must see (and survive) one."""
+    return "".join(",".join(_csv_cell(c) for c in row) + "\r\n" for row in [header, *rows])
 
 
 def _read(name: str, data: bytes, suffix: str = ".csv") -> IngestResult | None:
