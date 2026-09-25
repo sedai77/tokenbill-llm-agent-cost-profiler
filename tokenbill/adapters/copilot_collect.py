@@ -357,11 +357,11 @@ def collect_incremental_copilot(home: Path, state: CopilotCollectorState, opts: 
         digest, n = _sha256_file(work.path, work.start, work.offset)
         yield work.run.result(work.run.source_info(work.path, digest, n))
 
-    if store_mode and store_run is not None:
+    if store_run is not None:
         held: list[int] = []
         cutoff = now_ms - QUIESCENT_MS
         live = session_ids(home)
-        for sid, rows in sorted(rows_by_sid.items()):
+        for sid, rows in sorted(rows_by_sid.items()) if store_mode else ():
             if sid in skip:
                 store_run.dq["dq.copilot_session_covered_by_vscode"] += 1
                 done.update(r.row_id for r in rows)
@@ -371,7 +371,8 @@ def collect_incremental_copilot(home: Path, state: CopilotCollectorState, opts: 
                 emit_store_only(store_run, sid, settled, store_meta.get(sid))
                 done.update(r.row_id for r in settled)
             held.extend(r.row_id for r in rows if r.row_id not in done)
-        commit_store(held)
+        if store_mode:
+            commit_store(held)
         if store_run.requests or store_run.dq or store_run.quarantined:
             digest, n = _sha256_file(store_path)
             yield store_run.result(store_run.source_info(store_path, digest, n))
