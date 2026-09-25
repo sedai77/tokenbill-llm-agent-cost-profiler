@@ -606,9 +606,10 @@ def _requests(inp: _Inputs, today: str | None) -> list[dict[str, object]]:
             "VERIFY: fill the body from the enterprise coding agent policy REST reference; Token "
             "Bill does not choose your policy (review runners, setup steps and session limits).",
             "copilot.agent_runner_standard", "rest:coding_agent_policy"))
-    budget_reqs = [s["request"] for s in inp.budgets if s.get("request") is not None]
-    for req in budget_reqs:
-        out.append(dict(req))  # type: ignore[call-overload]
+    out.sort(key=lambda r: (str(r["lever_id"]), str(r["method"]), str(r["path"]),
+                            _canon(r["body"]), str(r["note"])))
+    specs = sorted(inp.budgets, key=_budget_order)
+    out += [dict(s["request"]) for s in specs if s.get("request") is not None]  # type: ignore[call-overload]
     if "rest:budget_create" in ids and not any(r["path"] == "/enterprises/{enterprise}/settings/"
                                                "billing/budgets" for r in out):
         out.append(_req(
@@ -623,8 +624,18 @@ def _requests(inp: _Inputs, today: str | None) -> list[dict[str, object]]:
             "Template (no budget design given): size the amount from the forecast overage p90; "
             "prevent_further_usage false alerts only (trade-off: true stops paid usage).",
             "copilot.budget_plan", "rest:budget_create"))
-    return sorted(out, key=lambda r: (str(r["lever_id"]), str(r["method"]), str(r["path"]),
-                                      _canon(r["body"]), str(r["note"])))
+    return out
+
+
+_SCENARIO_ORDER = {None: 0, "business": 1, "enterprise": 2}
+
+
+def _budget_order(spec: Mapping[str, object]) -> tuple:
+    kinds = ("cost_center_pool", "budget", "sizing_check", "note")
+    kind = str(spec.get("kind"))
+    return (_SCENARIO_ORDER.get(spec.get("scenario"), 3), str(spec.get("entity_id")),  # type: ignore[arg-type]
+            str(spec.get("month")), kinds.index(kind) if kind in kinds else len(kinds),
+            str(spec.get("text")), _canon(spec.get("request")))
 
 
 def _gh_api(req: Mapping[str, object]) -> str:
@@ -687,16 +698,23 @@ def _lever_def(lever_id: str | None) -> catalog.LeverDef | None:
         return None
 
 
-def _action_projection(action: AdminAction, inp: _Inputs) -> str:
+def _action_projection(action: AdminAction, inp: _Inputs, shown: set[str]) -> str:
+    """The Label line: the projection with its label on the first item of each projected lever
+    (both scenario values while the plan is unknown), else why there is none."""
     lv = _lever_def(action.lever_id)
     if action.projection is not None:
         text = figure_text(action.projection)
-    elif lv is not None and "Projection per scenario" in action.what:
-        text = inp.projection(lv.lever_id)[1] + " (per scenario, plan unknown)"
+        shown.add(action.lever_id or "")
+    elif action.action_id == JETBRAINS_ACTION_ID:
+        text = "not projected (see the model-policy item)"
     elif lv is None or lv.lever_class == "behavioral":
         text = "not projected (behavioral, communication or enabler item)"
-    elif inp.known is not None and lever_projection(inp.known, lv.lever_id) is not None:
+    elif lv.lever_id in shown or (inp.known is not None and lever_projection(
+            inp.known, lv.lever_id) is not None):
         text = "not repeated (the lever's projection is on its first item)"
+    elif inp.scenarios and scenario_projection_text(inp.scenarios, lv.lever_id) is not None:
+        text = inp.projection(lv.lever_id)[1] + " (per scenario, plan unknown)"
+        shown.add(lv.lever_id)
     else:
         text = "not projected (the plan has no value for this lever)"
     reach = f"; reach {action.reach}" if action.reach is not None else "; reach n/a"
@@ -711,6 +729,7 @@ def _checklist(inp: _Inputs) -> str:
     if inp.unknown:
         out += ["**Plan unknown** — every pool-dependent figure is given for both plans (if "
                 "Business / if Enterprise); confirm the plan first.", ""]
+    shown: set[str] = set()
     for n, action in enumerate(inp.actions, 1):
         title = _TITLES.get(action.action_id, action.action_id)
         tags = [t for t, on in (("needs evaluation", action.needs_eval),
@@ -719,7 +738,7 @@ def _checklist(inp: _Inputs) -> str:
                  f"- What: {sanitize(action.what, 400)}",
                  f"- Where: {action.where}",
                  f"- Docs: {action.doc_url}",
-                 f"- Label: {_action_projection(action, inp)}",
+                 f"- Label: {_action_projection(action, inp, shown)}",
                  f"- Evaluation: {', '.join(tags) if tags else 'none needed'}",
                  f"- Deadline: {action.deadline or 'none'}",
                  f"- Rollback: {_ROLLBACK.get(action.where, 'restore the previous setting on the same page')}",  # noqa: E501

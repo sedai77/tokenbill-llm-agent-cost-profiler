@@ -124,6 +124,15 @@ def _ceil_usd(nano: int) -> int:
     return max(0, -(-nano // _NANO_PER_USD))
 
 
+_MIN_NOTE = " (minimum $1: an alert on the first paid usage)"
+
+
+def _whole(nano: int) -> tuple[int, str]:
+    """(whole dollars rounded up, at least 1; the minimum note when the floor applied)."""
+    amount = _ceil_usd(nano)
+    return (amount, "") if amount >= 1 else (1, _MIN_NOTE)
+
+
 def _times_factor(nano: int) -> int:
     num, den = OVERAGE_FACTOR
     return -(-nano * num // den)
@@ -345,12 +354,12 @@ def _metered(inp: _Inputs, group: Sequence[PoolMonth], k: int,
                 specs.append(_spec("note", pm, scenario, f"{pre}capped cost center "
                                    f"{pm.entity_id[3:]}: overage forecast unpriced, no budget."))
                 continue
-            amount = max(1, _ceil_usd(_times_factor(p90)))
+            amount, floor = _whole(_times_factor(p90))
             cc_budget_total += amount * _NANO_PER_USD
             policy = pm.capped_policy or "unknown"
             specs.append(_spec("budget", pm, scenario, (
                 f"{pre}Capped cost center {pm.entity_id[3:]}: budget ${amount} = forecast "
-                f"overage p90 {fmt_usd(p90)} x 1.1, rounded up; at the cap its members are "
+                f"overage p90 {fmt_usd(p90)} x 1.1, rounded up{floor}; at the cap its members are "
                 f"'{policy}' (block or continue); {_TRADEOFF}."), _request(
                 "POST", _BUDGETS_PATH, _budget_body(amount, "cost_center", pm.entity_id[3:]),
                 f"{pre}cost-center budget: forecast overage p90 x 1.1 rounded up; {_TRADEOFF}.")))
@@ -388,12 +397,12 @@ def _metered(inp: _Inputs, group: Sequence[PoolMonth], k: int,
                 continue
             share = draw / entity_draw if entity_draw > 0 else Fraction(0)
             alloc = math.ceil(p90 * share)
-            amount = max(1, _ceil_usd(_times_factor(alloc)))
+            amount, floor = _whole(_times_factor(alloc))
             cc_budget_total += amount * _NANO_PER_USD
             specs.append(_spec("budget", pm, scenario, (
                 f"{pre}Cost center {cc}: metered budget ${amount} = its pro-rata share of the "
                 f"forecast overage p90 ({fmt_usd(alloc)}, estimated allocation by pooled "
-                f"credits) x 1.1, rounded up; {_TRADEOFF}."), _request(
+                f"credits) x 1.1, rounded up{floor}; {_TRADEOFF}."), _request(
                 "POST", _BUDGETS_PATH, _budget_body(amount, "cost_center", cc),
                 f"{pre}cost-center metered budget for {cc}: forecast overage p90 share x 1.1 "
                 f"rounded up (estimated); {_TRADEOFF}.")))
@@ -419,13 +428,13 @@ def _top_budget(group: Sequence[PoolMonth], cc_budget_total: int,
     else:
         direct = sum(_direct_forecast(pm) for pm in group)
         base = max(cc_budget_total, _times_factor(p90))
-        amount = max(1, _ceil_usd(base + direct))
+        amount, floor = _whole(base + direct)
         scope, name = _entity_scope(lead.entity_id)
         specs.append(_spec("budget", lead, scenario, (
             f"{pre}{lead.entity_id}: {scope} budget ${amount} >= the cost-center budgets "
             f"({fmt_usd(cc_budget_total)}) and the forecast overage p90 x 1.1 "
-            f"({fmt_usd(_times_factor(p90))}), plus the direct-org forecast ({fmt_usd(direct)}); "
-            f"{_TRADEOFF}."), _request(
+            f"({fmt_usd(_times_factor(p90))}), plus the direct-org forecast ({fmt_usd(direct)})"
+            f"{floor}; {_TRADEOFF}."), _request(
             "POST", _BUDGETS_PATH, _budget_body(amount, scope, name),
             f"{pre}{scope} budget: at least the cost-center budgets plus the direct-org forecast; "
             f"{_TRADEOFF}.")))
@@ -455,11 +464,11 @@ def _unmetered(pm: PoolMonth) -> list[dict[str, object]]:
     if p90 is None:
         return specs
     direct = _direct_forecast(pm)
-    amount = max(1, _ceil_usd(_times_factor(p90) + direct))
+    amount, floor = _whole(_times_factor(p90) + direct)
     scope, name = _entity_scope(pm.entity_id)
     specs.append(_spec("budget", pm, scenario, (
         f"{pre}{pm.entity_id}: {scope} budget ${amount} = forecast overage p90 x 1.1 plus the "
-        f"direct-org forecast ({fmt_usd(direct)}), rounded up; VERIFY how {pm.billing_mode} "
+        f"direct-org forecast ({fmt_usd(direct)}), rounded up{floor}; VERIFY how {pm.billing_mode} "
         f"billing invoices overage; {_TRADEOFF}."), _request(
         "POST", _BUDGETS_PATH, _budget_body(amount, scope, name),
         f"{pre}{scope} budget ({pm.billing_mode} billing, VERIFY): forecast overage p90 x 1.1 "

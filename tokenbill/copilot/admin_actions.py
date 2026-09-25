@@ -423,15 +423,23 @@ def _fit(text: str, limit: int = _WHAT_MAX) -> str:
 
 
 def _compose(template: str, *extras: str) -> str:
-    """The catalog template followed by the extras that still fit (whole extras only; the first
-    extra is cut at a word boundary when nothing else fits)."""
-    out = template
-    for extra in (e for e in extras if e):
+    """The catalog template, then the extras that still fit (whole extras only). The first extra
+    (a projection or the item's key detail) is always kept whole: the template is shortened at a
+    word boundary when both do not fit."""
+    parts = [e for e in extras if e]
+    if not parts:
+        return _fit(template)
+    first = _fit(parts[0], _WHAT_MAX // 2)
+    room = _WHAT_MAX - len(first) - 1
+    out = f"{template if len(template) <= room else _fit(template, room)} {first}"
+    for extra in parts[1:]:
         if len(out) + 1 + len(extra) <= _WHAT_MAX:
             out = f"{out} {extra}"
-        elif out == template:
-            out = _fit(f"{out} {extra}")
     return _fit(out)
+
+
+def _plural(n: int, word: str, plural: str | None = None) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {plural or word + 's'}"
 
 
 def _next_first(day: _dt.date) -> str:
@@ -599,7 +607,7 @@ def admin_actions(plans_by_scenario: object, findings: Sequence[Finding],
             elif scenario_plans:
                 text = scenario_projection_text(scenario_plans, lever_id)
                 if text is not None:
-                    extras.append(f"Projection per scenario (plan unknown): {text}.")
+                    extras.append(f"Projection (plan unknown): {text}.")
             if projection is not None or extras:
                 shown_levers.add(lever_id)
         deadline = None
@@ -611,20 +619,20 @@ def admin_actions(plans_by_scenario: object, findings: Sequence[Finding],
         if action_id == _PLAN_CONFIRM:
             n_unknown = len({pe.entity_id for pe in evidence if pe.plan == "unknown"})
             n_conflict = len({pe.entity_id for pe in evidence if pe.conflict})
-            extras.insert(0, f"Plan status: {n_unknown} entities unknown, {n_conflict} with "
-                             "conflicting evidence; until confirmed every pool figure is shown "
-                             "for both plans.")
+            extras.append(f"Plan status: {_plural(n_unknown, 'entity', 'entities')} unknown, "
+                          f"{n_conflict} with conflicting evidence; until confirmed every pool "
+                          "figure is shown for both plans.")
         elif action_id == _SEAT_DELETE:
-            extras.insert(0, f"Cut-off: last_activity_at before {cutoff}; {removable} removable "
-                             "seats counted (counts only, never a list).")
+            extras.append(f"Cut-off: last_activity_at before {cutoff}.")
+            extras.append(f"{_plural(removable, 'removable seat')} counted (counts only).")
         elif action_id == _AW_TRIGGERS and suggested_cap is not None:
-            extras.insert(0, f"Suggested max-ai-credits: {suggested_cap} (p99 x 1.5 of priced "
-                             "runs).")
+            extras.append(f"Suggested max-ai-credits: {suggested_cap} (p99 x 1.5 of priced "
+                          "runs).")
         elif action_id == _CI_LIMITS and ci_cap is not None:
-            extras.insert(0, f"Suggested --max-ai-credits: {max(30, ci_cap)}.")
+            extras.append(f"Suggested --max-ai-credits: {max(30, ci_cap)}.")
         elif action_id == _MODEL_POLICY and n_jb:
-            extras.insert(0, "Recommended for teams with JetBrains usage (managed model does not "
-                             "reach JetBrains).")
+            extras.append("Recommended for teams with JetBrains usage (managed model does not "
+                          "reach JetBrains).")
         reach = "1" if action_id in REACH_ONE else None
         out.append(AdminAction(
             action_id=action_id, lever_id=lever_id, admin_action=action_id, where=spec.where,
@@ -639,11 +647,11 @@ def admin_actions(plans_by_scenario: object, findings: Sequence[Finding],
             action_id=JETBRAINS_ACTION_ID, lever_id="copilot.model_policy",
             admin_action=_MODEL_POLICY, where="enterprise settings",
             what=_fit(
-                f"JetBrains limits: {n_jb} teams use JetBrains ({n_heavy} at 50% or more of their "
-                "interactions). Managed \"model\" is not applied in JetBrains and managed "
-                "telemetry for JetBrains is documented inconsistently, so the managed-settings "
-                "patch does not reach these users: use the server-side model policy (reach 1) and "
-                "communicate Auto tier guidance instead."),
+                f"JetBrains limits: {_plural(n_jb, 'team')} with JetBrains usage ({n_heavy} at "
+                "50% or more of their interactions). Managed \"model\" is not applied in "
+                "JetBrains and managed telemetry for JetBrains is documented inconsistently, so "
+                "the managed-settings patch does not reach these users: use the server-side model "
+                "policy (reach 1) and communicate Auto tier guidance instead."),
             doc_url=catalog.copilot_allowed("copilot.managed.model").source, rest_file=None,
             auth_note=catalog.ADMIN_ACTIONS[_MODEL_POLICY].auth_note, reach="1", projection=None,
             deadline=None, needs_eval=policy.needs_eval, tradeoff=policy.tradeoff)
