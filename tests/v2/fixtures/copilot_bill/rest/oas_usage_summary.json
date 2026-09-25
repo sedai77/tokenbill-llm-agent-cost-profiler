@@ -1,0 +1,20 @@
+{
+  "enterprise": "GitHub",
+  "timePeriod": {
+    "year": 2025
+  },
+  "usageItems": [
+    {
+      "discountAmount": 0.0,
+      "discountQuantity": 0,
+      "grossAmount": 8.0,
+      "grossQuantity": 1000,
+      "netAmount": 8.0,
+      "netQuantity": 1000,
+      "pricePerUnit": 0.008,
+      "product": "Actions",
+      "sku": "actions_linux",
+      "unitType": "minutes"
+    }
+  ]
+}

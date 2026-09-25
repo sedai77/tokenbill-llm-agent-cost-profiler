@@ -1,0 +1,2 @@
+date,username,product,sku,model,quantity,unit_type,applied_cost_per_quantity,gross_amount,discount_amount,net_amount,total_monthly_quota,organization,cost_center_name
+2026-06-01,mona,copilot,copilot_ai_credit,Auto: Claude Haiku 4.5,42.726213,ai-credits,0.01,0.4272621300000001,0.4272621300000001,0,3900,example-org,

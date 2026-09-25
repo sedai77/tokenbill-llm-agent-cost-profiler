@@ -1,0 +1,5 @@
+date,username,product,sku,model,quantity,unit_type,applied_cost_per_quantity,gross_amount,discount_amount,net_amount,exceeds_quota,total_monthly_quota,organization,cost_center_name,aic_quantity,aic_gross_amount
+2026-04-10,mona,copilot,copilot_premium_request,Auto: Claude Haiku 4.5,2,requests,0.04,0.08,0,0.08,False,300,example-org,Cost Center A,20,0.2
+2026-04-11,hubot,copilot,copilot_premium_request,Claude Sonnet 4,12,requests,0.04,0.48,0,0.48,True,300,example-org,Cost Center A,120,1.2
+2026-04-25,mona,copilot,copilot_premium_request,GPT-5,0,requests,0.04,0,0,0,False,300,,,20,0.2
+2026-04-25,mona,copilot,copilot_premium_request,GPT-5,10,requests,0.04,0.40,0,0.40,False,0,,,100,1.00
