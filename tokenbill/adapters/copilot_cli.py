@@ -1242,7 +1242,9 @@ class SessionParser:
         total = _nano_aiu(usage.get("totalNanoAiu"))
         model_raw = (_match(used.get("model"), _MODEL_RE) or _match(usage.get("model"), _MODEL_RE)
                      or _detail_model(usage) or st.model or "")
-        ctx = self.run.pricing(model_raw, st.routing, st.tier,
+        # a runtime-initiated call on a named model: routing from the label only (never the
+        # session's Auto selection; VERIFY whether GitHub applies the Auto discount to it)
+        ctx = self.run.pricing(model_raw, None, st.tier,
                                st.ttl.get(normalize_copilot_model(model_raw).model))
         billable, rule = billing_rule(ctx.model, nano_aiu=total,
                                       interaction_type="conversation-compaction")
@@ -1398,6 +1400,7 @@ class StoreRead:
     sessions: dict[str, tuple[str | None, str | None]] = field(default_factory=dict)
     max_id: int | None = None
     missing_optional: tuple[str, ...] = ()
+    bad_ids: list[int] = field(default_factory=list)   # quarantined row ids
 
 
 def map_store_row(values: Mapping[str, object]) -> StoreRow:
@@ -1488,13 +1491,17 @@ def _read_store_once(path: Path, run: _Run, after_id: int) -> StoreRead:
             locator = f"store:row:{rid if type(rid) is int else '?'}"
             try:
                 out.rows.append(map_store_row(mapping))
+                continue
             except NegativeUncachedError:
                 run.dq[DQ_CONVENTION_MISMATCH] += 1
-                run.quarantine(locator, "bad_usage")
+                reason = "bad_usage"
             except BadUsageError:
-                run.quarantine(locator, "bad_usage")
+                reason = "bad_usage"
             except SourceError as exc:
-                run.quarantine(locator, str(exc)[:64])
+                reason = str(exc)[:64]
+            if type(rid) is int:
+                out.bad_ids.append(rid)
+            run.quarantine(locator, reason)
         session_cols = _columns(conn, "sessions")
         if "id" in session_cols and ({"cwd", "repository"} & session_cols):
             chosen = [c for c in STORE_SESSION_COLUMNS if c in session_cols]
