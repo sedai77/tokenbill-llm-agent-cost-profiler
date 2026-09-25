@@ -572,7 +572,7 @@ def collect_vscode_extracts(sources: VsCodeSources, state: VsCodeCollectorState,
             _collect_outfile(run, path, state)
     state.last_run_ms = now_ms
     notes = tuple(sorted(run.notes, key=lambda n: (n.code, n.detail)))
-    stats = types.MappingProxyType(dict(sorted(run.stats.items())))
+    stats = types.MappingProxyType({k: v for k, v in sorted(run.stats.items()) if v})
     return CollectResult(files=tuple(run.files), covered_session_ids=frozenset(run.covered),
                          notes=notes, stats=stats)
 
@@ -970,9 +970,10 @@ def _publish(tmp: Path, out_dir: Path, name: str) -> Path:
 
 
 def _unlink(path: Path) -> None:
+    """Best-effort removal of a temporary file (missing or unremovable is not an error here)."""
     try:
         path.unlink()
-    except FileNotFoundError:
+    except OSError:
         pass
 
 
