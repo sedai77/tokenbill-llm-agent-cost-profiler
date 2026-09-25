@@ -63,12 +63,13 @@ def req(lane_key: str, seq: int, ts_s: float, *, u: int = 0, r: int = 0, w: int 
         write_ttl_hint: str | None = None, extra: Sequence[Inference] = (),
         session_key: str | None = None, **kw: Any) -> Request:
     """One Copilot request at ``T0 + ts_s``: uncached *u*, reads *r*, unknown-TTL writes *w*,
-    output *o* on channel ``github_copilot``."""
+    output *o* on channel ``github_copilot`` (``provider`` / ``channel`` overridable)."""
     a = a if a is not None else attr()
     usage = UsageBuckets(uncached_input=u, cache_read=r, cache_write_unknown=w, output=o)
+    kw.setdefault("provider", "github")
+    kw.setdefault("channel", "github_copilot")
     return make_request(lane_key, seq, T0 + int(round(ts_s * 1000)), usage, model,
                         attribution=a, params=RequestParams(model_requested=model),
-                        provider="github", channel="github_copilot",
                         billing_path=a.billing_path or "copilot_pool",
                         context_tier=context_tier, routing=routing,
                         write_ttl_hint=write_ttl_hint, extra_inferences=tuple(extra),
