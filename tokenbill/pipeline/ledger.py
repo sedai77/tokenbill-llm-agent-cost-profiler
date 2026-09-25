@@ -272,9 +272,12 @@ def parse_resource_attributes(text: str | None) -> dict[str, str]:
         if not sep or target is None:
             continue
         try:
-            out[target] = _attr_value(key.strip(), unquote(value, errors="strict"))
+            checked = _attr_value(key.strip(), unquote(value, errors="strict"))
+            attribution_from({target: checked})  # enum-valued fields must parse
         except (UsageError, UnicodeDecodeError):
             logger.debug("OTEL_RESOURCE_ATTRIBUTES: ignoring a malformed %s value", target)
+            continue
+        out[target] = checked
     return out
 
 
