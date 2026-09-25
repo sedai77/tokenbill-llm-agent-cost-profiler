@@ -26,6 +26,7 @@ import gzip
 import json
 import logging
 import re
+import zlib
 from collections.abc import Iterable, Iterator, Sequence
 from decimal import Decimal
 from pathlib import Path
@@ -151,7 +152,7 @@ def iter_records(path: Path) -> Iterator[dict[str, Any] | None]:
                     return
                 first = False
                 yield parse_json_line(stripped, exact_numbers=True)
-    except (OSError, EOFError, gzip.BadGzipFile):
+    except (OSError, EOFError, zlib.error):
         raise PullError("a metrics download is corrupt", "corrupt_download") from None
 
 

@@ -181,6 +181,10 @@ def test_iter_records_edge_cases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     path.write_bytes(b'\x1f\x8b\x08\x00broken')
     with pytest.raises(PullError, match="corrupt"):
         list(iter_records(path))
+    good = gzip.compress(b'{"a": 1}\n' * 50, mtime=0)
+    path.write_bytes(good[:12] + b"\xff" * 20 + good[32:])  # valid header, broken deflate
+    with pytest.raises(PullError, match="corrupt"):
+        list(iter_records(path))
     monkeypatch.setattr(pull_metrics, "MAX_LINE_BYTES", 8)
     path.write_bytes(b'{"a": 123456789}\n{"b": 1}\n')
     assert list(iter_records(path)) == [None, {"b": 1}]
