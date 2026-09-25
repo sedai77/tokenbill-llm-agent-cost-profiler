@@ -295,6 +295,11 @@ def _match(value: object, pattern: re.Pattern[str]) -> str | None:
     return value if isinstance(value, str) and pattern.match(value) else None
 
 
+def _pick(value: object, allowed: Iterable[str]) -> str | None:
+    """*value* when it is one of the *allowed* strings, else None (safe for unhashable input)."""
+    return value if isinstance(value, str) and value in allowed else None
+
+
 def _count(value: object) -> int | None:
     """A token count (int in [0, 2**53]) or None."""
     return value if type(value) is int and 0 <= value <= MAX_TOKENS else None
@@ -586,7 +591,7 @@ class _Run:
                 service_tier="standard", speed=cm.speed, inference_geo=None,
                 endpoint_scope="unknown", write_ttl_hint=hint, billing_path=self.billing_path,
                 routing=routing, compliance=self.compliance,
-                context_tier=tier if tier in _CONTEXT_TIERS else None)
+                context_tier=_pick(tier, _CONTEXT_TIERS))
         return ctx
 
     def attribution(self, session: SessionState | None, query_source: str | None) -> Attribution:
@@ -714,6 +719,27 @@ class _Run:
 # per-session parser (resumable)
 # ---------------------------------------------------------------------------------------------
 
+def _opt(value: object, typ: type) -> bool:
+    return value is None or (type(value) is typ if typ is int else isinstance(value, typ))
+
+
+def _nat(value: object) -> bool:
+    return type(value) is int and 0 <= value <= 2**63
+
+
+def _str_map(value: object, typ: type) -> bool:
+    return isinstance(value, dict) and all(
+        isinstance(k, str) and (type(v) is typ if typ is int else isinstance(v, typ))
+        for k, v in value.items())
+
+
+def _items_ok(items: object) -> bool:
+    """Appended-item context entries: ``[kind, name|None, n_bytes, is_error]``."""
+    return isinstance(items, list) and all(
+        isinstance(i, list) and len(i) == 4 and isinstance(i[0], str) and _opt(i[1], str)
+        and _nat(i[2]) and type(i[3]) is bool for i in items)
+
+
 @dataclass
 class MsgRecord:
     """One assistant API call seen in ``events.jsonl`` (content-free; a collector context item)."""
@@ -757,10 +783,15 @@ class MsgRecord:
             rec = cls(**{f.name: d[f.name] for f in dataclasses.fields(cls) if f.name in d})
         except TypeError:
             raise ValueError("message") from None
-        if (not isinstance(rec.rid, str) or not isinstance(rec.lane, str)
-                or type(rec.ts) is not int or type(rec.seq) is not int
-                or type(rec.out) is not int or not isinstance(rec.app, list)
-                or not isinstance(rec.ttl, dict)):
+        ok = (isinstance(rec.rid, str) and _opt(rec.api, str) and isinstance(rec.lane, str)
+              and rec.kind in ("main", "subagent") and _nat(rec.ts) and _nat(rec.seq)
+              and type(rec.leg) is int and isinstance(rec.locator, str)
+              and isinstance(rec.model, str) and _nat(rec.out) and _opt(rec.preq, str)
+              and _opt(rec.turn, int) and _items_ok(rec.app)
+              and rec.routing in (None, "auto", "direct") and rec.tier in (None, *_CONTEXT_TIERS)
+              and _opt(rec.effort, str) and _str_map(rec.ttl, str) and _opt(rec.expect, int)
+              and type(rec.seen_last) is bool and _nat(rec.offset))
+        if not ok:
             raise ValueError("message")
         return rec
 
@@ -821,11 +852,31 @@ class SessionState:
             st = cls(**{f.name: d[f.name] for f in dataclasses.fields(cls) if f.name in d})
         except TypeError:
             raise ValueError("context") from None
-        dicts = (st.ttl, st.seq, st.pend, st.tools, st.lanes, st.prev)
-        if (not all(isinstance(x, dict) for x in dicts) or not isinstance(st.span, list)
-                or not isinstance(st.pending, list) or type(st.leg) is not int
-                or type(st.closed_until) is not int):
+        kinds = {k.value for k in LaneKind}
+        ok = (_opt(st.raw_sid, str) and all(_opt(v, str) for v in (
+                  st.version, st.repo, st.cwd, st.model, st.effort))
+              and st.routing in (None, "auto", "direct") and st.tier in (None, *_CONTEXT_TIERS)
+              and _str_map(st.ttl, str) and _str_map(st.seq, int)
+              and all(_nat(v) for v in st.seq.values())
+              and isinstance(st.pend, dict) and all(isinstance(k, str) and _items_ok(v)
+                                                    for k, v in st.pend.items())
+              and isinstance(st.tools, dict) and all(isinstance(k, str) and _opt(v, str)
+                                                     for k, v in st.tools.items())
+              and isinstance(st.lanes, dict) and all(
+                  isinstance(k, str) and isinstance(v, list) and len(v) == 2 and v[0] in kinds
+                  and _opt(v[1], str) for k, v in st.lanes.items())
+              and type(st.leg) is int and _nat(st.leg_start) and type(st.leg_comp) is bool
+              and type(st.leg_shut) is bool and type(st.closed_until) is int
+              and isinstance(st.prev, dict) and all(
+                  isinstance(k, str) and isinstance(v, list) and len(v) == 6
+                  and all(_opt(x, int) for x in v) for k, v in st.prev.items())
+              and isinstance(st.span, list) and len(st.span) in (0, 2)
+              and all(_nat(x) for x in st.span) and isinstance(st.pending, list)
+              and type(st.has_rows) is bool)
+        if not ok:
             raise ValueError("context")
+        for item in st.pending:
+            MsgRecord.from_json(item)
         st.tools = OrderedDict(st.tools)
         return st
 
@@ -1009,7 +1060,7 @@ class SessionParser:
     def _tier(self, data: Mapping[str, Any]) -> None:
         if "contextTier" in data:
             tier = data.get("contextTier")
-            self.state.tier = tier if tier in _CONTEXT_TIERS else None
+            self.state.tier = _pick(tier, _CONTEXT_TIERS)
 
     def _effort(self, data: Mapping[str, Any], key: str = "reasoningEffort") -> None:
         if key in data:
@@ -1084,9 +1135,9 @@ class SessionParser:
         lane, _ = self.lane_for(agent)
         attrs: dict[str, object] = {"to_model": _model_label(new),
                                     "from_model": _model_label(previous) if previous else None}
-        if data.get("source") == "automatic" or cause in _FALLBACK_CAUSES:
-            attrs["trigger"] = _FALLBACK_CAUSES.get(cause if isinstance(cause, str) else "",
-                                                    "unknown")
+        cause = _pick(cause, _FALLBACK_CAUSES)
+        if data.get("source") == "automatic" or cause is not None:
+            attrs["trigger"] = _FALLBACK_CAUSES.get(cause or "", "unknown")
             self.event(lane, ts, LaneEventKind.MODEL_FALLBACK, attrs)
         else:
             self.event(lane, ts, LaneEventKind.MODEL_SWITCH_USER, attrs)
@@ -1219,7 +1270,7 @@ class SessionParser:
         if success:
             st.leg_comp = True
             trigger = data.get("trigger")
-            copilot_trigger = trigger if trigger in _COMPACTION_TRIGGERS else None
+            copilot_trigger = _pick(trigger, _COMPACTION_TRIGGERS)
             self.event(lane, ts, LaneEventKind.COMPACTION, {
                 "trigger": "manual" if trigger == "manual" else "auto",
                 "copilot_trigger": copilot_trigger,
