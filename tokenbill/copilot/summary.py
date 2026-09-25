@@ -546,9 +546,12 @@ def _priced(net: Figure, pool: Figure | None) -> PricedTotal:
 
 
 def _small(people: Mapping[object, set[str]], k: int) -> set[object]:
-    """Groups with fewer than *k* distinct people: merged into one small-teams group before
-    ``publish``, so one small team never forces the complementary suppression of a large one."""
-    return {key for key, members in people.items() if len(members) < k}
+    """Groups with 1 … *k*−1 distinct people: merged into one small-teams group before
+    ``publish``, so one small team never forces the complementary suppression of a large one.
+    Groups without any known person (user count unknown) keep their label: ``publish`` keeps
+    them with the ``users_unknown`` note (ruling R-E10; renderers print "users unknown",
+    R-E47)."""
+    return {key for key, members in people.items() if 0 < len(members) < k}
 
 
 def _gross(line: CostLine) -> int:

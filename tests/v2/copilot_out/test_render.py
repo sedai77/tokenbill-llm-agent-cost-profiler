@@ -11,7 +11,9 @@ from pathlib import Path
 import pytest
 
 from tokenbill.copilot.render import CopilotSection, chip, credits_text, label, money, plan_info
+from tokenbill.copilot.summary import assemble_summary
 from tokenbill.core import builders as b
+from tokenbill.core import extensions, pool
 from tokenbill.core.errors import ContractViolation, UsageError
 from tokenbill.core.labels import Basis, Figure, estimated, exact, unpriced
 from tokenbill.core.protocols import SectionRenderer
@@ -19,6 +21,8 @@ from tokenbill.core.protocols import SectionRenderer
 from .checks import html_violations, json_violations
 from .worlds import (
     OPEN_TODAY,
+    RECONCILED,
+    WINDOW,
     action_plan,
     admin_action,
     p1_world,
@@ -220,3 +224,27 @@ def test_plan_info_derives_from_pools_without_evidence() -> None:
     assert info.plan == "mixed" and not info.unknown
     none = plan_info("enterprise", "2026-09", [b.make_pool_month(seats={})], [])
     assert none.plan == "unknown" and "no seats found" in none.text()
+
+
+def test_classified_pool_discount_renders_as_list_equivalent_never_billed() -> None:
+    w = p1_world()
+    cells, _ = pool.build_cells(w.aggs, w.lines, grain="day")
+    pools = pool.pool_months(cells, w.lines, [], [], today="2026-10-20", gross_is_list=True)
+    s = assemble_summary(cost_lines=w.lines, aggregates=w.aggs, licenses=[], activity=[],
+                         pools=pools, channel_verdicts=RECONCILED, window=WINDOW)
+    text = SECTION.terminal(result_of(s), width=100)
+    line = next(ln for ln in text.splitlines() if "ai_credits.discount_pool" in ln)
+    assert "list-equivalent (not billed)" in line and "invoice" not in line
+    doc = SECTION.json(result_of(s))
+    assert json_violations(doc) == []
+    dp = next(x for x in doc["lines"] if x["line"] == "ai_credits.discount_pool")
+    assert dp["amount"]["basis"] == "list_equivalent"
+
+
+def test_extension_host_renders_and_writes_through_the_registry(tmp_path: Path) -> None:
+    result = p13_result()
+    assert any("COPILOT BILL" in str(t) for t in extensions.render_sections(result, "terminal"))
+    [doc] = extensions.render_sections(result, "json")
+    assert set(doc) == {"copilot"} and json_violations(doc) == []
+    paths = extensions.showback(result, tmp_path, ("html", "json"))
+    assert [p.name for p in paths] == ["copilot-showback.html", "copilot-showback.json"]

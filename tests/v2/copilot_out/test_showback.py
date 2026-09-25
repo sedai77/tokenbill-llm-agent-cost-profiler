@@ -157,3 +157,15 @@ def test_palette_meets_wcag_aa(theme: str) -> None:
             assert _contrast(text, surface) >= 4.5
     for mark in p["marks"].values():
         assert _contrast(mark, p["surface"]["bg"]) >= 3.0
+
+
+def test_team_with_unknown_user_count_prints_users_unknown(tmp_path: Path) -> None:
+    w = p1_world()
+    w.lines = [replace(c, principal=None) if c.team == "gamma" else c for c in w.lines]
+    s = w.summary()
+    rows = [r for r in s.teams.rows if dict(r.dims)["team"] == "gamma"]
+    assert rows and rows[0].n_users == 0
+    out = _write(result_of(s), tmp_path)
+    assert "users unknown" in out["html"]
+    gamma = next(t for t in json.loads(out["json"])["teams"] if t["team"] == "gamma")
+    assert gamma["users"] is None
