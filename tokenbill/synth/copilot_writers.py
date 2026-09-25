@@ -1849,12 +1849,19 @@ ANSWER_VARIANTS = ("plan_unknown", "plan_conflict")
 
 
 def _conflict_orgs(recs: _Recs) -> list[str]:
-    """Orgs whose seats API says ``enterprise`` while their seat lines say Business."""
-    api = {x.org for x in recs.licenses
+    """Orgs where the seats API says ``enterprise`` for a seat whose seat line says Business (per
+    principal; org-level for seat lines without a principal)."""
+    api = {(x.principal, x.org) for x in recs.licenses
            if x.source_kind == "github.copilot_seats" and x.plan == "enterprise" and x.org}
-    lines = {c.workspace_id for c in recs.cost_lines
-             if c.cost_type == "seat" and c.sku in ("copilot_for_business", "copilot_standalone")}
-    return sorted(o for o in api & lines if o)
+    business = [c for c in recs.cost_lines if c.cost_type == "seat"
+                and c.sku in ("copilot_for_business", "copilot_standalone")]
+    per_person = {(c.principal, c.workspace_id) for c in business if c.principal}
+    anonymous = {c.workspace_id for c in business if not c.principal}
+    enterprise_lines = {c.workspace_id for c in recs.cost_lines
+                        if c.cost_type == "seat" and c.sku == "copilot_enterprise"}
+    orgs = {org for p, org in api if (p, org) in per_person
+            or (org in anonymous and org not in enterprise_lines)}
+    return sorted(o for o in orgs if o)
 
 
 def write_admin_answers(records: Any, out_dir: Path, *, variant: str | None = None,
