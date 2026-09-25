@@ -987,6 +987,10 @@ def _head_sha(path: Path, n: int) -> str:
         return hashlib.sha256(f.read(n)).hexdigest()
 
 
+def _compressed(path: Path) -> bool:
+    return path.suffix.lower() in (".gz", ".zst")
+
+
 def _line_complete(path: Path, pos: int) -> int | None:
     """Offset just after the newline ending the line whose content ends at *pos*; None when the
     line is not terminated yet (the writer is mid-line)."""
@@ -1002,8 +1006,7 @@ def _line_complete(path: Path, pos: int) -> int | None:
 def _complete_lines(path: Path, start: int) -> Iterator[tuple[int, bytes]]:
     """``(next_offset, raw_line)`` for every complete line at or after *start*; the offset is where
     the next unread line begins. A partial last line is not yielded."""
-    compressed = path.suffix.lower() in (".gz", ".zst")
-    lines = jsonl.iter_lines(path, start_offset=0 if compressed else start)
+    lines = jsonl.iter_lines(path, start_offset=0 if _compressed(path) else start)
     prev: tuple[int, bytes] | None = None
     for _, offset, raw in lines:
         if offset < start:
@@ -1031,7 +1034,10 @@ def _collect_outfile(run: _Run, path: Path, state: VsCodeCollectorState) -> None
         cur = state.outfiles.get(key)
         start = 0
         if cur is not None:
-            if size < cur.offset or _head_sha(path, cur.head_len) != cur.head_sha:
+            # offsets of .gz/.zst files count decompressed bytes: only plain files can be
+            # compared with their size; a rewritten compressed file changes its head bytes
+            shrunk = size < cur.offset and not _compressed(path)
+            if shrunk or _head_sha(path, cur.head_len) != cur.head_sha:
                 run.stats["outfile_rotations"] += 1
                 cur = None
             else:
