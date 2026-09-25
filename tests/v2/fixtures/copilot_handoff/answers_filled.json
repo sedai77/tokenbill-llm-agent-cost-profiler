@@ -1,0 +1,16 @@
+{
+  "schema": "tokenbill/copilot-admin-answers@1",
+  "_help": "a filled questionnaire (synthetic); _help keys are ignored",
+  "plan": {"enterprise": "business", "org:octo-labs": "mixed", "org:octo-web": "unknown"},
+  "pool_seats": {"enterprise": {"business": 120, "enterprise": "unknown"}},
+  "billing_mode": {"enterprise": "metered", "org:octo-web": null},
+  "renewal_date": {"enterprise": "2027-01-31"},
+  "capped_policy": {"cc:Platform": "block", "cc:Data Science": "unknown"},
+  "compliance": "none",
+  "promo_eligible": true,
+  "paid_usage_policy": "enabled",
+  "org_cli_billing_policy": "unknown",
+  "budget_stop": {"enterprise": false, "cc:Platform": true},
+  "seat_policy": {"org:octo-labs": "assign_selected", "org:octo-web": "assign_all",
+                  "org:octo-ops": "unknown"}
+}
