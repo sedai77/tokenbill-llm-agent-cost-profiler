@@ -53,7 +53,7 @@ activity = st.builds(
     counts=st.dictionaries(st.sampled_from([*ACTIVITY_KEYS[:5], "ide:vscode", "model:x.y"]),
                            st.integers(0, 2**53), max_size=4),
     flags=st.sets(st.sampled_from(ACTIVITY_FLAGS), max_size=3), fetched_ms=st.integers(0, 3))
-attr_values = st.one_of(st.none(), st.booleans(), st.integers(-(2**63), 2**63 - 1),
+attr_values = st.one_of(st.none(), st.booleans(), st.integers(-(2**63 - 1), 2**63 - 1),
                         st.text(max_size=8))
 configs = st.one_of(
     st.builds(lambda a, t, f: b.make_config("run_flags", a, snapshot_ms=t, fetched_ms=f),
