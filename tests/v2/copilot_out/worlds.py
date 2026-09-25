@@ -104,17 +104,17 @@ def p1_world(*, seat_lines: bool = True, org: str | None = "org-a") -> World:
 
 def p13_world() -> World:
     """C.P13: 100 seats from the activity report (plan unknown), pooled use 250,000 credits (net
-    60,000 = GitHub's per-row net as if Business). Teams: alpha 60, beta 37, gamma 3 seat holders;
-    alpha works in VS Code, beta splits VS Code / JetBrains, gamma is 3 people."""
+    60,000 = GitHub's per-row net as if Business). Teams: alpha 58, beta 37, gamma 3 and delta 2
+    seat holders; alpha works in VS Code, beta splits VS Code / JetBrains, gamma and delta use
+    Neovim."""
     w = World()
     for i in range(100):
-        team = "alpha" if i < 60 else ("beta" if i < 97 else "gamma")
+        team = ("alpha" if i < 58 else "beta" if i < 95 else "gamma" if i < 98 else "delta")
         w.licenses.append(b.make_license(
             b.make_principal(i), snapshot_date="2026-09-05", plan="unknown", team=team, org=None,
             source_kind="github.copilot_activity_report", assigned_via_team=None,
             last_activity_bucket="0-7" if i % 10 else "31-90"))
-        disc = "1900" if i < 100 else "0"
-        w.usage("2500", i=i, day=10, discount=disc, team=team, org=None)
+        w.usage("2500", i=i, day=10, discount="1900", team=team, org=None)
         if team == "alpha":
             ide = {"ide:vscode": 10}
         elif team == "beta":

@@ -45,7 +45,7 @@ from decimal import Decimal, InvalidOperation
 from tokenbill.core import catalog
 from tokenbill.core import facts as _facts
 from tokenbill.core.errors import UsageError
-from tokenbill.core.kanon import publish
+from tokenbill.core.kanon import other_label, publish
 from tokenbill.core.labels import (
     Basis,
     Evidence,
@@ -545,22 +545,42 @@ def _priced(net: Figure, pool: Figure | None) -> PricedTotal:
                        unpriced_inferences=0, unpriced_tokens=0, coverage="1", pool=pool)
 
 
+def _small(people: Mapping[object, set[str]], k: int) -> set[object]:
+    """Groups with fewer than *k* distinct people: merged into one small-teams group before
+    ``publish``, so one small team never forces the complementary suppression of a large one."""
+    return {key for key, members in people.items() if len(members) < k}
+
+
+def _gross(line: CostLine) -> int:
+    return line.list_amount_nano if line.list_amount_nano is not None else line.amount_nano
+
+
 def _teams(cost_lines: Sequence[CostLine], capped: Mapping[str, Decimal], mode: str,
            window: tuple[int, int], k: int) -> PublishedAggregate | None:
-    acc: dict[tuple[str, str, str | None, str], list] = {}
+    keyed = []
+    people: dict[object, set[str]] = defaultdict(set)
     for line in cost_lines:
         if line.channel != _CREDITS or line.cost_type not in POOLED_COST_TYPES:
             continue
-        key = (entity_of(line.cost_center, line.workspace_id, capped=capped, entity_mode=mode),
-               line.date_utc[:7], line.team, line.workload or INTERACTIVE)
-        a = acc.setdefault(key, [set(), 0, 0, 0])
+        em = (entity_of(line.cost_center, line.workspace_id, capped=capped, entity_mode=mode),
+              line.date_utc[:7], line.team)
+        keyed.append((em, line))
+        if line.principal is not None:
+            people[em].add(line.principal)
+        else:
+            people.setdefault(em, set())
+    if not keyed:
+        return None
+    small = _small(people, k)
+    acc: dict[tuple[str, str, str | None, str], list] = {}
+    for (e, m, t), line in keyed:
+        team = other_label(k) if (e, m, t) in small else t
+        a = acc.setdefault((e, m, team, line.workload or INTERACTIVE), [set(), 0, 0, 0])
         if line.principal is not None:
             a[0].add(line.principal)
-        a[1] += line.list_amount_nano if line.list_amount_nano is not None else line.amount_nano
+        a[1] += _gross(line)
         a[2] += line.amount_nano
         a[3] += 1
-    if not acc:
-        return None
     rows = tuple(
         AggRow(dims=(("entity", e), ("month", m), ("team", t), ("workload", w)),
                n_users=len(users), n_requests=n, usage=UsageBuckets(),
@@ -579,11 +599,16 @@ def _seat_counts(licenses: Sequence[LicenseSnapshot], window: tuple[int, int],
         if cur is None or (lic.snapshot_date, lic.fetched_ms) > (cur.snapshot_date,
                                                                    cur.fetched_ms):
             latest[key] = lic
+    if not latest:
+        return ()
+    people: dict[object, set[str]] = defaultdict(set)
+    for lic in latest.values():
+        people[lic.team].add(lic.principal)
+    small = _small(people, k)
     counts: dict[tuple[str, str | None], int] = defaultdict(int)
     for lic in latest.values():
-        counts[(f"{lic.plan}:{lic.last_activity_bucket}", lic.team)] += 1
-    if not counts:
-        return ()
+        team = other_label(k) if lic.team in small else lic.team
+        counts[(f"{lic.plan}:{lic.last_activity_bucket}", team)] += 1
     rows = tuple(AggRow(dims=(("plan_bucket", pb), ("team", t)), n_users=n, n_requests=n,
                         usage=UsageBuckets(), priced=_priced(exact(0, Basis.LIST), None))
                  for (pb, t), n in sorted(counts.items(), key=lambda kv: (kv[0][0],
@@ -607,22 +632,29 @@ def _family(key: str) -> str:
 
 def _editor_split(activity: Sequence[ActivityDay], cost_lines: Sequence[CostLine],
                   window: tuple[int, int], k: int) -> PublishedAggregate | None:
+    people: dict[object, set[str]] = defaultdict(set)
+    for day in activity:
+        if any(key.startswith("ide:") and n > 0 for key, n in day.counts):
+            people[day.team].add(day.principal)
+    if not people:
+        return None
+    small = _small(people, k)
+
+    def label_of(team: str | None) -> str | None:
+        return other_label(k) if team in small else team
+
     inter: dict[tuple[str | None, str], int] = defaultdict(int)
     users: dict[tuple[str | None, str], set[str]] = defaultdict(set)
     for day in activity:
         for key, n in day.counts:
-            if not key.startswith("ide:") or n <= 0:
-                continue
-            fam = _family(key)
-            inter[(day.team, fam)] += n
-            users[(day.team, fam)].add(day.principal)
-    if not inter:
-        return None
+            if key.startswith("ide:") and n > 0:
+                cell = (label_of(day.team), _family(key))
+                inter[cell] += n
+                users[cell].add(day.principal)
     credits: dict[str | None, int] = defaultdict(int)
     for line in cost_lines:
         if line.channel == _CREDITS and line.cost_type in POOLED_COST_TYPES:
-            credits[line.team] += (line.list_amount_nano if line.list_amount_nano is not None
-                                   else line.amount_nano)
+            credits[label_of(line.team)] += _gross(line)
     rows: list[AggRow] = []
     for team in sorted({t for t, _ in inter}, key=lambda t: t or ""):
         fams = [f for f in EDITOR_SPLIT_FAMILIES if (team, f) in inter]
@@ -700,9 +732,10 @@ def assemble_summary(*, cost_lines: Iterable[CostLine], aggregates: Iterable[Usa
     aggs = [a for a in aggregates if isinstance(a, UsageAggregate)]
     lics = [x for x in licenses if isinstance(x, LicenseSnapshot)]
     acts = [x for x in activity if isinstance(x, ActivityDay)]
-    pool_list = sorted(pools, key=lambda p: (p.entity_id, p.month, p.plan_scenario or ""))
+    pool_list = list(pools)
     if not all(isinstance(p, PoolMonth) for p in pool_list):
         raise UsageError("pools: expected PoolMonth records")
+    pool_list.sort(key=lambda p: (p.entity_id, p.month, p.plan_scenario or ""))
     verdicts = _verdict_pairs(channel_verdicts)
     notes: list[str] = []
     bill = bill_lines(lines, aggs, pool_list, dict(verdicts), notes)
