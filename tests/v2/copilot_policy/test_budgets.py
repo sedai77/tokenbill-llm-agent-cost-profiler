@@ -6,6 +6,7 @@ import pytest
 
 from tokenbill.copilot.budgets import USER_LEVEL_SCOPES, budget_design
 from tokenbill.core import builders as b
+from tokenbill.core import pool as cpool
 from tokenbill.core.errors import UsageError
 from tokenbill.core.labels import Basis, estimated, unpriced
 
@@ -57,6 +58,22 @@ def test_budgets_are_sized_as_specified() -> None:
     check = [s["text"] for s in specs if s["kind"] == "sizing_check"]
     assert check == ["Sizing check (GitHub) for enterprise: user-level caps $990.00 - pool "
                      "$570.00 = max metered $420.00."]
+
+
+def test_pool_months_from_core_pool_give_the_same_design() -> None:
+    # report rows whose discounts are the pool draw (57,000 credits): net = the 4,200 overage
+    w = BudgetWorld()
+    w.cost_center("A", [3_000] * 9 + [7_200], seats=10, discounts=[3_000] * 9 + [3_000])
+    w.cost_center("B", [1_500] * 10, seats=10, discounts=[1_500] * 10)
+    w.cost_center("C", [1_200] * 10, seats=10, discounts=[1_200] * 10)
+    pools = cpool.pool_months(w.cells(), w.lines, [], w.config, today="2026-10-20")
+    assert pools[0].overage_observed_nano == 42 * USD
+    assert [(pm.entity_id, pm.billing_mode, pm.regime, pm.pool_credits) for pm in pools] == [
+        ("enterprise", "metered", "overage", "57000")]
+    specs = _design(w, pools)
+    assert _budgets(specs, "cost_center") == {"A": 26, "B": 12, "C": 10}
+    assert _budgets(specs, "enterprise") == {"<enterprise slug>": 48}
+    assert sum(s["kind"] == "cost_center_pool" for s in specs) == 1
 
 
 def test_volume_billing_emits_no_cost_center_advice() -> None:

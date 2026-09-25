@@ -117,11 +117,15 @@ class BudgetWorld:
         self._n = 0
 
     def cost_center(self, name: str, per_user_credits: Sequence[int], *, seats: int | None = None,
-                    n_users: int | None = None) -> BudgetWorld:
-        for credits in per_user_credits:
+                    n_users: int | None = None,
+                    discounts: Sequence[int] | None = None) -> BudgetWorld:
+        """Report rows of cost center *name* (one per user; *discounts* in credits per row,
+        default none), its Business seat line and its cost-center snapshot."""
+        for i, credits in enumerate(per_user_credits):
             self._n += 1
             line, agg = b.make_ai_usage_row(
                 date_utc=f"{self.month}-10", model="Claude Sonnet 5", credits=str(credits),
+                discount_credits=str(discounts[i] if discounts is not None else 0),
                 principal=b.make_principal(f"{name}-{self._n}"), cost_center=name, team=None)
             self.lines.append(line)
             self.aggs.append(agg)
