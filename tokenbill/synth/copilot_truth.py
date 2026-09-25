@@ -520,7 +520,10 @@ def lane_truth(sessions: Sequence[Session]) -> LaneTruth:
     by_trigger: dict[str, int] = defaultdict(int)
     ci_spend: list[int] = []
     counted: set[str] = set()
+    sessions_seen: set[str] = set()
     for sess in sorted(sessions, key=lambda s: (s.session_key, s.source_kind)):
+        first_session = sess.session_key not in sessions_seen
+        sessions_seen.add(sess.session_key)
         tier = None
         cap = None
         for lane in sess.lanes:
@@ -533,8 +536,9 @@ def lane_truth(sessions: Sequence[Session]) -> LaneTruth:
         for lane in sess.lanes:
             triggers = [dict(ev.attrs) for ev in lane.events
                         if ev.kind is LaneEventKind.COMPACTION]
-            switches += sum(1 for ev in lane.events
-                            if ev.kind is LaneEventKind.MODEL_SWITCH_USER)
+            if first_session:
+                switches += sum(1 for ev in lane.events
+                                if ev.kind is LaneEventKind.MODEL_SWITCH_USER)
             s_tokens = max((int(a.get("system_tokens") or 0)
                             + int(a.get("tool_definitions_tokens") or 0) for a in triggers),
                            default=0)

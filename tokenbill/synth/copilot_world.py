@@ -574,7 +574,7 @@ class _Pricing:
             ctx = self.ctx(model, **kw)  # type: ignore[arg-type]
             fig = self.pricer.price_usage(usage, ctx, ts_ms=_ms(date) + 12 * _HOUR_MS).figure
             if fig.nano is None:
-                raise UsageError(f"synthetic Copilot world: {model} unpriced on {date}")
+                raise UsageError(f"pricing guard: {model} has no rate row on {date}")
             self._memo[key] = fig.nano
         return self._memo[key]
 
