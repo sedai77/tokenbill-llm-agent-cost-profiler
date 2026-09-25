@@ -1,0 +1,63 @@
+{
+ "fetched_ms": 1790337600000,
+ "request": {
+  "path": "/orgs/acme-eng/copilot/billing/seats",
+  "query": {}
+ },
+ "response": {
+  "seats": [
+   {
+    "assignee": {
+     "avatar_url": "https://github.com/images/dev-10.gif",
+     "email": "dev-10@example.com",
+     "gravatar_id": "",
+     "html_url": "https://github.com/dev-10",
+     "id": 1009,
+     "login": "dev-10",
+     "name": "Name TB-CANARY-7f3a91",
+     "node_id": "U_1009",
+     "site_admin": false,
+     "type": "User",
+     "url": "https://api.github.com/users/dev-10"
+    },
+    "created_at": "2026-03-01T09:00:00-06:00",
+    "last_activity_at": "2026-09-18T10:00:00Z",
+    "last_activity_editor": "vscode/1.77.3/copilot/1.86.82",
+    "last_authenticated_at": "2026-09-18T10:00:00Z",
+    "pending_cancellation_date": null,
+    "plan_type": "business",
+    "updated_at": "2026-03-02T09:00:00-06:00"
+   },
+   {
+    "assignee": {
+     "avatar_url": "https://github.com/images/dev-11.gif",
+     "email": "dev-11@example.com",
+     "gravatar_id": "",
+     "html_url": "https://github.com/dev-11",
+     "id": 1010,
+     "login": "dev-11",
+     "name": "Name TB-CANARY-7f3a91",
+     "node_id": "U_1010",
+     "site_admin": false,
+     "type": "User",
+     "url": "https://api.github.com/users/dev-11"
+    },
+    "assigning_team": {
+     "description": "team TB-CANARY-7f3a91",
+     "html_url": "https://github.com/orgs/acme-eng/teams/platform",
+     "id": 1,
+     "name": "Platform",
+     "slug": "platform"
+    },
+    "created_at": "2026-03-01T09:00:00-06:00",
+    "last_activity_at": "2026-09-18T10:00:00Z",
+    "last_activity_editor": "JetBrains-IU/242.23726.103/copilot-intellij/1.5.52-241",
+    "last_authenticated_at": "2026-09-18T10:00:00Z",
+    "pending_cancellation_date": null,
+    "plan_type": "business",
+    "updated_at": "2026-03-02T09:00:00-06:00"
+   }
+  ],
+  "total_seats": 2
+ }
+}

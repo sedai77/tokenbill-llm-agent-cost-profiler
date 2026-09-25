@@ -1,0 +1,68 @@
+{
+ "fetched_ms": 1790337600000,
+ "request": {
+  "path": "/enterprises/acme/settings/billing/cost-centers",
+  "query": {}
+ },
+ "response": {
+  "costCenters": [
+   {
+    "ai_credit_pool_enabled": true,
+    "ai_credit_pool_state": {
+     "current_amount": 7250.5,
+     "target_amount": 21000.0
+    },
+    "azure_subscription": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    "id": "2eeb8ffe-6903-11ee-8c99-0242ac120002",
+    "name": "cc-platform",
+    "resources": [
+     {
+      "name": "tb-canary-login-7f3a91",
+      "type": "User"
+     },
+     {
+      "name": "platform",
+      "type": "Team"
+     },
+     {
+      "name": "acme-eng/hello-TB-CANARY-7f3a91",
+      "type": "Repo"
+     }
+    ],
+    "state": "active"
+   },
+   {
+    "ai_credit_pool_enabled": false,
+    "id": "3ffb9ffe-6903-11ee-8c99-0242ac120003",
+    "name": "cc-data",
+    "resources": [
+     {
+      "name": "dev-07",
+      "type": "User"
+     },
+     {
+      "name": "payments",
+      "type": "Team"
+     },
+     {
+      "name": "acme-data",
+      "type": "Org"
+     }
+    ],
+    "state": "active"
+   },
+   {
+    "ai_credit_pool_enabled": false,
+    "id": "4ffb9ffe-6903-11ee-8c99-0242ac120004",
+    "name": "cc-retired",
+    "resources": [
+     {
+      "name": "dev-04",
+      "type": "User"
+     }
+    ],
+    "state": "deleted"
+   }
+  ]
+ }
+}

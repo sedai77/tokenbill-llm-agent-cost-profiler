@@ -1,0 +1,28 @@
+{
+ "fetched_ms": 1790337600000,
+ "request": {
+  "path": "/enterprises/acme/settings/billing/budgets/b030000-0000-4000-8000-000000000003/user-states",
+  "query": {}
+ },
+ "response": {
+  "has_next_page": false,
+  "total_count": 3,
+  "user_states": [
+   {
+    "consumed_amount": 10,
+    "target_amount": 250.0,
+    "user": "tb-canary-login-7f3a91"
+   },
+   {
+    "consumed_amount": 20.5,
+    "target_amount": 250.0,
+    "user": "dev-02"
+   },
+   {
+    "consumed_amount": 300,
+    "target_amount": 250.0,
+    "user": "dev-03"
+   }
+  ]
+ }
+}

@@ -1,0 +1,140 @@
+{
+ "fetched_ms": 1790337600000,
+ "request": {
+  "path": "/enterprises/acme/settings/billing/budgets",
+  "query": {}
+ },
+ "response": {
+  "budgets": [
+   {
+    "budget_alerting": {
+     "alert_recipients": [
+      "enterprise-admin",
+      "tb-canary-login-7f3a91"
+     ],
+     "will_alert": true
+    },
+    "budget_amount": 1000.0,
+    "budget_product_skus": [
+     "actions"
+    ],
+    "budget_scope": "enterprise",
+    "budget_type": "ProductPricing",
+    "id": "b010000-0000-4000-8000-000000000001",
+    "prevent_further_usage": true
+   },
+   {
+    "budget_alerting": {
+     "alert_recipients": [],
+     "will_alert": false
+    },
+    "budget_amount": 500,
+    "budget_entity_name": "acme-eng",
+    "budget_product_sku": "copilot_ai_credit",
+    "budget_scope": "organization",
+    "budget_type": "SkuPricing",
+    "id": "b020000-0000-4000-8000-000000000002",
+    "prevent_further_usage": false
+   },
+   {
+    "budget_alerting": {
+     "alert_recipients": [
+      "billing-manager"
+     ],
+     "will_alert": true
+    },
+    "budget_amount": 250.0,
+    "budget_entity_name": "cc-platform",
+    "budget_product_skus": [
+     "ai_credits"
+    ],
+    "budget_scope": "cost_center",
+    "budget_type": "BundlePricing",
+    "id": "b030000-0000-4000-8000-000000000003",
+    "prevent_further_usage": true
+   },
+   {
+    "budget_alerting": {
+     "alert_recipients": [],
+     "will_alert": false
+    },
+    "budget_amount": 0,
+    "budget_entity_name": "tb-canary-login-7f3a91",
+    "budget_product_skus": [
+     "ai_credits"
+    ],
+    "budget_scope": "user",
+    "budget_type": "BundlePricing",
+    "consumed_amount": 0,
+    "expires_at": "2026-12-31",
+    "id": "b040000-0000-4000-8000-000000000004",
+    "prevent_further_usage": true,
+    "user": "tb-canary-login-7f3a91"
+   },
+   {
+    "budget_alerting": {
+     "alert_recipients": [],
+     "will_alert": false
+    },
+    "budget_amount": 50,
+    "budget_product_skus": [
+     "ai_credits"
+    ],
+    "budget_scope": "user",
+    "budget_type": "BundlePricing",
+    "consumed_amount": 12.34,
+    "id": "b050000-0000-4000-8000-000000000005",
+    "prevent_further_usage": true,
+    "user": "dev-07"
+   },
+   {
+    "budget_alerting": {
+     "alert_recipients": [
+      "canary.TB-CANARY-7f3a91@example.com"
+     ],
+     "will_alert": true
+    },
+    "budget_amount": 75,
+    "budget_entity_name": "acme-eng/secret-TB-CANARY-7f3a91",
+    "budget_product_skus": [
+     "actions"
+    ],
+    "budget_scope": "repository",
+    "budget_type": "ProductPricing",
+    "id": "b060000-0000-4000-8000-000000000006",
+    "prevent_further_usage": false
+   },
+   {
+    "budget_alerting": {
+     "alert_recipients": [],
+     "will_alert": true
+    },
+    "budget_amount": 2000,
+    "budget_entity_name": "cc-data",
+    "budget_product_skus": [
+     "ai_credits"
+    ],
+    "budget_scope": "multi_user_cost_center",
+    "budget_type": "BundlePricing",
+    "id": "b070000-0000-4000-8000-000000000007",
+    "prevent_further_usage": true
+   },
+   {
+    "budget_alerting": {
+     "alert_recipients": [],
+     "will_alert": false
+    },
+    "budget_amount": 25,
+    "budget_product_skus": [
+     "copilot_for_business"
+    ],
+    "budget_scope": "enterprise",
+    "budget_type": "ProductPricing",
+    "id": "b080000-0000-4000-8000-000000000008",
+    "prevent_further_usage": true
+   }
+  ],
+  "has_next_page": false,
+  "total_count": 8
+ }
+}

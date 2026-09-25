@@ -1,0 +1,16 @@
+{
+ "cli": "unconfigured",
+ "ide_chat": "enabled",
+ "plan_type": "business",
+ "platform_chat": "disabled",
+ "public_code_suggestions": "block",
+ "seat_breakdown": {
+  "active_this_cycle": 11,
+  "added_this_cycle": 9,
+  "inactive_this_cycle": 1,
+  "pending_cancellation": 1,
+  "pending_invitation": 0,
+  "total": 12
+ },
+ "seat_management_setting": "assign_selected"
+}
