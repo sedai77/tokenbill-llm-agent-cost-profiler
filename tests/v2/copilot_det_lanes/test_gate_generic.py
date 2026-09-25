@@ -206,3 +206,22 @@ def test_copilot_lanes_see_only_copilot_lanes_through_the_registry() -> None:
     assert [f.kind for f in found] == ["long-context-band"]
     assert run([ln], gctx()) == found
     assert T0 > 0
+
+
+def test_real_usage_replayer_on_copilot_lanes() -> None:
+    """The real REPLAY engine accepts billing class ``pool`` (§9.1) under the generic cache
+    detectors: the model-switch finding keeps its Copilot fix and list-equivalent labels."""
+    replay = pytest.importorskip("tokenbill.sim.usage_replay")
+    pytest.importorskip("tokenbill.detect.cache_miss")
+    c = ctx(rules=RULES, replayer=replay.UsageReplayer(), caps=GENERIC_CAPS, min_usd="0.10")
+    found = registry.run_detectors([switch_lane("vs-rr")], c,
+                                   only=["cache.miss-by-cause", "cache.switch-churn",
+                                         "cache.rebuild", "cache.unread-write"],
+                                   aggregates_only=False)
+    [miss] = only(found, "model-switch")
+    assert miss.fix is not None and miss.fix.target == "github-copilot"
+    for f in found:
+        assert dict(f.scope.dims)["product"] == "copilot"
+        for fig in (f.cost_observed, f.recoverable):
+            assert fig is None or fig.basis.value == "list_equivalent"
+    _no_claude_code_keys(found)
