@@ -663,6 +663,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         code = module.run(args)
         logger.debug("%s finished in %.3f s", args.command, time.monotonic() - started)
         return code
+    except BrokenPipeError:  # e.g. `tokenbill export … | head`: stop quietly
+        _silence_stdout()
+        return EXIT_FAILURE
     except (TokenbillError, OSError) as exc:
         print(f"tokenbill: error: {exc}", file=sys.stderr)
         return exit_code_for(exc)
@@ -674,6 +677,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"tokenbill: internal error ({type(exc).__name__}); re-run with -vv for details",
               file=sys.stderr)
         return EXIT_FAILURE
+
+
+def _silence_stdout() -> None:
+    """After a broken pipe, point stdout at the null device so the interpreter's final flush does
+    not raise again."""
+    try:
+        fd = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(fd, sys.stdout.fileno())
+    except (OSError, ValueError, AttributeError):  # not a real file descriptor (tests)
+        pass
 
 
 def _wants_help(tokens: Sequence[str]) -> bool:

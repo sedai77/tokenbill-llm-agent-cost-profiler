@@ -98,6 +98,7 @@ __all__ = [
     "collector_options",
     "date_start_ms",
     "day_of",
+    "merge_sessions",
     "parse_attr_pairs",
     "parse_date",
     "parse_pct",
@@ -622,6 +623,34 @@ def _acl_probe(out_dir: Path) -> DataQualityNote | None:
     return None  # pragma: no cover
 
 
+def merge_sessions(sessions: Iterable[Session]) -> list[Session]:
+    """One ``Session`` per ``session_key`` (a trace@2 file holds each session once): lanes are
+    unioned (a lane seen twice merges its requests and events), the window widened; the first
+    session's source kind and attribution are kept. First-seen order."""
+    merged: dict[str, Session] = {}
+    lanes: dict[str, dict[str, Lane]] = {}
+    for s in sessions:
+        prior = merged.get(s.session_key)
+        if prior is None:
+            merged[s.session_key] = s
+        else:
+            merged[s.session_key] = dataclasses.replace(
+                prior, started_ms=min(prior.started_ms, s.started_ms),
+                ended_ms=max(prior.ended_ms, s.ended_ms))
+        known = lanes.setdefault(s.session_key, {})
+        for lane in s.lanes:
+            old = known.get(lane.lane_key)
+            if old is None:
+                known[lane.lane_key] = lane
+                continue
+            reqs = {r.request_id: r for r in (*old.requests, *lane.requests)}
+            events = tuple(dict.fromkeys((*old.events, *lane.events)))
+            known[lane.lane_key] = dataclasses.replace(old, requests=tuple(reqs.values()),
+                                                       events=events)
+    return [dataclasses.replace(s, lanes=tuple(lanes[key].values()))
+            for key, s in merged.items()]
+
+
 def _write_collected(results: Sequence[IngestResult], out_dir: Path, opts: IngestOptions, *,
                      created_ms: int, adapter: str, extra_notes: Sequence[DataQualityNote] = ()
                      ) -> CollectResult:
@@ -647,6 +676,7 @@ def _write_collected(results: Sequence[IngestResult], out_dir: Path, opts: Inges
         notes.extend(r.notes)
         name_key_id = name_key_id or r.source.name_key_id
         principal_key_id = principal_key_id or r.source.principal_key_id
+    sessions = merge_sessions(sessions)
     lane_ids = {rq.request_id for s in sessions for lane in s.lanes for rq in lane.requests}
     n_requests = len(lane_ids | {rq.request_id for rq in requests})
     if not (n_requests or events or aggregates or cost_lines or outcomes):
