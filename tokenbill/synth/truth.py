@@ -61,6 +61,7 @@ __all__ = [
     "keepalive_saving",
     "model_remap_saving",
     "rate_premium",
+    "RUNAWAY_MIN_SESSIONS",
     "rebaseline_delta",
     "restore_caching_saving",
     "runaway",
@@ -74,6 +75,8 @@ __all__ = [
 ]
 
 _MIN = 60_000
+#: ``tail.runaway`` judges sessions only in cohorts of at least this many sessions (R-E41).
+RUNAWAY_MIN_SESSIONS = 20
 _RESETS = frozenset({LaneEventKind.COMPACTION, LaneEventKind.CLEAR, LaneEventKind.CONTEXT_EDIT})
 _EFFORT_RANK = {"low": 0, "medium": 1, "high": 2, "xhigh": 3, "max": 4}
 _WRITE_BUCKETS = ("cache_write_5m", "cache_write_1h", "cache_write_other", "cache_write_unknown")
@@ -834,10 +837,13 @@ def size_tax(lanes: Iterable[Lane], coster: Coster, threshold: int) -> int:
 
 
 def runaway(lanes: Sequence[Lane], coster: Coster, session_key: str) -> dict[str, int]:
-    """``tail.runaway`` figures for *session_key* within its cohort's lanes (SPEC §10.2): the
-    session's exact cost, its maximum rolling-1h cost, the cohort's p95 session cost and p99 of
-    per-session maximum rolling-1h cost (nearest rank), and the rule's threshold
-    ``max($50, 5·p99)``."""
+    """``tail.runaway`` figures for *session_key* within its cohort's lanes (SPEC §10.2, R-E41):
+    the session's exact cost, its maximum rolling-1h cost, the cohort's p95 session cost (nearest
+    rank, the session included), the p99 of the maximum rolling-1h cost of the cohort's **other**
+    sessions (nearest rank, leave-one-out) and the rule's threshold ``max($50, 5·p99)``;
+    ``fires`` is 1 when the cohort has at least :data:`RUNAWAY_MIN_SESSIONS` sessions and the
+    session's rolling-1h maximum exceeds its threshold, and ``flagged_sessions`` counts every
+    session of the cohort the same rule flags."""
     by_session: dict[str, list[tuple[int, int]]] = {}
     for lane in lanes:
         for req in lane.requests:
@@ -863,11 +869,22 @@ def runaway(lanes: Sequence[Lane], coster: Coster, session_key: str) -> dict[str
         values = sorted(values)
         return values[max(0, math.ceil(p * len(values)) - 1)]
 
+    def threshold(sk: str) -> tuple[int, int]:
+        others = [v for k, v in peaks.items() if k != sk]
+        p99 = nearest(others, Fraction(99, 100)) if others else 0
+        return p99, max(50 * 10**9, 5 * p99)
+
+    judged = len(costs) >= RUNAWAY_MIN_SESSIONS
     p95 = nearest(list(costs.values()), Fraction(95, 100))
-    p99 = nearest(list(peaks.values()), Fraction(99, 100))
+    p99, limit = threshold(session_key)
+    # only a session above the $50 floor can clear its threshold
+    flagged = sum(1 for sk, peak in peaks.items()
+                  if judged and peak > 50 * 10**9 and peak > threshold(sk)[1])
     return {"session_nano": costs[session_key], "rolling_1h_max_nano": peaks[session_key],
-            "cohort_p95_session_nano": p95, "cohort_p99_hourly_nano": p99,
-            "threshold_nano": max(50 * 10**9, 5 * p99), "sessions": len(costs)}
+            "cohort_p95_session_nano": p95, "others_p99_hourly_nano": p99,
+            "threshold_nano": limit, "sessions": len(costs),
+            "min_sessions": RUNAWAY_MIN_SESSIONS,
+            "fires": int(judged and peaks[session_key] > limit), "flagged_sessions": flagged}
 
 
 def batch_saving(lanes: Iterable[Lane], coster: Coster) -> tuple[int, int, int]:
@@ -1148,8 +1165,9 @@ def build_truth(world: Any, lanes: Sequence[Lane], provider: Any,
         _scope(team="ops", lane_kind="main"), list_, "regional=global", lanes_o,
         observed=regional, recoverable=regional,
         tolerances={"cost_observed": "0", "recoverable": "0"}))
-    if hints.runaway_session is not None:
-        figs = runaway(_lanes_of(lanes, "ops", LaneKind.MAIN), c, hints.runaway_session)
+    figs = (runaway(_lanes_of(lanes, "ops", LaneKind.MAIN), c, hints.runaway_session)
+            if hints.runaway_session is not None else None)
+    if figs is not None and figs["fires"]:          # R-E41: leave-one-out, ≥ 20 sessions
         plants.append(_plant(
             "ops.runaway", "ops", "tail.runaway", "runaway-session", _scope(team="ops"),
             list_, None, [ln for ln in lanes_o if ln.session_key == hints.runaway_session],
