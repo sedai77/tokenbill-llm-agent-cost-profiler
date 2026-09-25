@@ -9,6 +9,7 @@ import tempfile
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -92,3 +93,10 @@ def test_overrides_only_raise_usage_errors(overrides: dict) -> None:
     except UsageError:
         return
     _check(cfg)
+
+
+def test_unknown_home_user_in_a_path_is_a_usage_error() -> None:
+    """``~0`` / ``~no-such-user`` cannot be expanded: a usage error, never a RuntimeError."""
+    with pytest.raises(UsageError, match="home directory"):
+        load_config(_EMPTY, {"HOME": str(_HOME),
+                             "TOKENBILL_COLLECTION_KEY_FILE": "~tokenbill-no-such-user-0/k"}, {})
