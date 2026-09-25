@@ -34,6 +34,9 @@ class ModelPricing:
     ``cache_write_multiplier`` applies to ``cache_creation_input_tokens``
     (5-minute-TTL writes); ``cache_read_multiplier`` applies to
     ``cache_read_input_tokens``. Both multiply the base input rate.
+    ``cache_write_1h_multiplier`` documents the 1-hour-TTL write rate; the
+    v0.1 engine does not use it (the v0.2 registry in ``tokenbill.rates``
+    prices 1h writes).
     """
 
     input_per_mtok: float
@@ -41,12 +44,25 @@ class ModelPricing:
     cache_write_multiplier: float = 1.25  # 5-minute TTL writes
     cache_read_multiplier: float = 0.10
     min_cacheable_prefix_tokens: int = 1024
+    cache_write_1h_multiplier: float = 2.0  # 1-hour TTL writes (documentation only in v0.1)
 
 
 # Source: https://platform.claude.com/docs/en/about-claude/pricing.md — verified 2026-09.
 # VERIFY BEFORE EACH RELEASE: rates and minimum cacheable prefix lengths change
 # between model generations; re-check every row against the doc above.
 PRICING: dict[str, ModelPricing] = {
+    # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-09-24).
+    # Cache hits are $0.20/MTok: 0.05x base input. Effective 2026-09-22 (launch).
+    "claude-opus-5-5": ModelPricing(
+        4.00, 20.00, cache_read_multiplier=0.05, min_cacheable_prefix_tokens=512
+    ),
+    # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-09-24).
+    # Cache hits are $0.25/MTok: 0.025x base input (like Fable 5.1). Limited availability.
+    "claude-mythos-5-1": ModelPricing(
+        10.00, 50.00, cache_read_multiplier=0.025, min_cacheable_prefix_tokens=512
+    ),
+    # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-09-24)
+    "claude-mythos-5": ModelPricing(10.00, 50.00, min_cacheable_prefix_tokens=512),
     # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-09).
     # Cache hits are $0.25/MTok: 0.025x base input, not the standard 0.10x.
     "claude-fable-5-1": ModelPricing(
@@ -62,12 +78,22 @@ PRICING: dict[str, ModelPricing] = {
     "claude-opus-4-7": ModelPricing(5.00, 25.00, min_cacheable_prefix_tokens=2048),
     # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07)
     "claude-opus-4-6": ModelPricing(5.00, 25.00, min_cacheable_prefix_tokens=4096),
+    # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-09-24);
+    # minimum prefix from .../build-with-claude/prompt-caching (verified 2026-09-24).
+    "claude-opus-4-5": ModelPricing(5.00, 25.00, min_cacheable_prefix_tokens=4096),
+    # Same sources (verified 2026-09-24). Retired on the Claude API 2026-08-05 (still billed on
+    # Bedrock and Google Cloud); minimum prefix verified, so the row is kept (SPEC §6.8).
+    "claude-opus-4-1": ModelPricing(15.00, 75.00, min_cacheable_prefix_tokens=1024),
+    # Same sources (verified 2026-09-24). Retired on the Claude API 2026-06-15.
+    "claude-opus-4": ModelPricing(15.00, 75.00, min_cacheable_prefix_tokens=1024),
     # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-09).
     # The $2.00/$10.00 launch rate is now the standard price; the scheduled
     # 2026-09-01 increase to $3.00/$15.00 was cancelled.
     "claude-sonnet-5": ModelPricing(2.00, 10.00, min_cacheable_prefix_tokens=1024),
     # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07)
     "claude-sonnet-4-6": ModelPricing(3.00, 15.00, min_cacheable_prefix_tokens=1024),
+    # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-09-24)
+    "claude-sonnet-4-5": ModelPricing(3.00, 15.00, min_cacheable_prefix_tokens=1024),
     # https://platform.claude.com/docs/en/about-claude/pricing.md (verified 2026-07)
     "claude-haiku-4-5": ModelPricing(1.00, 5.00, min_cacheable_prefix_tokens=4096),
 }

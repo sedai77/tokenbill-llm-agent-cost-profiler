@@ -1,0 +1,1101 @@
+{
+ "schema": "tokenbill/rates@1",
+ "provider": "anthropic",
+ "as_of": "2026-09-24",
+ "notes": "Claude API (first-party) list prices; claude_platform_aws and foundry fall back to these rows (SPEC §6.2)",
+ "rows": [
+  {
+   "row_id": "anthropic/anthropic_api/claude-opus-5-5/2026-09-22",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-opus-5-5",
+   "aliases": [],
+   "generation": "5.5",
+   "effective_from": "2026-09-22",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "4.00",
+    "output": "20.00"
+   },
+   "multipliers": {
+    "cache_read": "0.05",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.20",
+    "cache_write_5m": "5.00",
+    "cache_write_1h": "8.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "fast_mode",
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive",
+    "mid_conversation_system",
+    "per_message_effort"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "launch 2026-09-22 (retirement floor 2027-09-22); reads 0.05x (pricing footnote 2)"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-opus-5/2026-07-24",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-opus-5",
+   "aliases": [],
+   "generation": "5",
+   "effective_from": "2026-07-24",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "fast_mode",
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive",
+    "mid_conversation_system",
+    "per_message_effort"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "released 2026-07-24 (retirement floor 2027-07-24); thinking on by default"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-opus-4-8/2026-05-28",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-opus-4-8",
+   "aliases": [],
+   "generation": "4.8",
+   "effective_from": "2026-05-28",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "fast_mode",
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive",
+    "mid_conversation_system"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "effective_from = the documented retirement floor (https://platform.claude.com/docs/en/about-claude/model-deprecations) minus one year, Anthropic's launch + 1 year pattern; prices verified on the pricing page"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-fable-5/2026-06-09",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-fable-5",
+   "aliases": [],
+   "generation": "5",
+   "effective_from": "2026-06-09",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "1.00",
+    "cache_write_5m": "12.50",
+    "cache_write_1h": "20.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive",
+    "mid_conversation_system"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "effective_from = the documented retirement floor (https://platform.claude.com/docs/en/about-claude/model-deprecations) minus one year, Anthropic's launch + 1 year pattern; prices verified on the pricing page"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-fable-5-1/2026-09-01",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-fable-5-1",
+   "aliases": [],
+   "generation": "5.1",
+   "effective_from": "2026-09-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "multipliers": {
+    "cache_read": "0.025",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.25",
+    "cache_write_5m": "12.50",
+    "cache_write_1h": "20.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive",
+    "mid_conversation_system",
+    "per_message_effort"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "launch 2026-09-01 at 0.025x reads (D36; retirement floor 2027-09-01); no Priority Tier"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-mythos-5-1/2026-09-01",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-mythos-5-1",
+   "aliases": [],
+   "generation": "5.1",
+   "effective_from": "2026-09-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "multipliers": {
+    "cache_read": "0.025",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.25",
+    "cache_write_5m": "12.50",
+    "cache_write_1h": "20.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive",
+    "mid_conversation_system",
+    "per_message_effort"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "limited availability (Project Glasswing); launch 2026-09-01 (retirement floor 2027-09-01)"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-sonnet-5/2026-06-30",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-sonnet-5",
+   "aliases": [],
+   "generation": "5",
+   "effective_from": "2026-06-30",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "2.00",
+    "output": "10.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.20",
+    "cache_write_5m": "2.50",
+    "cache_write_1h": "4.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "launch pricing $2/$10 is now the standard price (the 2026-09-01 increase to $3/$15 was cancelled); effective_from = the documented retirement floor (https://platform.claude.com/docs/en/about-claude/model-deprecations) minus one year, Anthropic's launch + 1 year pattern; prices verified on the pricing page"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-sonnet-4-6/2026-02-17",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-sonnet-4-6",
+   "aliases": [],
+   "generation": "4.6",
+   "effective_from": "2026-02-17",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "3.00",
+    "output": "15.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.30",
+    "cache_write_5m": "3.75",
+    "cache_write_1h": "6.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "effective_from = the documented retirement floor (https://platform.claude.com/docs/en/about-claude/model-deprecations) minus one year, Anthropic's launch + 1 year pattern; prices verified on the pricing page"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-haiku-4-5/2025-10-15",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-haiku-4-5",
+   "aliases": [],
+   "generation": "4.5",
+   "effective_from": "2025-10-15",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "1.00",
+    "output": "5.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.10",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 4096,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "effective_from = the documented retirement floor (https://platform.claude.com/docs/en/about-claude/model-deprecations) minus one year, Anthropic's launch + 1 year pattern; prices verified on the pricing page"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-mythos-5/2026-06-09",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-mythos-5",
+   "aliases": [],
+   "generation": "5",
+   "effective_from": "2026-06-09",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "1.00",
+    "cache_write_5m": "12.50",
+    "cache_write_1h": "20.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive",
+    "mid_conversation_system"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "limited availability (Project Glasswing); effective_from = the documented retirement floor minus one year (Anthropic's launch + 1 year pattern, as the facts rows)"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-opus-4-7/2026-04-16",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-opus-4-7",
+   "aliases": [],
+   "generation": "4.7",
+   "effective_from": "2026-04-16",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 2048,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "fast mode not available; effective_from = the documented retirement floor minus one year (Anthropic's launch + 1 year pattern, as the facts rows)"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-opus-4-6/2026-02-05",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-opus-4-6",
+   "aliases": [],
+   "generation": "4.6",
+   "effective_from": "2026-02-05",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 4096,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "inference_geo",
+    "1m_context",
+    "batch",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "speed fast runs at standard speed and standard rates; effective_from = the documented retirement floor minus one year (Anthropic's launch + 1 year pattern, as the facts rows)"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-opus-4-5/2025-11-24",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-opus-4-5",
+   "aliases": [],
+   "generation": "4.5",
+   "effective_from": "2025-11-24",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 4096,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "retirement floor 2026-11-24; effective_from = the documented retirement floor minus one year (Anthropic's launch + 1 year pattern, as the facts rows)"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-sonnet-4-5/2025-09-29",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-sonnet-4-5",
+   "aliases": [],
+   "generation": "4.5",
+   "effective_from": "2025-09-29",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "3.00",
+    "output": "15.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.30",
+    "cache_write_5m": "3.75",
+    "cache_write_1h": "6.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "retirement floor 2026-09-29; long-context (>200K) premium not on the current pricing page, not modeled (VERIFY); effective_from = the documented retirement floor minus one year (Anthropic's launch + 1 year pattern, as the facts rows)"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-opus-4-1/2025-08-05",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-opus-4-1",
+   "aliases": [],
+   "generation": "4.1",
+   "effective_from": "2025-08-05",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "15.00",
+    "output": "75.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "1.50",
+    "cache_write_5m": "18.75",
+    "cache_write_1h": "30.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+     "retrieved": "2026-09-24",
+     "finding": "cc-timing-calendar"
+    }
+   ],
+   "notes": "effective_from = snapshot id date (claude-opus-4-1-20250805); retired on the Claude API 2026-08-05, price still published (billed on Bedrock / Google Cloud)"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-opus-4/2025-05-14",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-opus-4",
+   "aliases": [],
+   "generation": "4",
+   "effective_from": "2025-05-14",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "15.00",
+    "output": "75.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "1.50",
+    "cache_write_5m": "18.75",
+    "cache_write_1h": "30.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+     "retrieved": "2026-09-24",
+     "finding": "cc-timing-calendar"
+    }
+   ],
+   "notes": "effective_from = snapshot id date (claude-opus-4-20250514); retired on the Claude API 2026-06-15, price still published (billed on Google Cloud)"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-sonnet-4/2025-05-14",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-sonnet-4",
+   "aliases": [],
+   "generation": "4",
+   "effective_from": "2025-05-14",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "3.00",
+    "output": "15.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.30",
+    "cache_write_5m": "3.75",
+    "cache_write_1h": "6.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+     "retrieved": "2026-09-24",
+     "finding": "cb-pricing-coverage"
+    }
+   ],
+   "notes": "effective_from = snapshot id date (claude-sonnet-4-20250514); retired on the Claude API 2026-06-15, price still published (SPEC §19.1 VERIFY resolved)"
+  },
+  {
+   "row_id": "anthropic/anthropic_api/claude-3-5-haiku/2024-10-22",
+   "provider": "anthropic",
+   "channel": "anthropic_api",
+   "model": "claude-3-5-haiku",
+   "aliases": [
+    "claude-haiku-3-5"
+   ],
+   "generation": "3.5",
+   "effective_from": "2024-10-22",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "0.80",
+    "output": "4.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.08",
+    "cache_write_5m": "1.00",
+    "cache_write_1h": "1.60"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 2048,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "anth-pricing-table-2026-09"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+     "retrieved": "2026-09-24",
+     "finding": "cb-pricing-coverage"
+    }
+   ],
+   "notes": "API id claude-3-5-haiku-20241022 (SPEC calls it claude-haiku-3-5, kept as an alias); retired on the Claude API 2026-02-19, price still published (SPEC §19.1 VERIFY resolved)"
+  }
+ ],
+ "modifiers": [
+  {
+   "modifier_id": "anthropic.batch",
+   "kind": "multiply",
+   "factor": "0.5",
+   "base_usd_per_mtok": {},
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "anthropic_api,claude_platform_aws,foundry,bedrock",
+    "service_tier": "batch"
+   },
+   "stacking": "documented",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/batch-processing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-batch-stacking"
+    }
+   ],
+   "notes": "50% on every token category incl. cache reads/writes; stacks with caching and data residency; not available with fast mode"
+  },
+  {
+   "modifier_id": "anthropic.inference_geo.us",
+   "kind": "multiply",
+   "factor": "1.1",
+   "base_usd_per_mtok": {},
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "anthropic_api,claude_platform_aws,foundry",
+    "generation_gte": "4.6",
+    "inference_geo": "us"
+   },
+   "stacking": "documented",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-modifiers-geo-fast-priority"
+    }
+   ],
+   "notes": "1.1x on all categories for 4.6+ models; Claude API, Claude Platform on AWS, and Foundry US Data Zone Standard deployments (the Foundry equivalence is documented on the pricing page)"
+  },
+  {
+   "modifier_id": "anthropic.fast.opus-5-5",
+   "kind": "replace_base",
+   "factor": null,
+   "base_usd_per_mtok": {
+    "input": "8.00",
+    "output": "40.00"
+   },
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "anthropic_api",
+    "model_in": "claude-opus-5-5",
+    "speed": "fast"
+   },
+   "stacking": "documented",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-modifiers-geo-fast-priority"
+    }
+   ],
+   "notes": "cache multipliers and data residency apply on top of the fast base; not with batch"
+  },
+  {
+   "modifier_id": "anthropic.fast.opus-5",
+   "kind": "replace_base",
+   "factor": null,
+   "base_usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "anthropic_api",
+    "model_in": "claude-opus-5,claude-opus-4-8",
+    "speed": "fast"
+   },
+   "stacking": "documented",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "anth-modifiers-geo-fast-priority"
+    }
+   ],
+   "notes": "Opus 5 and Opus 4.8 fast mode $10/$50; cache multipliers apply on top"
+  },
+  {
+   "modifier_id": "anthropic.priority",
+   "kind": "multiply",
+   "factor": "1",
+   "base_usd_per_mtok": {},
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "anthropic_api",
+    "service_tier": "priority"
+   },
+   "stacking": "assumed",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "cc-priority-legacy"
+    }
+   ],
+   "notes": "Priority Tier is no longer sold; legacy commitments burn down at list-equivalent rates (read 0.1, 5m 1.25, 1h 2.0, US 1.1) and are absent from cost_report; factor 1 records the tier in provenance (stacking assumed)"
+  }
+ ]
+}

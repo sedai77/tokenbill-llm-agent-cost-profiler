@@ -1,0 +1,19 @@
+{
+ "schema": "tokenbill/contract@1",
+ "name": "acme-2026",
+ "multiplier": "0.85",
+ "overrides": {
+  "claude-opus-5-5": {
+   "input": "3.40",
+   "output": "17.00"
+  }
+ },
+ "effective_from": "2026-01-01",
+ "effective_to": "2027-01-01",
+ "derived": false,
+ "assumed_fields": [],
+ "channels": [
+  "anthropic_api",
+  "claude_platform_aws"
+ ]
+}

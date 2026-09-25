@@ -28,6 +28,13 @@ class _Usage:
 # pricing doc, verified 2026-09). A drift here must fail loudly.
 # model: (input $/MTok, output $/MTok, min cacheable prefix, cache read multiplier)
 SPEC_TABLE = {
+    "claude-opus-5-5": (4.00, 20.00, 512, 0.05),
+    "claude-mythos-5-1": (10.00, 50.00, 512, 0.025),
+    "claude-mythos-5": (10.00, 50.00, 512, 0.10),
+    "claude-opus-4-5": (5.00, 25.00, 4096, 0.10),
+    "claude-opus-4-1": (15.00, 75.00, 1024, 0.10),
+    "claude-opus-4": (15.00, 75.00, 1024, 0.10),
+    "claude-sonnet-4-5": (3.00, 15.00, 1024, 0.10),
     "claude-fable-5-1": (10.00, 50.00, 512, 0.025),
     "claude-opus-5": (5.00, 25.00, 512, 0.10),
     "claude-fable-5": (10.00, 50.00, 512, 0.10),
@@ -176,3 +183,22 @@ def test_model_pricing_dataclass_defaults() -> None:
     assert entry.cache_write_multiplier == 1.25
     assert entry.cache_read_multiplier == 0.10
     assert entry.min_cacheable_prefix_tokens == 1024
+    assert entry.cache_write_1h_multiplier == 2.0
+
+
+def test_pricing_module_stays_decoupled_from_the_v2_registry() -> None:
+    # SPEC §6.8: pricing.py is a standalone table; it must not import tokenbill.rates.
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path(pricing.__file__).read_text(encoding="utf-8"))
+    imported = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
+    imported |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    assert not any(m == "tokenbill.rates" or m.startswith("tokenbill.rates.") for m in imported)
+
+
+def test_opus_5_5_cache_reads_at_0_05x() -> None:
+    usage = _Usage(cache_read_input_tokens=1_000_000)
+    breakdown = pricing.cost_breakdown("claude-opus-5-5", usage)
+    assert breakdown is not None
+    assert breakdown["read"] == pytest.approx(0.20)
