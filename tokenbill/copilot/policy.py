@@ -120,7 +120,7 @@ _SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
 _IDLE_BUCKETS = frozenset({"31-90", "none_90d"})
 _WAVES = 3
 _MIN_CLI_CAP = 30
-_ABSENT = object()
+_COPILOT_LEVER_IDS = frozenset(lv.lever_id for lv in catalog.COPILOT_LEVERS)
 _SCENARIO_LABEL = {None: "all plans known", "business": "if Business", "enterprise":
                    "if Enterprise"}
 
@@ -476,7 +476,8 @@ def _fix_wants(findings: Sequence[Finding]) -> list[_Want]:
                 value = json.loads(value_json)
             except (TypeError, ValueError, RecursionError):
                 raise UsageError(f"settings key {key!r}: value is not JSON") from None
-            lever_id = allowed.lever_id or (f.lever_ids[0] if f.lever_ids else "")
+            copilot_levers = [lid for lid in f.lever_ids if lid in _COPILOT_LEVER_IDS]
+            lever_id = allowed.lever_id or (copilot_levers[0] if copilot_levers else "")
             cand = (_canon(value), value, lever_id)
             if key not in wants or cand[0] < wants[key][0]:
                 wants[key] = cand
