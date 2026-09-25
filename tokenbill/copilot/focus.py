@@ -215,8 +215,8 @@ def focus_rows(store: LedgerStore, record_stores: Sequence[ExtRecordStore], *, s
              if _kind(c) is not None]
     lics, conf = _records(record_stores, since_ms, until_ms)
     capped = pool.capped_cost_centers(conf)
-    classified = _classified(store, [c for c in lines if _kind(c) == "ai"], lics, conf, capped,
-                             since_ms=since_ms, until_ms=until_ms, gross_is_list=gross_is_list)
+    classified = _classified(store, lines, lics, conf, capped, since_ms=since_ms,
+                             until_ms=until_ms, gross_is_list=gross_is_list)
     unknown = _unknown_seat_months(lines, lics, conf)
     notes: list[str] = []
     skipped = sorted({c.channel for c in lines if c.channel not in reconciled_channels}
@@ -349,7 +349,8 @@ def _row(ident: tuple, team: str | None, cc: str | None, acc: _Acc, suppressed: 
         ("BilledCost", billed_s),
         ("Tags", json.dumps(tags, sort_keys=True, ensure_ascii=False, separators=(",", ":"))),
         ("AllocatedMethodId", ""), ("AllocatedMethodDetails", ""),
-        ("x_BillingPath", _PATHS.get(cost_type, "")), ("x_ModelId", model),
+        ("x_Channel", channel), ("x_BillingPath", _PATHS.get(cost_type, "")),
+        ("x_ModelId", model), ("x_Reconciled", "true" if reconciled else "false"),
         ("x_Evidence", "exact"),
         ("x_PriceBasis", "invoice" if reconciled and acc.final else "list"),
         ("x_DiscountPool", nano_to_usd_str(acc.pool)),
