@@ -662,9 +662,11 @@ class ReferenceReplay:
     @staticmethod
     def _stagger_groups(lanes: Sequence[Lane]) -> dict[str, int]:
         """``stagger_fanout`` (§9.3.6): lane-first requests with ``W ≥ 0.8·T`` of one (scope,
-        model, cwd_key), grouped when they start within 10 s of the group's first member; every
-        member after the first reads ``shared = min W`` of its group."""
-        candidates: dict[tuple[str, str, str | None], list[tuple[int, str, str, int]]] = {}
+        model, cwd_key) within one replay cohort (team, lane kind; R-E24), grouped when they start
+        within 10 s of the group's first member; every member after the first reads
+        ``shared = min W`` of its group."""
+        candidates: dict[tuple[str, str, str, str, str | None],
+                         list[tuple[int, str, str, int]]] = {}
         for lane in lanes:
             first = next((r for r in lane.requests if r.serving_inference is not None), None)
             if first is None:
@@ -672,7 +674,8 @@ class ReferenceReplay:
             u = first.serving_inference.usage  # type: ignore[union-attr]
             if u.total_input == 0 or 5 * u.cache_write < 4 * u.total_input:
                 continue
-            key = (lane.cache_scope_key, first.model, first.attribution.cwd_key)
+            key = (lane.team or "", lane.kind.value, lane.cache_scope_key, first.model,
+                   first.attribution.cwd_key)
             candidates.setdefault(key, []).append(
                 (first.ts_start_ms, lane.lane_key, first.request_id, u.cache_write))
         shared: dict[str, int] = {}
@@ -695,9 +698,11 @@ class ReferenceReplay:
     def _shared_ci_runs(self, lanes: Sequence[Lane], plans: Mapping[str, _LanePlan],
                         run: _Run) -> dict[str, int]:
         """``shared_ci_prefix`` (§9.3.6): CI lanes whose first request wrote ``≥ 0.8·T``, per
-        (scope, model) in start order; a run starting within τπ of the previous run's start
-        reads ``S_ci`` on its first request (``S`` when known, else ``floor(0.8·min first W)``)."""
-        groups: dict[tuple[str, str], list[tuple[int, str, str, int, int]]] = {}
+        (scope, model) within one replay cohort (team, lane kind; R-E24) in start order; a run
+        starting within τπ of the previous run's start reads ``S_ci`` on its first request (the
+        (scope, model) static floor ``S`` when known, else ``floor(0.8·min first W)`` of the
+        group)."""
+        groups: dict[tuple[str, str, str, str], list[tuple[int, str, str, int, int]]] = {}
         for lane in lanes:
             first = next((r for r in lane.requests if r.serving_inference is not None), None)
             if first is None or first.attribution.workload_class is not WorkloadClass.CI:
@@ -709,12 +714,13 @@ class ReferenceReplay:
                 continue
             plan = plans[lane.lane_key]
             tau = plan.ttl_s or _own_ttl_s(u, si.pricing.write_ttl_hint) or TTL_5M_S
-            groups.setdefault((lane.cache_scope_key, first.model), []).append(
+            groups.setdefault((lane.team or "", lane.kind.value, lane.cache_scope_key,
+                               first.model), []).append(
                 (first.ts_start_ms, lane.lane_key, first.request_id, u.cache_write, tau))
         out: dict[str, int] = {}
         for key in sorted(groups):
             members = sorted(groups[key])
-            known = run.floor.get(key)
+            known = run.floor.get(key[2:])
             s_ci = known if known else _floor(Fraction(4, 5) * min(m[3] for m in members))
             for prev, cur in zip(members, members[1:], strict=False):
                 if cur[0] - prev[0] <= cur[4] * 1000:
