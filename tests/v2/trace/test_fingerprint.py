@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from tests.v2.trace.helpers import FP_KEY, FP_KID, SYSTEM, conversation, fingerprint_of, tools
+from tests.v2.trace.helpers import FP_KEY, FP_KID, SYSTEM, conversation, tools
 from tokenbill.adapters import fingerprint as F
 from tokenbill.core.builders import CANARY, make_block
 from tokenbill.core.errors import UsageError

@@ -27,7 +27,6 @@ from tokenbill.core.errors import ContractViolation, SourceError, UsageError
 from tokenbill.core.records import (
     Attempt,
     Attribution,
-    ContentTier,
     CostLine,
     Inference,
     InferenceKind,
