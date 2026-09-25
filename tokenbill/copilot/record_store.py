@@ -52,6 +52,7 @@ No reconciler decision is persisted (CORE-AMENDMENTS C-17 withdraws the addendum
 
 from __future__ import annotations
 
+import contextlib
 import datetime as _dt
 import json
 import re
@@ -519,21 +520,29 @@ class CopilotRecordStore:
         cols, _, of = _TABLES[table]
         cur = self._query(f"SELECT {','.join(cols)} FROM {table} WHERE {date_col} >= ? AND "
                           f"{date_col} <= ? ORDER BY {order}", rng)
-        for row in cur:
-            yield of(row), row[-1]
+        try:
+            for row in cur:
+                yield of(row), row[-1]
+        finally:
+            # A reader closed early must end its read snapshot now (not at garbage collection):
+            # otherwise later reads on this connection keep seeing the old WAL snapshot.
+            cur.close()
 
     def iter_licenses(self, **window: int) -> Iterator[LicenseSnapshot]:
         """Stream the seat snapshots dated in the window (day overlap), ordered by snapshot date and
         natural key."""
-        for rec, _ in self._iter_people(_LICENSES, "snapshot_date",
-                                        "snapshot_date, product, principal, org", window):
-            yield rec
+        with contextlib.closing(self._iter_people(
+                _LICENSES, "snapshot_date", "snapshot_date, product, principal, org",
+                window)) as rows:
+            for rec, _ in rows:
+                yield rec
 
     def iter_activity(self, **window: int) -> Iterator[ActivityDay]:
         """Stream the activity days dated in the window, ordered by date and natural key."""
-        for rec, _ in self._iter_people(_ACTIVITY, "date_utc", "date_utc, product, principal",
-                                        window):
-            yield rec
+        with contextlib.closing(self._iter_people(
+                _ACTIVITY, "date_utc", "date_utc, product, principal", window)) as rows:
+            for rec, _ in rows:
+                yield rec
 
     def licenses(self, **window: int) -> list[LicenseSnapshot]:
         """Stored seat snapshots dated in the window, by (snapshot date, natural key)."""
