@@ -1,0 +1,48 @@
+{
+ "fetched_ms": 1790337600000,
+ "request": {
+  "path": "/enterprises/acme/settings/billing/budgets/b070000-0000-4000-8000-000000000007/user-states",
+  "query": {}
+ },
+ "response": {
+  "has_next_page": false,
+  "total_count": 7,
+  "user_states": [
+   {
+    "consumed_amount": 1,
+    "target_amount": 50,
+    "user": "tb-canary-login-7f3a91"
+   },
+   {
+    "consumed_amount": 2,
+    "target_amount": 50,
+    "user": "dev-02"
+   },
+   {
+    "consumed_amount": 3,
+    "target_amount": 50,
+    "user": "dev-03"
+   },
+   {
+    "consumed_amount": 4,
+    "target_amount": 50,
+    "user": "dev-04"
+   },
+   {
+    "consumed_amount": 5,
+    "target_amount": 50,
+    "user": "dev-05"
+   },
+   {
+    "consumed_amount": 6,
+    "target_amount": 50,
+    "user": "dev-06"
+   },
+   {
+    "consumed_amount": 100,
+    "target_amount": 50,
+    "user": "dev-07"
+   }
+  ]
+ }
+}

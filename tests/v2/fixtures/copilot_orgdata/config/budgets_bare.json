@@ -1,0 +1,21 @@
+{
+ "budgets": [
+  {
+   "budget_alerting": {
+    "alert_recipients": [
+     "enterprise-admin",
+     "tb-canary-login-7f3a91"
+    ],
+    "will_alert": true
+   },
+   "budget_amount": 1000.0,
+   "budget_product_skus": [
+    "actions"
+   ],
+   "budget_scope": "enterprise",
+   "budget_type": "ProductPricing",
+   "id": "b010000-0000-4000-8000-000000000001",
+   "prevent_further_usage": true
+  }
+ ]
+}

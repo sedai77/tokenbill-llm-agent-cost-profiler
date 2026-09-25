@@ -1,0 +1,223 @@
+{
+ "schema": "tokenbill/rates@1",
+ "provider": "openai",
+ "as_of": "2026-09-24",
+ "notes": "OpenAI API list prices (openai_api)",
+ "rows": [
+  {
+   "row_id": "openai/openai_api/gpt-5.6-sol/2026-07-09",
+   "provider": "openai",
+   "channel": "openai_api",
+   "model": "gpt-5.6-sol",
+   "aliases": [],
+   "generation": "5.6",
+   "effective_from": "2026-07-09",
+   "effective_to": "2026-08-21",
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "30.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_other": "1.25"
+   },
+   "published_absolute": {},
+   "cache_write_other_ttl_s": 1800,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch"
+   ],
+   "enabled": false,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://developers.openai.com/api/docs/changelog",
+     "retrieved": "2026-09-23",
+     "finding": "oai-batch-longctx-residency"
+    }
+   ],
+   "notes": "launch price derived from the 2026-08-21 changelog ('$4 input / $20 output, 20% lower input and 33% lower output pricing' => $5 / $30); cache multipliers assumed 0.1/1.25 and the long-context band unknown; ships disabled until verified (SPEC §19.8 #19, D36)"
+  },
+  {
+   "row_id": "openai/openai_api/gpt-5.6-sol/2026-08-21",
+   "provider": "openai",
+   "channel": "openai_api",
+   "model": "gpt-5.6-sol",
+   "aliases": [],
+   "generation": "5.6",
+   "effective_from": "2026-08-21",
+   "effective_to": "2026-11-22",
+   "usd_per_mtok": {
+    "input": "4.00",
+    "output": "20.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_other": "1.25"
+   },
+   "published_absolute": {
+    "cache_read": "0.40",
+    "cache_write_other": "5.00"
+   },
+   "cache_write_other_ttl_s": 1800,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 272000,
+    "usd_per_mtok": {
+     "input": "8.00",
+     "cache_read": "0.80",
+     "cache_write_other": "10.00",
+     "output": "30.00"
+    }
+   },
+   "promotion": "openai.gpt-5.6-sol.2026-08",
+   "supports": [
+    "batch"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "sources": [
+    {
+     "url": "https://developers.openai.com/api/docs/pricing",
+     "retrieved": "2026-09-23",
+     "finding": "oai-batch-longctx-residency"
+    },
+    {
+     "url": "https://developers.openai.com/api/docs/guides/prompt-caching",
+     "retrieved": "2026-09-23",
+     "finding": "oai-56-explicit-cache"
+    },
+    {
+     "url": "https://developers.openai.com/api/docs/changelog",
+     "retrieved": "2026-09-23",
+     "finding": "cc-timing-calendar"
+    }
+   ],
+   "notes": "promotional pricing 'available at least through November 21, 2026' (effective_to 2026-11-22 exclusive, then unpriced with dq.promotion_expired); long context = prompts over 272K tokens priced for the whole request; writes 1.25x, reads 0.1x, TTL 30m, min 1,024 tokens (OAI-CACHE); tokenizer_family not documented (assumed o200k)"
+  }
+ ],
+ "modifiers": [
+  {
+   "modifier_id": "openai.batch",
+   "kind": "multiply",
+   "factor": "0.5",
+   "base_usd_per_mtok": {},
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "openai_api",
+    "service_tier": "batch"
+   },
+   "stacking": "documented",
+   "sources": [
+    {
+     "url": "https://developers.openai.com/api/docs/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "oai-service-tiers"
+    }
+   ],
+   "notes": "Batch API: 50% of Standard on every bucket, short and long context"
+  },
+  {
+   "modifier_id": "openai.flex",
+   "kind": "multiply",
+   "factor": "0.5",
+   "base_usd_per_mtok": {},
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "openai_api",
+    "service_tier": "flex"
+   },
+   "stacking": "documented",
+   "sources": [
+    {
+     "url": "https://developers.openai.com/api/docs/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "oai-service-tiers"
+    }
+   ],
+   "notes": "Flex = batch rates (50%), priced at the served tier; flex 429s are not charged (billing rule openai.flex_429)"
+  },
+  {
+   "modifier_id": "openai.fast",
+   "kind": "multiply",
+   "factor": "2",
+   "base_usd_per_mtok": {},
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "openai_api",
+    "service_tier": "fast"
+   },
+   "stacking": "documented",
+   "sources": [
+    {
+     "url": "https://developers.openai.com/api/docs/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "oai-service-tiers"
+    }
+   ],
+   "notes": "Fast mode = 200% of Standard, short and long context"
+  },
+  {
+   "modifier_id": "openai.priority",
+   "kind": "multiply",
+   "factor": "2",
+   "base_usd_per_mtok": {},
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "openai_api",
+    "service_tier": "priority"
+   },
+   "stacking": "documented",
+   "sources": [
+    {
+     "url": "https://developers.openai.com/api/docs/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "oai-service-tiers"
+    }
+   ],
+   "notes": "Priority Processing was replaced by Fast mode on 2026-07-30; requests tagged priority use Fast mode (changelog)"
+  },
+  {
+   "modifier_id": "openai.regional_processing",
+   "kind": "multiply",
+   "factor": "1.1",
+   "base_usd_per_mtok": {},
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "openai_api",
+    "endpoint_scope": "regional",
+    "model_in": "gpt-5.6-sol"
+   },
+   "stacking": "assumed",
+   "sources": [
+    {
+     "url": "https://developers.openai.com/api/docs/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "oai-service-tiers"
+    },
+    {
+     "url": "https://developers.openai.com/api/docs/changelog",
+     "retrieved": "2026-09-24",
+     "finding": "oai-service-tiers"
+    }
+   ],
+   "notes": "regional processing (data residency) endpoints +10% for models released on or after 2026-03-05 that are eligible for data residency; stacking with the tiers undocumented (assumed multiplicative)"
+  }
+ ]
+}

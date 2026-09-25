@@ -1,0 +1,2345 @@
+{
+ "schema": "tokenbill/rates@1",
+ "provider": "github",
+ "as_of": "2026-09-23",
+ "rows": [
+  {
+   "row_id": "github/github_copilot/claude-fable-5/2026-06-09",
+   "channel": "github_copilot",
+   "model": "claude-fable-5",
+   "aliases": [
+    "Claude Fable 5"
+   ],
+   "generation": "5",
+   "effective_from": "2026-06-09",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2.0"
+   },
+   "published_absolute": {
+    "cache_read": "1.00",
+    "cache_write_5m": "12.50"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; category Powerful; cache_write_1h unpublished: 2 x input assumed (SDK cacheWrite1hPrice exists; VERIFY)",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-06-09_3e6460bc05"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/claude-fable-5-1/2026-09-01",
+   "channel": "github_copilot",
+   "model": "claude-fable-5-1",
+   "aliases": [
+    "Claude Fable 5.1"
+   ],
+   "generation": "5.1",
+   "effective_from": "2026-09-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "multipliers": {
+    "cache_read": "0.025",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2.0"
+   },
+   "published_absolute": {
+    "cache_read": "0.25",
+    "cache_write_5m": "12.50"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; category Powerful; cache_write_1h unpublished: 2 x input assumed (SDK cacheWrite1hPrice exists; VERIFY)",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-09-01_a4691ba259"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/claude-haiku-4-5/2026-06-01",
+   "channel": "github_copilot",
+   "model": "claude-haiku-4-5",
+   "aliases": [
+    "Claude Haiku 4.5"
+   ],
+   "generation": "4.5",
+   "effective_from": "2026-06-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "1.00",
+    "output": "5.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2.0"
+   },
+   "published_absolute": {
+    "cache_read": "0.10",
+    "cache_write_5m": "1.25"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; category Versatile; cache_write_1h unpublished: 2 x input assumed (SDK cacheWrite1hPrice exists; VERIFY)",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/claude-opus-4-5/2026-06-01",
+   "channel": "github_copilot",
+   "model": "claude-opus-4-5",
+   "aliases": [
+    "Claude Opus 4.5"
+   ],
+   "generation": "4.5",
+   "effective_from": "2026-06-01",
+   "effective_to": "2026-09-04",
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2.0"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; effective_to date_source=K; category Powerful; cache_write_1h unpublished: 2 x input assumed (SDK cacheWrite1hPrice exists; VERIFY); retired 2026-09-01; row closed when the docs dropped it",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/claude-opus-4-6/2026-06-01",
+   "channel": "github_copilot",
+   "model": "claude-opus-4-6",
+   "aliases": [
+    "Claude Opus 4.6"
+   ],
+   "generation": "4.6",
+   "effective_from": "2026-06-01",
+   "effective_to": "2026-09-04",
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2.0"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; effective_to date_source=K; category Powerful; cache_write_1h unpublished: 2 x input assumed (SDK cacheWrite1hPrice exists; VERIFY); retired 2026-09-01; row closed when the docs dropped it",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/claude-opus-4-7/2026-06-01",
+   "channel": "github_copilot",
+   "model": "claude-opus-4-7",
+   "aliases": [
+    "Claude Opus 4.7"
+   ],
+   "generation": "4.7",
+   "effective_from": "2026-06-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2.0"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; category Powerful; cache_write_1h unpublished: 2 x input assumed (SDK cacheWrite1hPrice exists; VERIFY)",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/claude-opus-4-8/2026-06-01",
+   "channel": "github_copilot",
+   "model": "claude-opus-4-8",
+   "aliases": [
+    "Claude Opus 4.8"
+   ],
+   "generation": "4.8",
+   "effective_from": "2026-06-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2.0"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "fast_mode"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; category Powerful; cache_write_1h unpublished: 2 x input assumed (SDK cacheWrite1hPrice exists; VERIFY); fast mode priced by modifier github.fast.opus-4-8 (listed 2026-06-29, K)",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-05-28_338b0d66ac"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/claude-opus-5/2026-07-24",
+   "channel": "github_copilot",
+   "model": "claude-opus-5",
+   "aliases": [
+    "Claude Opus 5"
+   ],
+   "generation": "5",
+   "effective_from": "2026-07-24",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2.0"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; category Powerful; cache_write_1h unpublished: 2 x input assumed (SDK cacheWrite1hPrice exists; VERIFY)",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-07-24_0b11460a10"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/claude-opus-5-5/2026-09-22",
+   "channel": "github_copilot",
+   "model": "claude-opus-5-5",
+   "aliases": [
+    "Claude Opus 5.5"
+   ],
+   "generation": "5.5",
+   "effective_from": "2026-09-22",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "4.00",
+    "output": "20.00"
+   },
+   "multipliers": {
+    "cache_read": "0.05",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2.0"
+   },
+   "published_absolute": {
+    "cache_read": "0.20",
+    "cache_write_5m": "5.00"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=C; category Powerful; cache_write_1h unpublished: 2 x input assumed (SDK cacheWrite1hPrice exists; VERIFY); billed at provider list pricing (changelog 2026-09-22)",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-09-22_ad7af5d5af"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/claude-sonnet-4/2026-06-01",
+   "channel": "github_copilot",
+   "model": "claude-sonnet-4",
+   "aliases": [
+    "Claude Sonnet 4"
+   ],
+   "generation": "4",
+   "effective_from": "2026-06-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "3.00",
+    "output": "15.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2.0"
+   },
+   "published_absolute": {
+    "cache_read": "0.30",
+    "cache_write_5m": "3.75"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; category Versatile; cache_write_1h unpublished: 2 x input assumed (SDK cacheWrite1hPrice exists; VERIFY)",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/claude-sonnet-4-5/2026-06-01",
+   "channel": "github_copilot",
+   "model": "claude-sonnet-4-5",
+   "aliases": [
+    "Claude Sonnet 4.5"
+   ],
+   "generation": "4.5",
+   "effective_from": "2026-06-01",
+   "effective_to": "2026-09-04",
+   "usd_per_mtok": {
+    "input": "3.00",
+    "output": "15.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2.0"
+   },
+   "published_absolute": {
+    "cache_read": "0.30",
+    "cache_write_5m": "3.75"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; effective_to date_source=K; category Versatile; cache_write_1h unpublished: 2 x input assumed (SDK cacheWrite1hPrice exists; VERIFY); retired 2026-09-01; row closed when the docs dropped it",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/claude-sonnet-4-6/2026-06-01",
+   "channel": "github_copilot",
+   "model": "claude-sonnet-4-6",
+   "aliases": [
+    "Claude Sonnet 4.6"
+   ],
+   "generation": "4.6",
+   "effective_from": "2026-06-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "3.00",
+    "output": "15.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2.0"
+   },
+   "published_absolute": {
+    "cache_read": "0.30",
+    "cache_write_5m": "3.75"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; category Versatile; cache_write_1h unpublished: 2 x input assumed (SDK cacheWrite1hPrice exists; VERIFY)",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/claude-sonnet-5/2026-06-30",
+   "channel": "github_copilot",
+   "model": "claude-sonnet-5",
+   "aliases": [
+    "Claude Sonnet 5"
+   ],
+   "generation": "5",
+   "effective_from": "2026-06-30",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "2.00",
+    "output": "10.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2.0"
+   },
+   "published_absolute": {
+    "cache_read": "0.20",
+    "cache_write_5m": "2.50"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; category Versatile; cache_write_1h unpublished: 2 x input assumed (SDK cacheWrite1hPrice exists; VERIFY); promo footnote 2026-06-30 to 2026-08-11 with unchanged prices",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-06-30_97c573e443"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gemini-2.5-pro/2026-06-01",
+   "channel": "github_copilot",
+   "model": "gemini-2.5-pro",
+   "aliases": [
+    "Gemini 2.5 Pro"
+   ],
+   "generation": "2.5",
+   "effective_from": "2026-06-01",
+   "effective_to": "2026-07-31",
+   "usd_per_mtok": {
+    "input": "1.25",
+    "output": "10.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.125"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "gemini",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; effective_to date_source=K; category Powerful; no cache write price (Not applicable); tokenizer family assumed; row closed when the docs dropped it",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gemini-3-flash/2026-06-01",
+   "channel": "github_copilot",
+   "model": "gemini-3-flash",
+   "aliases": [
+    "Gemini 3 Flash"
+   ],
+   "generation": "3",
+   "effective_from": "2026-06-01",
+   "effective_to": "2026-07-31",
+   "usd_per_mtok": {
+    "input": "0.50",
+    "output": "3.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.05"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "gemini",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; effective_to date_source=K; category Lightweight; no cache write price (Not applicable); tokenizer family assumed; row closed when the docs dropped it",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gemini-3.1-pro/2026-06-01",
+   "channel": "github_copilot",
+   "model": "gemini-3.1-pro",
+   "aliases": [
+    "Gemini 3.1 Pro"
+   ],
+   "generation": "3.1",
+   "effective_from": "2026-06-01",
+   "effective_to": "2026-06-04",
+   "usd_per_mtok": {
+    "input": "2.00",
+    "output": "12.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.20"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "gemini",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; effective_to date_source=K; category Powerful; no cache write price (Not applicable); tokenizer family assumed; no long-context price listed before 2026-06-04",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gemini-3.1-pro/2026-06-04",
+   "channel": "github_copilot",
+   "model": "gemini-3.1-pro",
+   "aliases": [
+    "Gemini 3.1 Pro"
+   ],
+   "generation": "3.1",
+   "effective_from": "2026-06-04",
+   "effective_to": "2026-09-04",
+   "usd_per_mtok": {
+    "input": "2.00",
+    "output": "12.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.20"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "gemini",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 200000,
+    "usd_per_mtok": {
+     "input": "4.00",
+     "cache_read": "0.40",
+     "output": "18.00"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; effective_to date_source=K; category Powerful; no cache write price (Not applicable); long-context band > 200000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed; row closed when the docs dropped it",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3; band yml 2026-06-04_82c6d5838e"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gemini-3.5-flash/2026-06-01",
+   "channel": "github_copilot",
+   "model": "gemini-3.5-flash",
+   "aliases": [
+    "Gemini 3.5 Flash"
+   ],
+   "generation": "3.5",
+   "effective_from": "2026-06-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "1.50",
+    "output": "9.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.15"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "gemini",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; category Lightweight; no cache write price (Not applicable); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-05-19_f4829a84c8"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gemini-3.6-flash/2026-07-21",
+   "channel": "github_copilot",
+   "model": "gemini-3.6-flash",
+   "aliases": [
+    "Gemini 3.6 Flash"
+   ],
+   "generation": "3.6",
+   "effective_from": "2026-07-21",
+   "effective_to": "2026-08-13",
+   "usd_per_mtok": {
+    "input": "1.50",
+    "output": "7.50"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.15"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "gemini",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; effective_to date_source=K; category Versatile; no cache write price (Not applicable); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-07-21_0ffe479592"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gemini-3.6-flash/2026-08-13",
+   "channel": "github_copilot",
+   "model": "gemini-3.6-flash",
+   "aliases": [
+    "Gemini 3.6 Flash"
+   ],
+   "generation": "3.6",
+   "effective_from": "2026-08-13",
+   "effective_to": "2027-01-01",
+   "usd_per_mtok": {
+    "input": "0.75",
+    "output": "3.75"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.075"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "gemini",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": "github.gemini-3.6-flash.2026",
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; effective_to date_source=D; category Versatile; no cache write price (Not applicable); tokenizer family assumed; promotional price through 2026-12-31 (pricing text); no row after the promotion",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-08-13_980334a34d"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gemini-3.7-flash/2026-08-13",
+   "channel": "github_copilot",
+   "model": "gemini-3.7-flash",
+   "aliases": [
+    "Gemini 3.7 Flash"
+   ],
+   "generation": "3.7",
+   "effective_from": "2026-08-13",
+   "effective_to": "2027-01-01",
+   "usd_per_mtok": {
+    "input": "0.75",
+    "output": "3.75"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.075"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "gemini",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": "github.gemini-3.7-flash.2026",
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; effective_to date_source=D; category Versatile; no cache write price (Not applicable); tokenizer family assumed; promotional price through 2026-12-31 (pricing text); no row after the promotion",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-08-13_980334a34d"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gemini-3.8-flash/2026-09-03",
+   "channel": "github_copilot",
+   "model": "gemini-3.8-flash",
+   "aliases": [
+    "Gemini 3.8 Flash"
+   ],
+   "generation": "3.8",
+   "effective_from": "2026-09-03",
+   "effective_to": "2027-01-01",
+   "usd_per_mtok": {
+    "input": "0.75",
+    "output": "3.75"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.075"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "gemini",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": "github.gemini-3.8-flash.2026",
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; effective_to date_source=D; category Versatile; no cache write price (Not applicable); tokenizer family assumed; promotional price through 2026-12-31 (pricing text); no row after the promotion",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-09-03_c6a5485eac"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-4.1/2026-06-01",
+   "channel": "github_copilot",
+   "model": "gpt-4.1",
+   "aliases": [
+    "GPT-4.1"
+   ],
+   "generation": "4.1",
+   "effective_from": "2026-06-01",
+   "effective_to": "2026-06-03",
+   "usd_per_mtok": {
+    "input": "2.00",
+    "output": "8.00"
+   },
+   "multipliers": {
+    "cache_read": "0.25"
+   },
+   "published_absolute": {
+    "cache_read": "0.50"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; effective_to date_source=K; category Versatile; no cache write price (Not applicable); tokenizer family assumed; also a utility model (unbilled only when nano-AIU is 0); row closed when the docs dropped it",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5-mini/2026-06-01",
+   "channel": "github_copilot",
+   "model": "gpt-5-mini",
+   "aliases": [
+    "GPT-5 mini"
+   ],
+   "generation": "5",
+   "effective_from": "2026-06-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "0.25",
+    "output": "2.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.025"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; category Lightweight; no cache write price (Not applicable); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.2/2026-06-01",
+   "channel": "github_copilot",
+   "model": "gpt-5.2",
+   "aliases": [
+    "GPT-5.2"
+   ],
+   "generation": "5.2",
+   "effective_from": "2026-06-01",
+   "effective_to": "2026-06-05",
+   "usd_per_mtok": {
+    "input": "1.75",
+    "output": "14.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.175"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; effective_to date_source=K; category Versatile; no cache write price (Not applicable); tokenizer family assumed; row closed when the docs dropped it",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.2-codex/2026-06-01",
+   "channel": "github_copilot",
+   "model": "gpt-5.2-codex",
+   "aliases": [
+    "GPT-5.2-Codex"
+   ],
+   "generation": "5.2",
+   "effective_from": "2026-06-01",
+   "effective_to": "2026-06-05",
+   "usd_per_mtok": {
+    "input": "1.75",
+    "output": "14.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.175"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; effective_to date_source=K; category Powerful; no cache write price (Not applicable); tokenizer family assumed; row closed when the docs dropped it",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.3-codex/2026-06-01",
+   "channel": "github_copilot",
+   "model": "gpt-5.3-codex",
+   "aliases": [
+    "GPT-5.3-Codex"
+   ],
+   "generation": "5.3",
+   "effective_from": "2026-06-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "1.75",
+    "output": "14.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.175"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; category Powerful; no cache write price (Not applicable); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.4/2026-06-01",
+   "channel": "github_copilot",
+   "model": "gpt-5.4",
+   "aliases": [
+    "GPT-5.4"
+   ],
+   "generation": "5.4",
+   "effective_from": "2026-06-01",
+   "effective_to": "2026-06-04",
+   "usd_per_mtok": {
+    "input": "2.50",
+    "output": "15.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.25"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; effective_to date_source=K; category Versatile; no cache write price (Not applicable); tokenizer family assumed; no long-context price listed before 2026-06-04",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.4/2026-06-04",
+   "channel": "github_copilot",
+   "model": "gpt-5.4",
+   "aliases": [
+    "GPT-5.4"
+   ],
+   "generation": "5.4",
+   "effective_from": "2026-06-04",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "2.50",
+    "output": "15.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.25"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 272000,
+    "usd_per_mtok": {
+     "input": "5.00",
+     "cache_read": "0.50",
+     "output": "22.50"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; category Versatile; no cache write price (Not applicable); long-context band > 272000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3; band yml 2026-06-04_82c6d5838e"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.4-mini/2026-06-01",
+   "channel": "github_copilot",
+   "model": "gpt-5.4-mini",
+   "aliases": [
+    "GPT-5.4 mini"
+   ],
+   "generation": "5.4",
+   "effective_from": "2026-06-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "0.75",
+    "output": "4.50"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.075"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; category Lightweight; no cache write price (Not applicable); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.4-nano/2026-06-01",
+   "channel": "github_copilot",
+   "model": "gpt-5.4-nano",
+   "aliases": [
+    "GPT-5.4 nano"
+   ],
+   "generation": "5.4",
+   "effective_from": "2026-06-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "0.20",
+    "output": "1.25"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.02"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; category Lightweight; no cache write price (Not applicable); tokenizer family assumed; also a utility model (unbilled only when nano-AIU is 0)",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.5/2026-06-01",
+   "channel": "github_copilot",
+   "model": "gpt-5.5",
+   "aliases": [
+    "GPT-5.5"
+   ],
+   "generation": "5.5",
+   "effective_from": "2026-06-01",
+   "effective_to": "2026-06-04",
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "30.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.50"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; effective_to date_source=K; category Powerful; no cache write price (Not applicable); tokenizer family assumed; no long-context price listed before 2026-06-04",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_5c45104bf9"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.5/2026-06-04",
+   "channel": "github_copilot",
+   "model": "gpt-5.5",
+   "aliases": [
+    "GPT-5.5"
+   ],
+   "generation": "5.5",
+   "effective_from": "2026-06-04",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "30.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.50"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 272000,
+    "usd_per_mtok": {
+     "input": "10.00",
+     "cache_read": "1.00",
+     "output": "45.00"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; category Powerful; no cache write price (Not applicable); long-context band > 272000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_5c45104bf9; band yml 2026-06-04_82c6d5838e"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.6-luna/2026-07-09",
+   "channel": "github_copilot",
+   "model": "gpt-5.6-luna",
+   "aliases": [
+    "GPT-5.6 Luna"
+   ],
+   "generation": "5.6",
+   "effective_from": "2026-07-09",
+   "effective_to": "2026-07-30",
+   "usd_per_mtok": {
+    "input": "1.00",
+    "output": "6.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.10"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 200000,
+    "usd_per_mtok": {
+     "input": "2.00",
+     "cache_read": "0.20",
+     "output": "9.00"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; effective_to date_source=K; category Lightweight; no write price listed in this interval: write bucket disabled (VERIFY); long-context band > 200000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-07-09_ca521508ca"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.6-luna/2026-07-30",
+   "channel": "github_copilot",
+   "model": "gpt-5.6-luna",
+   "aliases": [
+    "GPT-5.6 Luna"
+   ],
+   "generation": "5.6",
+   "effective_from": "2026-07-30",
+   "effective_to": "2026-08-03",
+   "usd_per_mtok": {
+    "input": "0.20",
+    "output": "1.20"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.02"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 200000,
+    "usd_per_mtok": {
+     "input": "0.40",
+     "cache_read": "0.04",
+     "output": "1.80"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; effective_to date_source=K; category Lightweight; no write price listed in this interval: write bucket disabled (VERIFY); long-context band > 200000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-07-30_47d6eb8a8a"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.6-luna/2026-08-03",
+   "channel": "github_copilot",
+   "model": "gpt-5.6-luna",
+   "aliases": [
+    "GPT-5.6 Luna"
+   ],
+   "generation": "5.6",
+   "effective_from": "2026-08-03",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "0.20",
+    "output": "1.20"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "1.25"
+   },
+   "published_absolute": {
+    "cache_read": "0.02",
+    "cache_write_5m": "0.25"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 200000,
+    "usd_per_mtok": {
+     "input": "0.40",
+     "cache_read": "0.04",
+     "cache_write_5m": "0.50",
+     "cache_write_1h": "0.50",
+     "output": "1.80"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; category Lightweight; long-context band > 200000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-08-03_a5846f685e"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.6-sol/2026-07-09",
+   "channel": "github_copilot",
+   "model": "gpt-5.6-sol",
+   "aliases": [
+    "GPT-5.6 Sol"
+   ],
+   "generation": "5.6",
+   "effective_from": "2026-07-09",
+   "effective_to": "2026-08-03",
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "30.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.50"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 272000,
+    "usd_per_mtok": {
+     "input": "10.00",
+     "cache_read": "1.00",
+     "output": "45.00"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; effective_to date_source=K; category Powerful; no write price listed in this interval: write bucket disabled (VERIFY); long-context band > 272000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-07-09_ca521508ca"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.6-sol/2026-08-03",
+   "channel": "github_copilot",
+   "model": "gpt-5.6-sol",
+   "aliases": [
+    "GPT-5.6 Sol"
+   ],
+   "generation": "5.6",
+   "effective_from": "2026-08-03",
+   "effective_to": "2026-08-20",
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "30.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "1.25"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 272000,
+    "usd_per_mtok": {
+     "input": "10.00",
+     "cache_read": "1.00",
+     "cache_write_5m": "12.50",
+     "cache_write_1h": "12.50",
+     "output": "45.00"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; effective_to date_source=K; category Powerful; long-context band > 272000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-08-03_a5846f685e"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.6-sol/2026-08-20",
+   "channel": "github_copilot",
+   "model": "gpt-5.6-sol",
+   "aliases": [
+    "GPT-5.6 Sol"
+   ],
+   "generation": "5.6",
+   "effective_from": "2026-08-20",
+   "effective_to": "2026-08-21",
+   "usd_per_mtok": {
+    "input": "2.50",
+    "output": "15.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "1.25"
+   },
+   "published_absolute": {
+    "cache_read": "0.25",
+    "cache_write_5m": "3.125"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 272000,
+    "usd_per_mtok": {
+     "input": "5.00",
+     "cache_read": "0.50",
+     "cache_write_5m": "6.25",
+     "cache_write_1h": "6.25",
+     "output": "22.50"
+    }
+   },
+   "promotion": "github.gpt-5.6-sol.2026-08",
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; effective_to date_source=K; category Powerful; long-context band > 272000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed; K-dated one-day row (a mechanics test of the replay, not a billing fact)",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-08-20_d0e8a483ac"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.6-sol/2026-08-21",
+   "channel": "github_copilot",
+   "model": "gpt-5.6-sol",
+   "aliases": [
+    "GPT-5.6 Sol"
+   ],
+   "generation": "5.6",
+   "effective_from": "2026-08-21",
+   "effective_to": "2026-09-04",
+   "usd_per_mtok": {
+    "input": "2.00",
+    "output": "10.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "1.25"
+   },
+   "published_absolute": {
+    "cache_read": "0.20",
+    "cache_write_5m": "2.50"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 272000,
+    "usd_per_mtok": {
+     "input": "4.00",
+     "cache_read": "0.40",
+     "cache_write_5m": "5.00",
+     "cache_write_1h": "5.00",
+     "output": "15.00"
+    }
+   },
+   "promotion": "github.gpt-5.6-sol.2026-08",
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; effective_to date_source=D; category Powerful; long-context band > 272000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed; promotion 'through September 3' (pricing text)",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-08-21_1cabce7332"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.6-sol/2026-09-04",
+   "channel": "github_copilot",
+   "model": "gpt-5.6-sol",
+   "aliases": [
+    "GPT-5.6 Sol"
+   ],
+   "generation": "5.6",
+   "effective_from": "2026-09-04",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "4.00",
+    "output": "20.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "1.25"
+   },
+   "published_absolute": {
+    "cache_read": "0.40",
+    "cache_write_5m": "5.00"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 272000,
+    "usd_per_mtok": {
+     "input": "8.00",
+     "cache_read": "0.80",
+     "cache_write_5m": "10.00",
+     "cache_write_1h": "10.00",
+     "output": "30.00"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=D; category Powerful; long-context band > 272000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-09-04_9b446626f0"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.6-terra/2026-07-09",
+   "channel": "github_copilot",
+   "model": "gpt-5.6-terra",
+   "aliases": [
+    "GPT-5.6 Terra"
+   ],
+   "generation": "5.6",
+   "effective_from": "2026-07-09",
+   "effective_to": "2026-07-30",
+   "usd_per_mtok": {
+    "input": "2.50",
+    "output": "15.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.25"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 272000,
+    "usd_per_mtok": {
+     "input": "5.00",
+     "cache_read": "0.50",
+     "output": "22.50"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; effective_to date_source=K; category Versatile; no write price listed in this interval: write bucket disabled (VERIFY); long-context band > 272000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-07-09_ca521508ca"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.6-terra/2026-07-30",
+   "channel": "github_copilot",
+   "model": "gpt-5.6-terra",
+   "aliases": [
+    "GPT-5.6 Terra"
+   ],
+   "generation": "5.6",
+   "effective_from": "2026-07-30",
+   "effective_to": "2026-08-03",
+   "usd_per_mtok": {
+    "input": "2.00",
+    "output": "12.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.20"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 272000,
+    "usd_per_mtok": {
+     "input": "4.00",
+     "cache_read": "0.40",
+     "output": "18.00"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; effective_to date_source=K; category Versatile; no write price listed in this interval: write bucket disabled (VERIFY); long-context band > 272000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-07-30_47d6eb8a8a"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-5.6-terra/2026-08-03",
+   "channel": "github_copilot",
+   "model": "gpt-5.6-terra",
+   "aliases": [
+    "GPT-5.6 Terra"
+   ],
+   "generation": "5.6",
+   "effective_from": "2026-08-03",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "2.00",
+    "output": "12.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "1.25"
+   },
+   "published_absolute": {
+    "cache_read": "0.20",
+    "cache_write_5m": "2.50"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 272000,
+    "usd_per_mtok": {
+     "input": "4.00",
+     "cache_read": "0.40",
+     "cache_write_5m": "5.00",
+     "cache_write_1h": "5.00",
+     "output": "18.00"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; category Versatile; long-context band > 272000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-08-03_a5846f685e"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-6-astra/2026-09-04",
+   "channel": "github_copilot",
+   "model": "gpt-6-astra",
+   "aliases": [
+    "GPT-6 Astra"
+   ],
+   "generation": "6",
+   "effective_from": "2026-09-04",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "1.25"
+   },
+   "published_absolute": {
+    "cache_read": "1.00",
+    "cache_write_5m": "12.50"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 272000,
+    "usd_per_mtok": {
+     "input": "20.00",
+     "cache_read": "2.00",
+     "cache_write_5m": "25.00",
+     "cache_write_1h": "25.00",
+     "output": "75.00"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; category Powerful; long-context band > 272000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-09-04_be4d995f7e"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-6-luna/2026-09-22",
+   "channel": "github_copilot",
+   "model": "gpt-6-luna",
+   "aliases": [
+    "GPT-6 Luna"
+   ],
+   "generation": "6",
+   "effective_from": "2026-09-22",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "0.10",
+    "output": "0.50"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "1.25"
+   },
+   "published_absolute": {
+    "cache_read": "0.01",
+    "cache_write_5m": "0.125"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 272000,
+    "usd_per_mtok": {
+     "input": "0.20",
+     "cache_read": "0.02",
+     "cache_write_5m": "0.25",
+     "cache_write_1h": "0.25",
+     "output": "0.75"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=C; category Lightweight; long-context band > 272000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-09-22_d1153b57c9"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/gpt-6-sol/2026-09-22",
+   "channel": "github_copilot",
+   "model": "gpt-6-sol",
+   "aliases": [
+    "GPT-6 Sol"
+   ],
+   "generation": "6",
+   "effective_from": "2026-09-22",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "2.00",
+    "output": "10.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "1.25"
+   },
+   "published_absolute": {
+    "cache_read": "0.20",
+    "cache_write_5m": "2.50"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 272000,
+    "usd_per_mtok": {
+     "input": "4.00",
+     "cache_read": "0.40",
+     "cache_write_5m": "5.00",
+     "cache_write_1h": "5.00",
+     "output": "15.00"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=C; category Powerful; long-context band > 272000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-09-22_d1153b57c9"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/grok-4.5/2026-07-28",
+   "channel": "github_copilot",
+   "model": "grok-4.5",
+   "aliases": [
+    "Grok 4.5"
+   ],
+   "generation": "4.5",
+   "effective_from": "2026-07-28",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "2.00",
+    "output": "6.00"
+   },
+   "multipliers": {
+    "cache_read": "0.25"
+   },
+   "published_absolute": {
+    "cache_read": "0.50"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "grok",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 200000,
+    "usd_per_mtok": {
+     "input": "4.00",
+     "cache_read": "1.00",
+     "output": "12.00"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; category Versatile; no cache write price (Not applicable); long-context band > 200000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-07-28_746058ec9c"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/grok-4.6/2026-08-14",
+   "channel": "github_copilot",
+   "model": "grok-4.6",
+   "aliases": [
+    "Grok 4.6"
+   ],
+   "generation": "4.6",
+   "effective_from": "2026-08-14",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "2.00",
+    "output": "6.00"
+   },
+   "multipliers": {
+    "cache_read": "0.25"
+   },
+   "published_absolute": {
+    "cache_read": "0.50"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "grok",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 200000,
+    "usd_per_mtok": {
+     "input": "4.00",
+     "cache_read": "1.00",
+     "output": "12.00"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; category Versatile; no cache write price (Not applicable); long-context band > 200000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-08-14_980eb5d389"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/grok-4.7/2026-09-21",
+   "channel": "github_copilot",
+   "model": "grok-4.7",
+   "aliases": [
+    "Grok 4.7"
+   ],
+   "generation": "4.7",
+   "effective_from": "2026-09-21",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "2.00",
+    "output": "6.00"
+   },
+   "multipliers": {
+    "cache_read": "0.25"
+   },
+   "published_absolute": {
+    "cache_read": "0.50"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "grok",
+   "per_request_usd": {},
+   "long_context": {
+    "threshold": 200000,
+    "usd_per_mtok": {
+     "input": "4.00",
+     "cache_read": "1.00",
+     "output": "12.00"
+    }
+   },
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; category Versatile; no cache write price (Not applicable); long-context band > 200000 input tokens (hypothesis A; threshold VERIFY); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-09-21_3662f645b2"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/kimi-k2.7-code/2026-07-01",
+   "channel": "github_copilot",
+   "model": "kimi-k2.7-code",
+   "aliases": [
+    "Kimi K2.7 Code"
+   ],
+   "generation": "2.7",
+   "effective_from": "2026-07-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "0.95",
+    "output": "4.00"
+   },
+   "multipliers": {
+    "cache_read": "0.2"
+   },
+   "published_absolute": {
+    "cache_read": "0.19"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "kimi",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; category Versatile; no cache write price (Not applicable); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-07-01_4b5191aeba"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/kimi-k3/2026-08-07",
+   "channel": "github_copilot",
+   "model": "kimi-k3",
+   "aliases": [
+    "Kimi K3"
+   ],
+   "generation": "3",
+   "effective_from": "2026-08-07",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "3.00",
+    "output": "15.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.30"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "kimi",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; category Powerful; no cache write price (Not applicable); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-08-07_37ae5cab6d"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/mai-code-1-flash/2026-06-02",
+   "channel": "github_copilot",
+   "model": "mai-code-1-flash",
+   "aliases": [
+    "MAI-Code-1-Flash"
+   ],
+   "generation": "1",
+   "effective_from": "2026-06-02",
+   "effective_to": "2026-09-10",
+   "usd_per_mtok": {
+    "input": "0.75",
+    "output": "4.50"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.075"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "mai",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; effective_to date_source=K; category Lightweight; no cache write price (Not applicable); tokenizer family assumed; row closed when the docs dropped it",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-06-02_e0679b2082"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/mai-code-1.1-flash/2026-08-11",
+   "channel": "github_copilot",
+   "model": "mai-code-1.1-flash",
+   "aliases": [
+    "MAI-Code-1.1-Flash"
+   ],
+   "generation": "1.1",
+   "effective_from": "2026-08-11",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "0.20",
+    "output": "1.20"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.02"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "mai",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=K; category Lightweight; no cache write price (Not applicable); tokenizer family assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-08-11_50360a9714"
+    }
+   ]
+  },
+  {
+   "row_id": "github/github_copilot/raptor-mini/2026-06-01",
+   "channel": "github_copilot",
+   "model": "raptor-mini",
+   "aliases": [
+    "Raptor mini"
+   ],
+   "generation": "0",
+   "effective_from": "2026-06-01",
+   "effective_to": "2026-09-04",
+   "usd_per_mtok": {
+    "input": "0.25",
+    "output": "2.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1"
+   },
+   "published_absolute": {
+    "cache_read": "0.025"
+   },
+   "min_cacheable_tokens": null,
+   "tokenizer_family": "openai-o200k",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [],
+   "enabled": true,
+   "verified_on": "2026-09-23",
+   "notes": "date_source=B; effective_to date_source=K; category Versatile; no cache write price (Not applicable); tokenizer family assumed; row closed when the docs dropped it; generation unknown (no version in the name; '0'); docs note: uses GPT-5 mini pricing",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F4; yml 2026-04-27_698d333cc3"
+    }
+   ]
+  }
+ ],
+ "modifiers": [
+  {
+   "modifier_id": "github.auto",
+   "kind": "multiply",
+   "factor": "0.9",
+   "base_usd_per_mtok": {},
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "github_copilot",
+    "routing": "auto"
+   },
+   "stacking": "assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/concepts/auto-model-selection",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing F2; changelog 2026-09-14"
+    }
+   ],
+   "notes": "10% on paid plans in Chat, CLI, Copilot app and cloud agent, for every Auto tier (Efficiency / Balance / Intelligence); charged at the model Auto selects; how it appears in the report VERIFY"
+  },
+  {
+   "modifier_id": "github.compliance",
+   "kind": "multiply",
+   "factor": "1.1",
+   "base_usd_per_mtok": {},
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "github_copilot",
+    "compliance_in": "data_residency,fedramp"
+   },
+   "stacking": "assumed",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/enterprise-cloud@latest/admin/data-residency/github-copilot-with-data-residency",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing fact-check (data residency)"
+    },
+    {
+     "url": "https://docs.github.com/en/copilot/concepts/enterprise/fedramp-models",
+     "retrieved": "2026-09-23",
+     "finding": "copilot-billing fact-check (FedRAMP)"
+    }
+   ],
+   "notes": "+10% while a restrict-to-compliant-models policy is on; stacking with Auto and rounding undocumented (assumed multiplicative, rounded once per line)"
+  },
+  {
+   "modifier_id": "github.fast.opus-4-8",
+   "kind": "replace_base",
+   "factor": null,
+   "base_usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "github_copilot",
+    "model_in": "claude-opus-4-8",
+    "speed": "fast"
+   },
+   "stacking": "documented",
+   "sources": [
+    {
+     "url": "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+     "retrieved": "2026-09-23",
+     "finding": "yml 2026-06-29_f09a8a68fd (Claude Opus 4.8 (fast mode) (preview))"
+    }
+   ],
+   "notes": "listed from 2026-06-29 (date_source=K); cache prices follow the row multipliers ($1.00 read, $12.50 write)"
+  }
+ ]
+}

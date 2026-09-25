@@ -1,0 +1,676 @@
+{
+ "schema": "tokenbill/rates@1",
+ "provider": "anthropic",
+ "as_of": "2026-09-24",
+ "notes": "Google Cloud Vertex AI (Agent Platform) partner-model prices; Vertex ids carry no region, so endpoint scope is usually unknown (range)",
+ "rows": [
+  {
+   "row_id": "anthropic/vertex/claude-opus-5-5/2026-09-22",
+   "provider": "anthropic",
+   "channel": "vertex",
+   "model": "claude-opus-5-5",
+   "aliases": [],
+   "generation": "5.5",
+   "effective_from": "2026-09-22",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "4.00",
+    "output": "20.00"
+   },
+   "multipliers": {
+    "cache_read": "0.05",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.20",
+    "cache_write_5m": "5.00",
+    "cache_write_1h": "8.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "vertex-claude-geo-labels"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "global-endpoint prices; regional and multi-region +10% via vertex.endpoint.regional; minimum cacheable prompt as on the Claude API (prompt-caching page covers Google Cloud); effective_from = the Claude API launch date; web search price listed only for older models; not priced here"
+  },
+  {
+   "row_id": "anthropic/vertex/claude-fable-5-1/2026-09-01",
+   "provider": "anthropic",
+   "channel": "vertex",
+   "model": "claude-fable-5-1",
+   "aliases": [],
+   "generation": "5.1",
+   "effective_from": "2026-09-01",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "multipliers": {
+    "cache_read": "0.025",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.25",
+    "cache_write_5m": "12.50",
+    "cache_write_1h": "20.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "vertex-claude-geo-labels"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "global-endpoint prices; regional and multi-region +10% via vertex.endpoint.regional; minimum cacheable prompt as on the Claude API (prompt-caching page covers Google Cloud); effective_from = the Claude API launch date; web search price listed only for older models; not priced here"
+  },
+  {
+   "row_id": "anthropic/vertex/claude-opus-5/2026-07-24",
+   "provider": "anthropic",
+   "channel": "vertex",
+   "model": "claude-opus-5",
+   "aliases": [],
+   "generation": "5",
+   "effective_from": "2026-07-24",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "vertex-claude-geo-labels"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "global-endpoint prices; regional and multi-region +10% via vertex.endpoint.regional; minimum cacheable prompt as on the Claude API (prompt-caching page covers Google Cloud); effective_from = the Claude API launch date; web search price listed only for older models; not priced here"
+  },
+  {
+   "row_id": "anthropic/vertex/claude-sonnet-5/2026-06-30",
+   "provider": "anthropic",
+   "channel": "vertex",
+   "model": "claude-sonnet-5",
+   "aliases": [],
+   "generation": "5",
+   "effective_from": "2026-06-30",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "2.00",
+    "output": "10.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.20",
+    "cache_write_5m": "2.50",
+    "cache_write_1h": "4.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "vertex-claude-geo-labels"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "global-endpoint prices; regional and multi-region +10% via vertex.endpoint.regional; minimum cacheable prompt as on the Claude API (prompt-caching page covers Google Cloud); effective_from = the Claude API launch date; web search price listed only for older models; not priced here"
+  },
+  {
+   "row_id": "anthropic/vertex/claude-fable-5/2026-06-09",
+   "provider": "anthropic",
+   "channel": "vertex",
+   "model": "claude-fable-5",
+   "aliases": [],
+   "generation": "5",
+   "effective_from": "2026-06-09",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "10.00",
+    "output": "50.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "1.00",
+    "cache_write_5m": "12.50",
+    "cache_write_1h": "20.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 512,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "vertex-claude-geo-labels"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "global-endpoint prices; regional and multi-region +10% via vertex.endpoint.regional; minimum cacheable prompt as on the Claude API (prompt-caching page covers Google Cloud); effective_from = the Claude API launch date; web search price listed only for older models; not priced here"
+  },
+  {
+   "row_id": "anthropic/vertex/claude-opus-4-8/2026-05-28",
+   "provider": "anthropic",
+   "channel": "vertex",
+   "model": "claude-opus-4-8",
+   "aliases": [],
+   "generation": "4.8",
+   "effective_from": "2026-05-28",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "vertex-claude-geo-labels"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "global-endpoint prices; regional and multi-region +10% via vertex.endpoint.regional; minimum cacheable prompt as on the Claude API (prompt-caching page covers Google Cloud); effective_from = the Claude API launch date; web search price listed only for older models; not priced here"
+  },
+  {
+   "row_id": "anthropic/vertex/claude-opus-4-7/2026-04-16",
+   "provider": "anthropic",
+   "channel": "vertex",
+   "model": "claude-opus-4-7",
+   "aliases": [],
+   "generation": "4.7",
+   "effective_from": "2026-04-16",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 2048,
+   "tokenizer_family": "claude-4.7+",
+   "per_request_usd": {},
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "vertex-claude-geo-labels"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "global-endpoint prices; regional and multi-region +10% via vertex.endpoint.regional; minimum cacheable prompt as on the Claude API (prompt-caching page covers Google Cloud); effective_from = the Claude API launch date; web search price listed only for older models; not priced here"
+  },
+  {
+   "row_id": "anthropic/vertex/claude-sonnet-4-6/2026-02-17",
+   "provider": "anthropic",
+   "channel": "vertex",
+   "model": "claude-sonnet-4-6",
+   "aliases": [],
+   "generation": "4.6",
+   "effective_from": "2026-02-17",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "3.00",
+    "output": "15.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.30",
+    "cache_write_5m": "3.75",
+    "cache_write_1h": "6.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "vertex-claude-geo-labels"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "global-endpoint prices; regional and multi-region +10% via vertex.endpoint.regional; minimum cacheable prompt as on the Claude API (prompt-caching page covers Google Cloud); effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/vertex/claude-opus-4-6/2026-02-05",
+   "provider": "anthropic",
+   "channel": "vertex",
+   "model": "claude-opus-4-6",
+   "aliases": [],
+   "generation": "4.6",
+   "effective_from": "2026-02-05",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 4096,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "1m_context",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "vertex-claude-geo-labels"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "global-endpoint prices; regional and multi-region +10% via vertex.endpoint.regional; minimum cacheable prompt as on the Claude API (prompt-caching page covers Google Cloud); effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/vertex/claude-opus-4-5/2025-11-24",
+   "provider": "anthropic",
+   "channel": "vertex",
+   "model": "claude-opus-4-5",
+   "aliases": [],
+   "generation": "4.5",
+   "effective_from": "2025-11-24",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "5.00",
+    "output": "25.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.50",
+    "cache_write_5m": "6.25",
+    "cache_write_1h": "10.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 4096,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "vertex-claude-geo-labels"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "global-endpoint prices; regional and multi-region +10% via vertex.endpoint.regional; minimum cacheable prompt as on the Claude API (prompt-caching page covers Google Cloud); effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/vertex/claude-haiku-4-5/2025-10-15",
+   "provider": "anthropic",
+   "channel": "vertex",
+   "model": "claude-haiku-4-5",
+   "aliases": [],
+   "generation": "4.5",
+   "effective_from": "2025-10-15",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "1.00",
+    "output": "5.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.10",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 4096,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": null,
+   "promotion": null,
+   "supports": [
+    "batch",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "vertex-claude-geo-labels"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "global-endpoint prices; regional and multi-region +10% via vertex.endpoint.regional; minimum cacheable prompt as on the Claude API (prompt-caching page covers Google Cloud); effective_from = the Claude API launch date"
+  },
+  {
+   "row_id": "anthropic/vertex/claude-sonnet-4-5/2025-09-29",
+   "provider": "anthropic",
+   "channel": "vertex",
+   "model": "claude-sonnet-4-5",
+   "aliases": [],
+   "generation": "4.5",
+   "effective_from": "2025-09-29",
+   "effective_to": null,
+   "usd_per_mtok": {
+    "input": "3.00",
+    "output": "15.00"
+   },
+   "multipliers": {
+    "cache_read": "0.1",
+    "cache_write_5m": "1.25",
+    "cache_write_1h": "2"
+   },
+   "published_absolute": {
+    "cache_read": "0.30",
+    "cache_write_5m": "3.75",
+    "cache_write_1h": "6.00"
+   },
+   "cache_write_other_ttl_s": null,
+   "min_cacheable_tokens": 1024,
+   "tokenizer_family": "claude-legacy",
+   "per_request_usd": {
+    "web_search": "0.01"
+   },
+   "long_context": {
+    "threshold": 200000,
+    "usd_per_mtok": {
+     "input": "6.00",
+     "output": "22.50",
+     "cache_read": "0.60",
+     "cache_write_5m": "7.50",
+     "cache_write_1h": "12.00"
+    }
+   },
+   "promotion": null,
+   "supports": [
+    "batch",
+    "keepalive"
+   ],
+   "enabled": true,
+   "verified_on": "2026-09-24",
+   "sources": [
+    {
+     "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "vertex-claude-geo-labels"
+    },
+    {
+     "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+     "retrieved": "2026-09-24",
+     "finding": "anth-cache-1h-2x"
+    }
+   ],
+   "notes": "global-endpoint prices; regional and multi-region +10% via vertex.endpoint.regional; minimum cacheable prompt as on the Claude API (prompt-caching page covers Google Cloud); effective_from = the Claude API launch date; long-context rates for the whole request above 200K input tokens (the table header says '> 200K', a footnote '>= 200K': VERIFY)"
+  }
+ ],
+ "modifiers": [
+  {
+   "modifier_id": "vertex.endpoint.regional",
+   "kind": "multiply",
+   "factor": "1.1",
+   "base_usd_per_mtok": {},
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "vertex",
+    "endpoint_scope": "regional",
+    "generation_gte": "4.5"
+   },
+   "stacking": "documented",
+   "sources": [
+    {
+     "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "vertex-claude-geo-labels"
+    },
+    {
+     "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "vertex-claude-geo-labels"
+    }
+   ],
+   "notes": "regional and multi-region endpoints +10% over global for Claude 4.5 models and later (the Vertex regional tables equal global x 1.1)"
+  },
+  {
+   "modifier_id": "vertex.batch",
+   "kind": "multiply",
+   "factor": "0.5",
+   "base_usd_per_mtok": {},
+   "applies_to": [
+    "*"
+   ],
+   "when": {
+    "channel_in": "vertex",
+    "service_tier": "batch"
+   },
+   "stacking": "assumed",
+   "sources": [
+    {
+     "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+     "retrieved": "2026-09-24",
+     "finding": "vertex-claude-geo-labels"
+    }
+   ],
+   "notes": "Vertex batch prices are 0.5x on every bucket except the global Opus 5.5 listing ($2.50 / $12.50 input/output = 0.625x, while its regional batch and batch cache prices are 0.5x): SPEC §19.8 #9 unresolved, 0.5x assumed (VERIFY)"
+  }
+ ]
+}

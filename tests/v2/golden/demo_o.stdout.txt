@@ -1,0 +1,76 @@
+~43% of billed input tokens went to re-sending bytes the model had already seen; the three fixes below recover an estimated $0.26 of $0.41.
+bundled demo scenarios (seed 7) | 4 runs | 56 calls | models: claude-sonnet-5
+[synthetic demo data: bundled scenarios with planted waste]
+
+Run demo-well-behaved-seed7
+  billed tokens    cache read 50,643 | cache write 6,091 | uncached input 0 | output 993
+  billed dollars   $0.0353  (cache read $0.0101 | cache write $0.0152 | uncached input $0.00 | output $0.0099)
+  redundant input  ~0.0% of billed input tokens re-sent (approx)
+  scenarios
+    as-billed      $0.0353  #######
+    no-cache         $0.12  ########################
+    optimal-cache  $0.0352  #######
+    fixed-cache    $0.0352  #######
+    note (as-billed): exact: real billed usage priced at published rates (ground truth)
+    note (no-cache): counterfactual: every billed input token repriced at the full uncached rate (no cache reads, no write premium)
+    note (optimal-cache): simulated (approx): documented cache rules — 300s TTL sliding on read, min-cacheable gate, one breakpoint at end of messages; char-based token split scaled to billed totals; validation: billed cache reads 50643 vs simulated 50644 (agreement 1.000)
+    note (fixed-cache): simulated (approx): no repairs supplied — identical to optimal-cache
+  breakers         none detected
+
+Run demo-timestamp-seed7
+  billed tokens    cache read 0 | cache write 0 | uncached input 56,880 | output 993
+  billed dollars   $0.12  (cache read $0.00 | cache write $0.00 | uncached input $0.11 | output $0.0099)
+  redundant input  ~17.7% of billed input tokens re-sent (approx)
+  scenarios
+    as-billed        $0.12  ########################
+    no-cache         $0.12  ########################
+    optimal-cache    $0.12  ########################
+    fixed-cache    $0.0353  #######
+    note (as-billed): exact: real billed usage priced at published rates (ground truth)
+    note (no-cache): counterfactual: every billed input token repriced at the full uncached rate (no cache reads, no write premium)
+    note (optimal-cache): simulated (approx): documented cache rules — 300s TTL sliding on read, min-cacheable gate, one breakpoint at end of messages; char-based token split scaled to billed totals
+    note (fixed-cache): simulated (approx): optimal-cache rules over the breaker-repaired rendering; billed usage totals reused for the token split
+  breakers
+    volatile-system | first at call index 1 | recovers ~$0.0884
+      fix: move the volatile value (timestamp/UUID/counter) out of the system prompt — inject it in the latest user message instead
+      evidence: system chars [355:374] at call 1: '...reen.\nSession: [session 2026-07-26 14:03:00]\n\nRepository layout:\n  ...' -> '..... [truncated, 196 chars total]
+
+Run demo-tool-churn-seed7
+  billed tokens    cache read 0 | cache write 0 | uncached input 56,734 | output 993
+  billed dollars   $0.12  (cache read $0.00 | cache write $0.00 | uncached input $0.11 | output $0.0099)
+  redundant input  ~66.8% of billed input tokens re-sent (approx)
+  scenarios
+    as-billed        $0.12  ########################
+    no-cache         $0.12  ########################
+    optimal-cache  $0.0641  ############
+    fixed-cache    $0.0352  #######
+    note (as-billed): exact: real billed usage priced at published rates (ground truth)
+    note (no-cache): counterfactual: every billed input token repriced at the full uncached rate (no cache reads, no write premium)
+    note (optimal-cache): simulated (approx): documented cache rules — 300s TTL sliding on read, min-cacheable gate, one breakpoint at end of messages; char-based token split scaled to billed totals
+    note (fixed-cache): simulated (approx): optimal-cache rules over the breaker-repaired rendering; billed usage totals reused for the token split
+  breakers
+    tool-churn | first at call index 4 | recovers ~$0.0882
+      fix: send tool definitions in one fixed order on every call (sort them once at startup); reordering rewrites the cached prefix
+      evidence: tool order changed at call 4: first seen ['read_file', 'edit_file', 'run_command', 'search_code'] -> ['edit_file', 'run_... [truncated, 157 chars total]
+
+Run demo-no-cache-seed7
+  billed tokens    cache read 0 | cache write 0 | uncached input 56,734 | output 993
+  billed dollars   $0.12  (cache read $0.00 | cache write $0.00 | uncached input $0.11 | output $0.0099)
+  redundant input  ~89.3% of billed input tokens re-sent (approx)
+  scenarios
+    as-billed        $0.12  ########################
+    no-cache         $0.12  ########################
+    optimal-cache  $0.0352  #######
+    fixed-cache    $0.0352  #######
+    note (as-billed): exact: real billed usage priced at published rates (ground truth)
+    note (no-cache): counterfactual: every billed input token repriced at the full uncached rate (no cache reads, no write premium)
+    note (optimal-cache): simulated (approx): documented cache rules — 300s TTL sliding on read, min-cacheable gate, one breakpoint at end of messages; char-based token split scaled to billed totals
+    note (fixed-cache): simulated (approx): optimal-cache rules over the breaker-repaired rendering; billed usage totals reused for the token split
+  breakers
+    missing-breakpoint | first at call index 1 | recovers ~$0.0882
+      fix: add a cache_control breakpoint (for example on the last message); the stable prefix already meets the minimum cacheable length
+      evidence: calls 0->1 share a byte-stable prefix of ~1641 approx tokens (min cacheable 1024) but cache_breakpoints=0 and billed cac... [truncated, 136 chars total]
+
+approx (~): char-based attribution scaled to billed totals; dollar and token totals come from real billed usage.
+Report written to report.html
+next: record a real agent and analyze its trace — see "Your first real trace" in the README
