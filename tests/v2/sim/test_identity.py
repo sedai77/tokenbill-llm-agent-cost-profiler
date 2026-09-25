@@ -174,6 +174,37 @@ def test_allowance_lanes_replay_on_list_equivalent() -> None:
     assert res.saving.nano == 1_150_800_000
 
 
+# late change request A-6 (SPEC-v0.2-COPILOT §21.4a CC-COPILOT-2, ruling R-E23; gate-1 fixup 5)
+
+
+def test_conforms_with_copilot_pool_lanes() -> None:
+    got = assert_replayer_conforms(UsageReplayer(), FakePricer(), pool=True)
+    assert got["pool_baseline_nano"] > 0
+
+
+def test_pool_lanes_replay_on_list_equivalent_like_allowance() -> None:
+    """A ``copilot_pool`` lane (billing class ``pool``) replays to LIST_EQUIVALENT figures,
+    exactly as the same usage on the allowance path."""
+    pool = a1_lane(billing_path="copilot_pool")
+    assert pool.billing_class == "pool"
+    res = replay(pool, "ttl=1h")
+    allowance = replay(a1_lane(billing_path="subscription"), "ttl=1h")
+    for figure in (res.baseline, res.cost, res.saving):
+        assert figure.basis is Basis.LIST_EQUIVALENT and not figure.is_billed_eligible
+    assert (res.baseline.nano, res.cost.nano, res.saving.nano) == (
+        allowance.baseline.nano, allowance.cost.nano, allowance.saving.nano)
+    observed = replay(pool, Policy.observed())
+    assert observed.cost == observed.baseline and observed.saving.nano == 0
+
+
+@pytest.mark.parametrize("paths", [("api_key", "subscription"), ("api_key", "copilot_pool"),
+                                   ("subscription", "copilot_pool")])
+def test_mixed_billing_classes_raise_listing_the_classes(paths: tuple[str, str]) -> None:
+    lanes = [a1_lane(lane_key=f"L{i}", billing_path=p) for i, p in enumerate(paths)]
+    with pytest.raises(UsageError, match=r"one billing class only \(billed \| allowance \| pool\)"):
+        replay(lanes, "ttl=1h")
+
+
 def test_empty_input_and_empty_lanes() -> None:
     res = replay([], "ttl=1h")
     assert res.baseline.nano == 0 and res.cost.nano == 0 and res.saving.nano == 0

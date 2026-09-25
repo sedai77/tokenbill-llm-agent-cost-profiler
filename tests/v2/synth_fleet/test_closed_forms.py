@@ -240,9 +240,29 @@ def test_runaway_rebaseline_and_totals() -> None:
     per_request = 400_000 * 200 + 5_000 * 20_000
     assert figs["session_nano"] == 200 * per_request
     assert figs["rolling_1h_max_nano"] == 120 * per_request
-    assert figs["cohort_p99_hourly_nano"] == figs["cohort_p95_session_nano"] == 4_000_000
+    assert figs["others_p99_hourly_nano"] == figs["cohort_p95_session_nano"] == 4_000_000
     assert figs["threshold_nano"] == 50 * USD
     assert figs["sessions"] == 201
+    assert (figs["fires"], figs["flagged_sessions"], figs["min_sessions"]) == (0, 0, 20)
+    # R-E41: the p99 leaves the session out, so a $80-an-hour loop fires in a 20-session
+    # cohort (it was its own p99 before) ...
+    heavy = make_lane([make_request("H", i, (BASE_S + 30 * i) * 1000,
+                                    {"uncached_input": 1_000_000}) for i in range(20)],
+                      session_key="heavy")
+    few = T.runaway([heavy, *(make_lane([q]) for q in small[:19])], c, "heavy")
+    assert few["rolling_1h_max_nano"] == 20 * 4_000 * 1_000_000
+    assert (few["others_p99_hourly_nano"], few["threshold_nano"]) == (4_000_000, 50 * USD)
+    assert (few["sessions"], few["fires"], few["flagged_sessions"]) == (20, 1, 1)
+    # ... but no session is judged below 20 sessions
+    fewer = T.runaway([heavy, *(make_lane([q]) for q in small[:18])], c, "heavy")
+    assert (fewer["sessions"], fewer["fires"], fewer["flagged_sessions"]) == (19, 0, 0)
+    # a second loop is judged against the others too: in 202 sessions both are flagged
+    heavy2 = make_lane([make_request("H2", i, (BASE_S + 50_000 + 30 * i) * 1000,
+                                     {"uncached_input": 1_000_000}) for i in range(15)],
+                       session_key="heavy2")
+    two = T.runaway([heavy, heavy2, *(make_lane([q]) for q in small)], c, "heavy")
+    assert (two["others_p99_hourly_nano"], two["fires"], two["flagged_sessions"]) == (
+        4_000_000, 1, 2)
     before = [make_request("M", i, (BASE_S + 60 * i) * 1000, {"output": 1_000}) for i in range(2)]
     after = [make_request("M", 2 + i, (BASE_S + 86_400 + 60 * i) * 1000, {"output": 1_350})
              for i in range(2)]
