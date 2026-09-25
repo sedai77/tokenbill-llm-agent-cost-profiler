@@ -1428,7 +1428,10 @@ class _FileParser:
                     items.append(AppendedItem(kind="image", name=None,
                                               n_bytes=len(data) if isinstance(data, str) else 0,
                                               images=1))
-        if text_bytes:
+        compact_summary = obj.get("isCompactSummary") is True
+        if text_bytes and not compact_summary:
+            # R-E33: a compact summary is the COMPACTION output (its synthetic request carries
+            # ``postTokens``), not human text appended to the next request
             items.insert(0, AppendedItem(kind="user_text", name=None, n_bytes=text_bytes))
         tur = obj.get("toolUseResult")
         if isinstance(tur, dict) and "totalTokens" in tur:
@@ -1443,7 +1446,7 @@ class _FileParser:
         if isinstance(origin, dict) and origin.get("kind") is not None:
             human = origin.get("kind") == "human"
         else:
-            human = (obj.get("isMeta") is not True and obj.get("isCompactSummary") is not True
+            human = (obj.get("isMeta") is not True and not compact_summary
                      and not has_tool_result)
         if human and ref.kind is LaneKind.MAIN and ts is not None:
             self.event(ref, ts, LaneEventKind.HUMAN_PROMPT, ())
