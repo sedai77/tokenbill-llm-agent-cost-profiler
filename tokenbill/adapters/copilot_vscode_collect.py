@@ -448,7 +448,8 @@ def vscode_paths(*, platform: str | None = None, env: Mapping[str, str] | None =
         found += [f"{home_s.rstrip('/')}/{d}/{tail}"
                   for d in (".vscode-server", ".vscode-server-insiders")]
     sep = "\\" if plat == "win32" else "/"
-    found.append(_node_tmpdir(plat, environ) + sep + fact.tmp_fallback_file)
+    tmp = _node_tmpdir(plat, environ)  # path.join: no doubled separator after a root ("C:\\")
+    found.append(tmp + ("" if tmp.endswith(sep) else sep) + fact.tmp_fallback_file)
     out: list[Path] = []
     seen: set[str] = set()
     for s in found:
@@ -834,6 +835,7 @@ def _write_db_extract(run: _Run, source: Path, rows: list[tuple[Any, ...]],
     out_rows: list[tuple[Any, ...]] = []
     out_attrs: list[tuple[str, str, Any]] = []
     plain_values: set[str] = set()
+    id_values: set[str] = set()
     for row in rows:
         values = list(row)
         values[i_name] = row[i_name] if row[i_name] in OPERATION_NAMES else OTHER_NAME
@@ -844,15 +846,15 @@ def _write_db_extract(run: _Run, source: Path, rows: list[tuple[Any, ...]],
             if not _text_ok(v):
                 run.stats["oversize_values_dropped"] += 1
                 values[i] = None
-            elif isinstance(v, str) and names[i] not in _ID_COLUMNS:
-                plain_values.add(v)
+            elif isinstance(v, str):
+                (id_values if names[i] in _ID_COLUMNS else plain_values).add(v)
         out_rows.append(tuple(values))
         for k, v in attrs.get(row[i_sid], ()):
             if not _text_ok(v):
                 run.stats["oversize_values_dropped"] += 1
                 continue
-            if isinstance(v, str) and k not in _ID_ATTRIBUTES:
-                plain_values.add(v)
+            if isinstance(v, str):
+                (id_values if k in _ID_ATTRIBUTES else plain_values).add(v)
             out_attrs.append((row[i_sid], k, v))
     if not out_rows:
         return
@@ -864,7 +866,7 @@ def _write_db_extract(run: _Run, source: Path, rows: list[tuple[Any, ...]],
     tmp = run.out_dir / f".{name}.tmp"
     try:
         _build_sqlite(run, tmp, names, out_rows, out_attrs, meta)
-        _scan_file(tmp, plain_values)
+        _scan_file(tmp, plain_values, id_values)
         final = _publish(tmp, run.out_dir, name)
     except (OSError, sqlite3.Error) as exc:
         _unlink(tmp)
@@ -922,7 +924,7 @@ def _build_sqlite(run: _Run, tmp: Path, names: Sequence[str], rows: list[tuple[A
 # ---------------------------------------------------------------------------------------------
 
 
-def _scan_file(path: Path, plain_values: Iterable[str]) -> None:
+def _scan_file(path: Path, plain_values: Iterable[str], id_values: Iterable[str] = ()) -> None:
     """Abort (``_Abort``) when *path* holds a canary or a secret.
 
     * the canary strings (``CANARY``, ``CANARY_LOGIN``, ``CANARY_EMAIL``) anywhere in the raw bytes;
@@ -930,6 +932,9 @@ def _scan_file(path: Path, plain_values: Iterable[str]) -> None:
       raw bytes (SQLite pages / JSON text): each printable segment holding a detector prefix is
       passed to ``find_secrets``; ``high_entropy`` hits there are ignored because span, trace,
       response and conversation ids are random by design;
+    * the same specific detectors over each of *id_values* (the identifier values written): SQLite
+      stores a record's values back to back, so a key glued to the previous value would slip past
+      the detectors' word-boundary look-behind in the raw pass;
     * every ``find_secrets`` detector, ``high_entropy`` included, over *plain_values* — the
       non-identifier text values written (models, names, labels, meta values)."""
     try:
@@ -950,6 +955,10 @@ def _scan_file(path: Path, plain_values: Iterable[str]) -> None:
         right = nxt.start() if nxt is not None else len(text)
         done = right
         if any(kind != "high_entropy" for kind, _, _ in find_secrets(text[left:right])):
+            raise _Abort("secret pattern found")
+    for value in id_values:
+        if _SECRET_TRIGGER.search(value) and any(
+                kind != "high_entropy" for kind, _, _ in find_secrets(value)):
             raise _Abort("secret pattern found")
     joined = "\n".join(sorted(set(plain_values)))
     if find_secrets(joined):
@@ -1228,19 +1237,17 @@ def _canonical(value: Any) -> str:
     raise TypeError(f"unsupported value type {type(value).__name__}")
 
 
-def _plain_strings(rec: Any, key: str = "") -> Iterator[str]:
-    """Every string of *rec* except random identifiers (span / trace ids, response and
-    conversation ids)."""
+def _strings(rec: Any, is_id: bool = False) -> Iterator[tuple[bool, str]]:
+    """``(is_identifier, value)`` for every string of *rec*; identifiers are the random span /
+    trace ids and the response and conversation ids."""
     if isinstance(rec, dict):
         for k, v in rec.items():
-            if k in ("traceId", "spanId") or k in _ID_ATTRIBUTES:
-                continue
-            yield from _plain_strings(v, k)
+            yield from _strings(v, k in ("traceId", "spanId") or k in _ID_ATTRIBUTES)
     elif isinstance(rec, list):
         for v in rec:
-            yield from _plain_strings(v, key)
+            yield from _strings(v, is_id)
     elif isinstance(rec, str):
-        yield rec
+        yield is_id, rec
 
 
 def _write_otel_extract(run: _Run, records: list[dict[str, Any]],
@@ -1255,7 +1262,8 @@ def _write_otel_extract(run: _Run, records: list[dict[str, Any]],
             warning = jsonl.acl_warning(f)
         if warning:
             run.note(warning, "warn", "extract written without an owner-only ACL")
-        _scan_file(tmp, (s for rec in records for s in _plain_strings(rec)))
+        pairs = [pair for rec in records for pair in _strings(rec)]
+        _scan_file(tmp, (v for is_id, v in pairs if not is_id), (v for is_id, v in pairs if is_id))
         final = _publish(tmp, run.out_dir, name)
     except OSError as exc:
         _unlink(tmp)

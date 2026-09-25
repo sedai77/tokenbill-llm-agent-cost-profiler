@@ -122,8 +122,7 @@ def test_meta_table_exact(tmp_path: Path) -> None:
         "dropped_synthesized": "0",
     }
     name = extract.name
-    assert re.fullmatch(r"vscode-[0-9a-f]{12}-%d-%d\.db" % (mk.BASE_MS, mk.BASE_MS + 61_960),
-                        name)
+    assert re.fullmatch(rf"vscode-[0-9a-f]{{12}}-{mk.BASE_MS}-{mk.BASE_MS + 61_960}\.db", name)
 
 
 def test_meta_without_principal_and_team(tmp_path: Path) -> None:
