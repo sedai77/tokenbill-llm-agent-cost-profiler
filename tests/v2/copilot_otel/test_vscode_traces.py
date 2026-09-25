@@ -231,3 +231,18 @@ def test_window_and_bad_rows(tmp_path: Path) -> None:
 def test_span_columns_never_include_tool_columns() -> None:
     assert not any(c.startswith("tool_") for c in SPAN_COLUMNS)
     assert "span_id" in SPAN_COLUMNS and "chat_session_id" in SPAN_COLUMNS
+
+
+def test_raw_database_and_its_extract_merge_in_a_store(tmp_path: Path) -> None:
+    """One conversation seen through the raw database and a CP-VSCODE extract merges (the same
+    request ids and provider message ids): no request is doubled."""
+    from tokenbill.core.testing import FakePricer, MemoryStore
+
+    store = MemoryStore(org_key=bytes(range(200, 232)), pricer=FakePricer())
+    store.ingest(ADAPTER.read(_db(tmp_path), opts()))
+    extract = build_db(tmp_path / "extract.db", standard_spans(), content=False,
+                       meta=extract_meta())
+    store.ingest(ADAPTER.read(extract, opts()))
+    merged = [r for lane in store.iter_lanes() for r in lane.requests]
+    assert sorted(r.attempts[0].provider_message_id for r in merged) == ["resp_db_001",
+                                                                        "resp_db_002"]
