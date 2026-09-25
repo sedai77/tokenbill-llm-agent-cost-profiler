@@ -11,6 +11,7 @@ from fractions import Fraction
 import pytest
 
 from tokenbill.core.findings import min_usd_nano
+from tokenbill.core.lanes import group_lanes
 
 from .worlds import ctx, dims, evidence, of, world
 
@@ -156,7 +157,13 @@ def test_lane_plants_when_the_lane_detector_exists() -> None:
     lanes_mod = pytest.importorskip("tokenbill.detect.copilot_lanes")
     w = world()
     t = w.truth.lanes
-    found = lanes_mod.CopilotLanes().detect(list(w.records.lanes), ctx(w))
+    # compaction credits are small (one summary call each); validate at the lane detector's
+    # documented small-dollar threshold, as CP-DET-LANES' own suite does.
+    # Feed lanes as the pipeline does: group_lanes dedups a conversation delivered by several
+    # source adapters (same request_id) into one lane, exactly as the store does before detection.
+    r = w.records
+    lanes = group_lanes(r.requests, r.events, r.sessions)
+    found = lanes_mod.CopilotLanes().detect(lanes, ctx(w, min_usd="0.10"))
     kinds = {f.kind for f in found}
     assert {"long-context-band", "compaction-cost", "ci-uncapped"} <= kinds
     spend = sum(f.cost_observed.nano or 0 for f in found if f.kind == "compaction-cost")

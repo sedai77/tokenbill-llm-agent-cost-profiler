@@ -48,12 +48,15 @@ def _world_lanes() -> tuple[Any, list[Lane]]:
     synth = pytest.importorskip("tokenbill.synth.copilot_world")
     world = synth.generate(seed=7)
     rec = _get(world, "records", default=world)
-    lanes = _get(rec, "lanes", default=None)
-    if lanes is None:
-        sessions = tuple(_get(rec, "sessions", default=()))
-        requests = tuple(_get(rec, "requests", default=()))
-        events = tuple(_get(rec, "events", "lane_events", default=()))
-        lanes = group_lanes(requests, events, sessions)
+    # Always group through group_lanes: the world exposes one raw lane per source session
+    # (a conversation delivered by several adapters), and the pipeline dedups by request_id in
+    # the store before lanes reach a detector. Grouping here reproduces that deduped view, so a
+    # conversation's compaction is counted once, not once per source (matches the truth's dedup).
+    sessions = tuple(_get(rec, "sessions", default=()))
+    requests = tuple(_get(rec, "requests", default=()))
+    events = tuple(_get(rec, "events", "lane_events", default=()))
+    lanes = group_lanes(requests, events, sessions) if requests or sessions else (
+        _get(rec, "lanes", default=()))
     lanes = [ln for ln in lanes if isinstance(ln, Lane)]
     if not lanes:
         pytest.skip("the CP-SYNTH world carries no lanes under a known attribute name")
@@ -64,7 +67,9 @@ def _gate_ctx(lanes: Iterable[Lane], *, replayer: Any = None) -> AnalysisContext
     from tokenbill.core.cache_rules import RulesTable
 
     floor = static_prefix_floor(lane_first_reads_of(lanes))
-    return ctx(caps=LANE_CAPS, rules=RulesTable(), replayer=replayer, floor=floor)
+    # min_usd 0.10: compaction credits are small (one summary call each), as CP-DET-LANES'
+    # own test_compaction.py validates; the plant spend is real but below the $1 default.
+    return ctx(caps=LANE_CAPS, rules=RulesTable(), replayer=replayer, floor=floor, min_usd="0.10")
 
 
 def _team(findings: Iterable[Finding], kind: str, team: str) -> list[Finding]:

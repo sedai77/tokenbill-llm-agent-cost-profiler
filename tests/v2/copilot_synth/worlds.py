@@ -41,8 +41,13 @@ def pools(w: CopilotWorld) -> tuple[list, list]:
     return pms, plans
 
 
-def ctx(w: CopilotWorld, *, reconciled: Iterable[str] = ("github_copilot",)) -> AnalysisContext:
-    """The analysis context of *w* (every capability, pools and plans from ``core.pool``)."""
+def ctx(w: CopilotWorld, *, reconciled: Iterable[str] = ("github_copilot",),
+        min_usd: str = "1.00") -> AnalysisContext:
+    """The analysis context of *w* (every capability, pools and plans from ``core.pool``).
+
+    ``min_usd`` defaults to the product default ($1.00); the lane detector's small-dollar lever
+    findings (e.g. ``compaction-cost``, one summary call each) are validated at ``"0.10"``, as
+    CP-DET-LANES' own suite does."""
     r = w.records
     pms, plans = pools(w)
     return AnalysisContext(
@@ -50,7 +55,8 @@ def ctx(w: CopilotWorld, *, reconciled: Iterable[str] = ("github_copilot",)) -> 
         window=(ms("2026-07-01"), ms(w.today)), capabilities=ALL_CAPS, now_ms=ms(w.today),
         aggregates=r.aggregates, cost_lines=r.cost_lines, licenses=r.licenses,
         activity=r.activity, config=r.config, outcomes=r.outcomes, pools=tuple(pms),
-        plans=tuple(plans), reconciled_channels=frozenset(reconciled))
+        plans=tuple(plans), reconciled_channels=frozenset(reconciled),
+        thresholds={"min_usd": min_usd})
 
 
 def dims(f: Finding) -> dict[str, str]:
