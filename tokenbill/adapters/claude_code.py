@@ -1938,16 +1938,22 @@ def parse_line(raw: bytes) -> dict[str, Any] | None:
 
 
 def _has_lone_surrogate(value: Any) -> bool:
-    if isinstance(value, str):
-        try:
-            value.encode("utf-8")
-        except UnicodeEncodeError:
-            return True
-        return False
-    if isinstance(value, dict):
-        return any(_has_lone_surrogate(k) or _has_lone_surrogate(v) for k, v in value.items())
-    if isinstance(value, list):
-        return any(_has_lone_surrogate(v) for v in value)
+    """Whether a string (key or value) anywhere in the decoded JSON *value* holds an unpaired
+    surrogate. Iterative (the ``core.jsonl`` port, F-CORE-C review D7), so a document nested as
+    deeply as the JSON decoder accepts never raises ``RecursionError`` here."""
+    stack = [value]
+    while stack:
+        v = stack.pop()
+        if isinstance(v, str):
+            try:
+                v.encode("utf-8")
+            except UnicodeEncodeError:
+                return True
+        elif isinstance(v, dict):
+            stack.extend(v.keys())
+            stack.extend(v.values())
+        elif isinstance(v, list):
+            stack.extend(v)
     return False
 
 
