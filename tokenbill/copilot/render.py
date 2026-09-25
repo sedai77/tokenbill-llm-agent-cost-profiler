@@ -283,7 +283,7 @@ class _Text:
             return
         first = True
         while True:
-            pad = indent if first else indent + cont
+            pad = indent if first or self.width - indent - cont < 8 else indent + cont
             space = self.width - pad
             if len(body) <= space:
                 self.lines.append(" " * pad + body)
