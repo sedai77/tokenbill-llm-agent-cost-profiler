@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import os
 import stat
 import threading
 import time
@@ -526,7 +527,8 @@ def test_fingerprint_and_full_tiers(tmp_path: Path) -> None:
         else:
             assert contents == []
             assert_no_canary(rec.path.read_bytes())
-    assert stat.S_IMODE((tmp_path / "key").stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE((tmp_path / "key").stat().st_mode) == 0o600
 
 
 def test_request_params_are_recorded_content_free(tmp_path: Path) -> None:

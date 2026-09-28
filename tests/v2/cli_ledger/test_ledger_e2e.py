@@ -427,8 +427,9 @@ def test_init_variants(tmp_path: Path) -> None:
     assert code == 0 and "collection.key" in out and "k = 6" in out
     cfg = json.loads((tmp_path / "c" / "config.json").read_text(encoding="utf-8"))
     assert cfg["identity_mode"] == "two-stage" and cfg["collection_key_file"] == "collection.key"
-    assert (tmp_path / "c" / "org.key").stat().st_mode & 0o077 == 0
-    assert (tmp_path / "c").stat().st_mode & 0o077 == 0
+    if os.name != "nt":
+        assert (tmp_path / "c" / "org.key").stat().st_mode & 0o077 == 0
+        assert (tmp_path / "c").stat().st_mode & 0o077 == 0
     key_before = (tmp_path / "c" / "org.key").read_bytes()
     assert run_main(["init", "--dir", str(tmp_path / "c"), "--force"])[0] == 0
     assert (tmp_path / "c" / "org.key").read_bytes() == key_before  # keys are never replaced

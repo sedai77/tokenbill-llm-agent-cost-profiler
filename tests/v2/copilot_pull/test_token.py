@@ -30,6 +30,10 @@ def test_file_is_reread_on_every_get(tmp_path: Path) -> None:
 def test_a_token_file_readable_or_writable_by_others_is_refused(tmp_path: Path,
                                                                 mode: int) -> None:
     src = TokenSource.from_file(token_file(tmp_path, TOKEN_A, mode=mode))
+    if os.name == "nt":
+        assert src.get() == TOKEN_A
+        assert src.warnings == (ACL_WARNING,)
+        return
     with pytest.raises(UsageError, match="chmod 600") as info:
         src.get()
     assert TOKEN_A not in str(info.value)
@@ -56,7 +60,7 @@ def test_missing_directory_fifo_and_oversize(tmp_path: Path) -> None:
     d.mkdir(mode=0o700)
     with pytest.raises(UsageError, match="regular file"):
         TokenSource.from_file(d).get()
-    if hasattr(os, "mkfifo"):
+    if os.name != "nt" and hasattr(os, "mkfifo"):
         fifo = tmp_path / "fifo"
         os.mkfifo(fifo, 0o600)
         with pytest.raises(UsageError, match="regular file"):
@@ -65,7 +69,7 @@ def test_missing_directory_fifo_and_oversize(tmp_path: Path) -> None:
     with pytest.raises(UsageError, match="too large"):
         TokenSource.from_file(big).get()
     locked = token_file(tmp_path / "l", TOKEN_A, mode=0o000)
-    if os.geteuid() != 0:
+    if os.name != "nt" and os.geteuid() != 0:
         with pytest.raises(UsageError, match="unreadable"):
             TokenSource.from_file(locked).get()
 

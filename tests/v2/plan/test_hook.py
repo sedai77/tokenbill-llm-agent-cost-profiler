@@ -47,7 +47,8 @@ def test_expired_expensive_resume_prints_a_system_message(tmp_path) -> None:
     assert "$3.20" in out["systemMessage"]
     assert "/compact to continue this task or /clear for a new one" in out["systemMessage"]
     state = _state(tmp_path)
-    assert stat.S_IMODE(state.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(state.stat().st_mode) == 0o600
     assert "sess-1" not in state.read_text()          # only a hash of the session id
 
 

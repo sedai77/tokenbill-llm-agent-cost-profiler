@@ -5,6 +5,7 @@ already holds files, reused with ``--resume`` (addendum §5.12 handoff output; b
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import stat
 from collections.abc import Sequence
@@ -40,7 +41,9 @@ def handoff_pull(tmp_path: Path, gh: FakeGitHub, work: Path, *, resume: bool = F
 
 def test_mode_0700_and_removed_after_normal_exit(tmp_path: Path) -> None:
     with private_workdir(parent=tmp_path) as work:
-        assert work.parent == tmp_path and work.is_dir() and mode(work) == 0o700
+        assert work.parent == tmp_path and work.is_dir()
+        if os.name != "nt":
+            assert mode(work) == 0o700
         (work / "sub").mkdir()
         (work / "sub" / "f.jsonl").write_text("x")
         (work / "sub" / "f.jsonl").chmod(0o400)
@@ -98,7 +101,9 @@ def test_keep_raw_moves_the_directory_and_resume_continues_it(
     with pytest.raises(TokenExpired), private_workdir(parent=tmp_path / "tmp",
                                                       keep_raw=keep) as work:
         handoff_pull(tmp_path, gh, work)
-    assert not work.exists() and keep.is_dir() and mode(keep) == 0o700
+    assert not work.exists() and keep.is_dir()
+    if os.name != "nt":
+        assert mode(keep) == 0o700
     assert (keep / MANIFEST_NAME).is_file() and "logins" in caplog.text
     first = Manifest.load(keep / MANIFEST_NAME)
     assert first.incomplete

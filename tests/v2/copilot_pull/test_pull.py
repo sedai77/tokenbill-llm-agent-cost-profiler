@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import stat
 from pathlib import Path
 from typing import Any
@@ -83,11 +84,12 @@ def test_handoff_pull_records_every_source(tmp_path: Path) -> None:
             "ai_usage/2026-09-01_2026-09-02", "metered/2026-09-01_2026-09-02"} <= ids
     assert sum(1 for i in ids if i.startswith("metrics/")) == 6  # 3 reports x 2 days
     assert sleeps == [30, 30]  # one poll per export
-    # every file private, directories 0700, files listed in the manifest exist
-    for path in out.rglob("*"):
-        mode = stat.S_IMODE(path.stat().st_mode)
-        assert mode == (0o700 if path.is_dir() else 0o600), path
-    assert stat.S_IMODE(out.stat().st_mode) == 0o700
+    # POSIX exposes the requested modes. Windows uses owner-only ACLs instead.
+    if os.name != "nt":
+        for path in out.rglob("*"):
+            mode = stat.S_IMODE(path.stat().st_mode)
+            assert mode == (0o700 if path.is_dir() else 0o600), path
+        assert stat.S_IMODE(out.stat().st_mode) == 0o700
     files = manifest.files(out)
     assert files and all(f.is_file() for f in files)
     assert sorted(p for p in out.rglob("*") if p.is_file()) == sorted([*files,
@@ -340,6 +342,9 @@ def test_token_file_0644_is_refused_before_any_request(tmp_path: Path) -> None:
     gh = FakeGitHub()
     World(gh)
     loose = TokenSource.from_file(token_file(tmp_path, TOKEN_A, mode=0o644))
+    if os.name == "nt":
+        assert run(tmp_path, gh, token=loose).complete
+        return
     with pytest.raises(UsageError, match="private") as info:
         run(tmp_path, gh, token=loose)
     assert TOKEN_A not in str(info.value)
@@ -532,8 +537,25 @@ def test_out_dir_is_created_private(tmp_path: Path) -> None:
     World(gh)
     manifest = run(tmp_path, gh, out="deep/er/out", kinds=["seats"])
     assert manifest.complete
-    for d in ("deep", "deep/er", "deep/er/out"):
-        assert stat.S_IMODE((tmp_path / d).stat().st_mode) == 0o700
+    if os.name != "nt":
+        for d in ("deep", "deep/er", "deep/er/out"):
+            assert stat.S_IMODE((tmp_path / d).stat().st_mode) == 0o700
+
+
+def test_out_dir_windows_acl_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("USERNAME", "admin")
+    calls: list[list[str]] = []
+
+    def good(argv) -> int:
+        calls.append(list(argv))
+        return 0
+
+    out = tmp_path / "deep" / "er" / "out"
+    notes: list[str] = []
+    assert pull_common._prepare_out_dir(out, False, platform="nt", runner=good, notes=notes) is None
+    assert notes == [] and {str(tmp_path / "deep"), str(tmp_path / "deep" / "er"), str(out)} <= {
+        argv[1] for argv in calls}
+    assert all("admin:(OI)(CI)F" in argv for argv in calls)
 
 
 def test_default_opener_is_tls_verifying() -> None:

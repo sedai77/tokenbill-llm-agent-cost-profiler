@@ -83,9 +83,8 @@ def dump(store) -> tuple:
                                   st.lists(configs, max_size=2)), min_size=1, max_size=4),
        seed=st.integers(0, 2**16))
 def test_sqlite_store_agrees_with_the_fake_in_any_order(batches, seed) -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        sqlite_store = fresh_store(tmp, "a.db")
-        shuffled = fresh_store(tmp, "b.db")
+    with tempfile.TemporaryDirectory() as tmp, fresh_store(tmp, "a.db") as sqlite_store, \
+            fresh_store(tmp, "b.db") as shuffled:
         fake = kit.MemoryRecordStore(org_key_id=KID)
         for lics, acts, confs in batches:
             batch = result(lics, acts, confs)
@@ -128,8 +127,7 @@ where_values = st.one_of(st.text(max_size=12), st.integers(), st.none(), st.just
        since=st.integers(-(2**63), 2**63), until=st.integers(-(2**63), 2**63),
        source=st.sampled_from(["licenses", "activity", "cost_lines", ""]))
 def test_count_users_fuzz_only_tokenbill_errors(where, since, until, source) -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        store = fresh_store(tmp, "f.db")
+    with tempfile.TemporaryDirectory() as tmp, fresh_store(tmp, "f.db") as store:
         store.put(result([b.make_license(PEOPLE[0], snapshot_date=DATES[0])]),
                   principal_key_id=KID)
         try:
@@ -146,8 +144,7 @@ def test_count_users_fuzz_only_tokenbill_errors(where, since, until, source) -> 
        purge_before=st.one_of(st.none(), st.integers(-(2**70), 2**70)),
        principal=st.one_of(st.none(), st.sampled_from(PEOPLE), st.text(max_size=24)))
 def test_windows_retention_and_purge_fuzz(window, purge_before, principal) -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        store = fresh_store(tmp, "w.db")
+    with tempfile.TemporaryDirectory() as tmp, fresh_store(tmp, "w.db") as store:
         store.put(result([b.make_license(x, snapshot_date=DATES[1]) for x in PEOPLE],
                          [b.make_activity(PEOPLE[0], date_utc=DATES[2])],
                          [b.make_config(snapshot_ms=ms(DATES[0]))]), principal_key_id=KID)

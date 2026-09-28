@@ -67,7 +67,8 @@ def test_conformance_with_the_real_ledger_factory() -> None:
     pytest.importorskip("tokenbill.store.db")
 
     def factory(path: Path, org_key: bytes) -> CopilotRecordStore:   # R-E45
-        sqlite_store(path, org_key=org_key)
+        ledger = sqlite_store(path, org_key=org_key)
+        ledger.close()
         return CopilotRecordStore(path)
 
     assert kit.assert_record_store_conforms(factory, permutations=4)["batches"] == 5

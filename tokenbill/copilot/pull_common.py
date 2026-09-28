@@ -1573,7 +1573,9 @@ def _now(now_ms: Any) -> int:
     return value
 
 
-def _prepare_out_dir(out: Path, resume: bool) -> Manifest | None:
+def _prepare_out_dir(
+        out: Path, resume: bool, *, runner: Callable[[Sequence[str]], int] | None = None,
+        platform: str | None = None, notes: list[str] | None = None) -> Manifest | None:
     if out.is_symlink() or (out.exists() and not out.is_dir()):
         raise UsageError(f"pull: --out {out.name} must be a directory")
     if not out.exists():
@@ -1587,17 +1589,18 @@ def _prepare_out_dir(out: Path, resume: bool) -> Manifest | None:
         for d in reversed(missing):
             with contextlib.suppress(FileExistsError):
                 d.mkdir(mode=0o700)
-            if os.name != "nt":
-                os.chmod(d, 0o700)
+            _harden_dir(d, runner=runner, platform=platform, notes=notes)
         return None
     manifest_path = out / MANIFEST_NAME
     if manifest_path.is_file():
         if not resume:
             raise UsageError(f"pull: {out.name} already holds a pull; pass --resume to continue "
                              "it, or choose an empty directory")
+        _harden_dir(out, runner=runner, platform=platform, notes=notes)
         return Manifest.load(manifest_path)
     if any(not p.name.startswith(".") for p in out.iterdir()):
         raise UsageError(f"pull: {out.name} is not empty; choose an empty directory for a pull")
+    _harden_dir(out, runner=runner, platform=platform, notes=notes)
     return None
 
 

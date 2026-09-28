@@ -4,6 +4,7 @@ patches, cohorts, OTEL tags, the hook, LiteLLM, snippets, rendering and the cont
 from __future__ import annotations
 
 import json
+import os
 import types
 from decimal import Decimal
 
@@ -518,7 +519,8 @@ def test_render_pack_writes_every_file(tmp_path) -> None:
     assert patch == json.loads(packs[0].merge_patch_json)
     assert (tmp_path / "all" / "managed-settings.patch.json").read_text().startswith("{\n  ")
     hook = tmp_path / "all" / HOOK_PATH
-    assert hook.stat().st_mode & 0o111
+    if os.name != "nt":
+        assert hook.stat().st_mode & 0o111
     lite = _packs(plan_of(gw), target="litellm")[0]
     assert [p.name for p in render_pack(lite, tmp_path / "lite")] == [
         "README.md", "litellm-config.patch.yaml"]

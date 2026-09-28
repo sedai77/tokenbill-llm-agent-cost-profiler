@@ -3842,9 +3842,18 @@ def assert_record_store_conforms(factory: Callable[..., ExtRecordStore], *,
     batches = _record_batches()
     w = {"since_ms": 0, "until_ms": _FOREVER_MS}
     kid = key_id(RECORD_STORE_ORG_KEY)
-    with tempfile.TemporaryDirectory(prefix="tb-record-store-") as tmp:
+    from contextlib import ExitStack
+
+    with tempfile.TemporaryDirectory(prefix="tb-record-store-") as tmp, ExitStack() as closers:
+        def open_store(path: Path) -> ExtRecordStore:
+            store = _call_record_factory(factory, path)
+            close = getattr(store, "close", None)
+            if callable(close):
+                closers.callback(close)
+            return store
+
         paths = (Path(tmp) / f"rs{i}.db" for i in itertools.count())
-        store = _call_record_factory(factory, next(paths))
+        store = open_store(next(paths))
         _check(isinstance(store, ExtRecordStore), "not an ExtRecordStore (protocol surface)")
         _check(isinstance(store.name, str) and bool(store.name), "name must be a non-empty str")
         for b in batches:
@@ -3872,7 +3881,7 @@ def assert_record_store_conforms(factory: Callable[..., ExtRecordStore], *,
         _check(_record_dump(store) == reference, "re-ingesting the same batches changed the store")
         orders = _permutations(len(batches), permutations, seed)
         for order in orders:
-            other = _call_record_factory(factory, next(paths))
+            other = open_store(next(paths))
             for i in order:
                 other.put(batches[i], principal_key_id=kid)
             _check(_record_dump(other) == reference, f"put order {order} changed the store")
@@ -3909,7 +3918,7 @@ def assert_record_store_conforms(factory: Callable[..., ExtRecordStore], *,
                 pass
             else:
                 raise AssertionError(f"count_users(where={bad}) must raise PrivacyError")
-        summary_only = _call_record_factory(factory, next(paths))
+        summary_only = open_store(next(paths))
         summary_only.put(dataclasses.replace(batches[2], licenses=[], activity=[]),
                          principal_key_id=kid)
         _check(summary_only.count_users(where={"team": "c"}, source="licenses", **recent) == 7,

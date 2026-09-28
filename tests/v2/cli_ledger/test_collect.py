@@ -4,6 +4,7 @@ content-free trace@2 ``usage`` files, r_/c_ principals only, incremental, CI att
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -45,7 +46,8 @@ def test_collect_writes_a_content_free_usage_file(tmp_path: Path,
     assert code == 0, err
     (path,) = _files(tmp_path / "out")
     assert str(path) in out
-    assert (path.stat().st_mode & 0o077) == 0
+    if os.name != "nt":
+        assert (path.stat().st_mode & 0o077) == 0
     raw = path.read_bytes()
     records = read_trace2(path)
     blob = json.dumps(records)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import gzip
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -93,7 +94,8 @@ def test_write_read_write_is_byte_identical(tmp_path: Path, profile: str) -> Non
                      cost_lines=result.cost_lines, outcomes=result.outcomes,
                      notes=result.notes, content=content)
     assert first.read_bytes() == second.read_bytes()
-    assert (first.stat().st_mode & 0o777) == 0o600
+    if os.name != "nt":
+        assert (first.stat().st_mode & 0o777) == 0o600
 
 
 def test_records_decode_like_the_reference_from_json(tmp_path: Path) -> None:
