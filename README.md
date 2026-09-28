@@ -1,29 +1,45 @@
 # Token Bill
 
-> Why is your AI agent bill so high? Token Bill reads a log of your agent's API
-> calls and shows you, in dollars, what was wasted and the exact line to fix.
+> Local-first cost intelligence for LLM agents and coding assistants: reconcile
+> usage, isolate the cost drivers, model defensible savings, and measure the
+> result without sending usage data to a hosted analytics service.
 
 [![CI](https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/actions/workflows/ci.yml/badge.svg)](https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/tokenbill)](https://pypi.org/project/tokenbill/)
 [![Python versions](https://img.shields.io/pypi/pyversions/tokenbill)](https://pypi.org/project/tokenbill/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> **v0.2 enterprise status (2026-09-27).** Token Bill is transitioning from the
-> legacy single-trace analyzer described below to a local-first accounting and
-> optimization system. Active integration work adds a usage ledger, reconciliation,
-> privacy controls, counterfactual policy analysis, and GitHub Copilot sources. The
-> walkthrough below remains the v0.1 experience and is not a v0.2 support matrix.
-> Enterprise use requires a reviewed release, provider/contract reconciliation, and
-> organization-specific quality validation before policy enforcement.
+> **v0.2 enterprise pilot (2026-09-28).** Token Bill combines a local usage
+> ledger, provider and contract reconciliation, privacy controls, counterfactual
+> policy analysis, calibration, rollout measurement, and GitHub Copilot sources.
+> Exact billed figures, modeled estimates, and list-equivalent allowance usage are
+> intentionally kept separate. Enterprise use still requires provider/contract
+> reconciliation and organization-specific quality validation before enforcement.
 > See the [enterprise pilot guide](docs/ENTERPRISE.md) for the v0.2 rollout path,
 > support boundaries, and evidence labels.
 
+## See the v0.2 fleet report
+
+The built-in fleet demo runs the current end-to-end reporting path against a
+deterministic, keyless, networkless synthetic fleet: 61 developers, 28 days,
+reconciled provider channels, and a calibrated action plan.
+
+```bash
+pip install tokenbill
+tokenbill demo --fleet -o fleet-report.html
+```
+
 <p align="center">
-  <img src="https://raw.githubusercontent.com/sedai77/tokenbill-llm-agent-cost-profiler/main/docs/images/report-overview.png" width="820"
-       alt="Token Bill HTML report: the headline waste figure, a per-call token chart, the cost of the run under four scenarios, and a detected cache breaker with its fix">
+  <img src="docs/images/fleet-report-overview.png" width="960"
+       alt="Token Bill v0.2 fleet report with a projected monthly savings opportunity, exact bill, pricing coverage, reconciliation and calibration status, and three highest-impact action plan items">
   <br>
-  <sub>A Token Bill report for one run of the bundled demo (synthetic data; no API key needed).</sub>
+  <sub>Actual v0.2 output from <code>tokenbill demo --fleet</code>. The numbers are synthetic and the report labels exact, estimated, and list-equivalent figures separately.</sub>
 </p>
+
+The overview promotes only Shapley-credited billed actions into its headline;
+trade-offs stay in the detailed findings with their evaluation requirements.
+The legacy single-trace walkthrough below remains available for the v0.1
+recorder workflow.
 
 ## The problem, in plain English
 

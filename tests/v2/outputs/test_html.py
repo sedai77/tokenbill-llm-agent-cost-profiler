@@ -78,10 +78,13 @@ def test_every_chart_is_followed_by_a_captioned_table() -> None:
 
 def test_sections_and_labels() -> None:
     doc = H.render_html(full_result())
-    for section in ("legend", "bill", "where", "findings", "plan", "calibration",
+    for section in ("overview", "legend", "bill", "where", "findings", "plan", "calibration",
                     "reconciliation", "policy", "whatif", "measure-plan", "measurements", "check",
                     "pricing", "data-quality", "notes", "methodology"):
         assert f'<section id="{section}">' in doc, section
+    assert "Projected monthly saving" in doc
+    assert "overlapping savings are not double-counted" in doc
+    assert "Highest-impact actions" in doc
     assert "exact·list" in doc and "allowance·list-equivalent (not billed)" in doc
     assert "Copilot credits seen by collectors" in doc
     assert "users unknown" in doc
@@ -159,6 +162,13 @@ def test_billed_places_refuse_non_billed_figures() -> None:
             total=r.bill.total, esr=None, breakdowns=(("team", raw),))))  # type: ignore
     with pytest.raises(ContractViolation):
         H.render_html("x")  # type: ignore[arg-type]
+
+
+def test_overview_keeps_allowance_out_of_projected_invoice_savings() -> None:
+    r = full_result()
+    plan = dataclasses.replace(r.action_plan, headline_monthly=estimated(5, Basis.LIST_EQUIVALENT))
+    with pytest.raises(ContractViolation, match="list-equivalent"):
+        H.render_html(dataclasses.replace(r, action_plan=plan))
 
 
 def test_extension_sections_are_included_and_checked(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -114,6 +114,7 @@ _CSS = (
     "body{margin:0;background:var(--bg);color:var(--fg);"
     "font:15px/1.5 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}"
     "main{max-width:1120px;margin:0 auto;padding:24px}"
+    ".report-header{padding-bottom:1rem;border-bottom:3px solid var(--accent)}"
     "h1{font-size:1.6rem;margin:0 0 .3rem}h2{font-size:1.25rem;margin:2rem 0 .6rem;"
     "border-bottom:1px solid var(--line);padding-bottom:.2rem}"
     "h3{font-size:1.05rem;margin:1.2rem 0 .4rem}"
@@ -134,6 +135,38 @@ _CSS = (
     "font:12px system-ui,sans-serif}"
     "dl.legend{display:grid;grid-template-columns:max-content 1fr;gap:.2rem 1rem}"
     "dt{font-weight:700}"
+    "#overview{margin:1.5rem 0 2rem;padding:1.25rem;background:var(--panel);"
+    "border-top:4px solid var(--accent)}"
+    "#overview h2{margin:.1rem 0 .45rem;border:0;padding:0;font-size:1.45rem}"
+    ".eyebrow{margin:0;color:var(--accent);font-size:.78rem;font-weight:800;text-transform:uppercase;"
+    "letter-spacing:.08em}"
+    ".overview-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);"
+    "gap:1.25rem;align-items:start}"
+    ".overview-amount{margin:.15rem 0 .35rem;font-size:2.4rem;font-weight:800;line-height:1.15;"
+    "font-variant-numeric:tabular-nums}.overview-amount .chip{font:inherit}"
+    ".overview-note{margin:.35rem 0 0;color:var(--muted)}"
+    ".overview-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin:0;"
+    "border:1px solid var(--line)}"
+    ".overview-metrics>div{min-width:0;padding:.75rem;border-bottom:1px solid var(--line)}"
+    ".overview-metrics>div:nth-last-child(-n+2){border-bottom:0}"
+    ".overview-metrics>div:nth-child(odd){border-right:1px solid var(--line)}"
+    ".overview-metrics dt{margin:0;color:var(--muted);font-size:.78rem;text-transform:uppercase;"
+    "letter-spacing:.05em}.overview-metrics dd{margin:.15rem 0;font-weight:750;"
+    "font-variant-numeric:tabular-nums}"
+    ".overview-metrics p{margin:0;font-size:.82rem;color:var(--muted)}"
+    ".overview-actions{margin-top:1.25rem;border-top:1px solid var(--line)}"
+    ".overview-actions h3{margin:.75rem 0 .2rem}.overview-actions>p{margin:.1rem 0 .65rem;"
+    "color:var(--muted)}"
+    ".overview-actions ol{list-style:none;margin:0;padding:0;border-bottom:1px solid var(--line)}"
+    ".overview-actions li{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(170px,.9fr) "
+    "max-content;gap:1rem;align-items:center;padding:.65rem 0;border-top:1px solid var(--line)}"
+    ".overview-actions strong{display:block;overflow-wrap:anywhere}.overview-actions code{"
+    "color:var(--fg);font:inherit}.overview-actions .kind{color:var(--muted);font-size:.82rem}"
+    ".overview-actions .tags{color:var(--muted);font-size:.78rem;text-align:right}"
+    "@media (max-width:720px){main{padding:16px}.overview-grid{grid-template-columns:1fr}"
+    ".overview-actions li{grid-template-columns:1fr}.overview-actions .tags{text-align:left}"
+    ".overview-metrics>div:nth-last-child(-n+2){border-bottom:1px solid var(--line)}"
+    ".overview-metrics>div:last-child{border-bottom:0}}"
 )
 
 
@@ -215,7 +248,7 @@ def _legend() -> str:
 
 
 def _header(r: RunResult) -> str:
-    out = [f"<header><h1>Token Bill — {esc(r.command)}</h1>"
+    out = [f"<header class=\"report-header\"><h1>Token Bill — {esc(r.command)}</h1>"
            f'<p class="muted">{esc(date_of(r.window[0]))} to {esc(date_of(r.window[1]))} (end '
            f"exclusive) · {len(r.inputs)} sources · privacy: content tier "
            f"{esc(r.privacy.content_tier.value)}, k = {r.privacy.k}, "
@@ -230,6 +263,89 @@ def _verdict(verdict: str) -> str:
     label = verdict.replace("_", " ")
     cls = "ok" if verdict == "reconciled" else "bad"
     return f'<span class="chip {cls}">{esc(label)}</span>'
+
+
+def _overview(r: RunResult) -> str:
+    """A high-signal, evidence-labelled summary of the bill and its action plan.
+
+    This deliberately surfaces the action-plan headline rather than adding together standalone
+    findings. The detailed evidence, calibration and reconciliation sections remain below it.
+    """
+    plan = r.action_plan
+    bill = r.bill
+    if plan is None and bill is None:
+        return ""
+
+    metrics: list[tuple[str, str, str]] = []
+    if bill is not None:
+        exact = require_billed(bill.total.exact, "html overview exact bill")
+        metrics.append(("Exact bill", money(exact, unpriced_count=bill.total.unpriced_inferences),
+                        "Billed usage at sourced rates"))
+        coverage_detail = (f"{bill.total.unpriced_inferences:,} inference(s) unpriced"
+                           if bill.total.unpriced_inferences else "No unpriced inferences")
+        metrics.append(("Pricing coverage", esc(pct(bill.total.coverage)), coverage_detail))
+    if r.reconciliation is not None:
+        recon = r.reconciliation
+        coverage = ("n/a" if recon.dollar_coverage_pct is None
+                    else f"{recon.dollar_coverage_pct}% dollars")
+        metrics.append(("Reconciliation", _verdict(recon.verdict), coverage))
+    if r.calibration is not None:
+        cal = r.calibration
+        metrics.append(("Model calibration", esc(cal.calibration().value),
+                        f"{cal.status} · {cal.n_periods} {cal.granularity} periods"))
+
+    if plan is not None:
+        headline = plan.headline_monthly
+        if headline.basis is Basis.LIST_EQUIVALENT:
+            raise ContractViolation(
+                "html overview headline: list-equivalent figures are not invoice savings"
+            )
+        lead = (f'<p class="eyebrow">Executive overview</p><h2>Projected monthly saving</h2>'
+                f'<p class="overview-amount">{money(headline, per="/mo", range_label="p10–p90")}'
+                "</p><p>Prioritized billed-basis actions, modelled as one joint replay so "
+                "overlapping savings are not double-counted.</p>"
+                f'<p class="overview-note">{esc(plan.sample)}</p>')
+    else:
+        assert bill is not None
+        exact = require_billed(bill.total.exact, "html overview bill")
+        amount = money(exact, unpriced_count=bill.total.unpriced_inferences)
+        lead = (f'<p class="eyebrow">Executive overview</p><h2>Exact priced usage</h2>'
+                f'<p class="overview-amount">{amount}'
+                "</p><p>Ledger total at sourced rates. Estimates, allowance usage and any "
+                "unpriced inference remain separate from the bill.</p>")
+
+    metric_html = "".join(
+        f"<div><dt>{esc(label)}</dt><dd>{value}</dd><p>{esc(detail)}</p></div>"
+        for label, value, detail in metrics[:4]
+    )
+    actions = ""
+    if plan is not None:
+        levers = [
+            lv
+            for lv in plan.levers
+            if lv.basis is not Basis.LIST_EQUIVALENT
+            and lv.shapley.nano is not None
+            and lv.projected_monthly.nano is not None
+        ]
+        levers.sort(key=lambda lv: -(lv.projected_monthly.nano or 0))
+        rows = []
+        for lv in levers[:3]:
+            tags = ", ".join(label for label, active in
+                             (("needs evaluation", lv.needs_eval), ("upper bound", lv.upper_bound))
+                             if active) or "actionable candidate"
+            rows.append(
+                f"<li><div><strong><code>{esc(lv.lever_id)}</code></strong>"
+                f'<span class="kind">{esc(lv.lever_class)}</span></div>'
+                f"<div>{money(lv.projected_monthly, per='/mo', range_label='p10–p90')}</div>"
+                f'<span class="tags">{esc(tags)}</span></li>'
+            )
+        if rows:
+            actions = ('<div class="overview-actions"><h3>Highest-impact actions</h3>'
+                       '<p>Projected monthly effect from the action plan.</p><ol>'
+                       + "".join(rows) + "</ol></div>")
+    return ('<section id="overview"><div class="overview-grid"><div>' + lead + "</div>"
+            + (f'<dl class="overview-metrics">{metric_html}</dl>' if metric_html else "")
+            + "</div>" + actions + "</section>")
 
 
 def _bill(r: RunResult, bill: BillSummary) -> str:
@@ -569,7 +685,7 @@ def render_html(result: RunResult) -> str:
     allowance place, a non-published breakdown, or an unsafe extension section."""
     if not isinstance(result, RunResult):
         raise ContractViolation("render_html expects a RunResult")
-    body = [_header(result), _legend()]
+    body = [_header(result), _overview(result), _legend()]
     if result.bill is not None:
         body.append(_bill(result, result.bill))
         body.append(_money_goes(result.bill))
