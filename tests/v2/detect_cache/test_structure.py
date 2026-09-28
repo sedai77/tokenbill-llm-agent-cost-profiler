@@ -67,6 +67,21 @@ def test_no_cache_fix_uses_openai_controls_only_for_openai_routes() -> None:
     assert mixed.fix.doc_url is None
 
 
+def test_no_cache_fix_requires_openai_provider_and_channel() -> None:
+    """An unverified OpenAI-compatible channel must not inherit OpenAI's request syntax."""
+    compat = _no_cache_lane(
+        "COMPAT",
+        model="gpt-5.6-sol",
+        product="api",
+        per_request={i: {"provider": "other", "channel": "openai_api"} for i in range(6)},
+    )
+    f = only(GatewayDisabled().detect([compat], ctx(thresholds={"min_usd": "0"})), "no-cache")
+    assert f.fix is not None
+    assert "prompt_cache_options" not in f.fix.text
+    assert "each affected provider route" in f.fix.text
+    assert f.fix.doc_url is None
+
+
 def test_no_cache_trigger_boundaries() -> None:
     """≥ 5 requests; median T ≥ max(min cacheable, 4,096); no read or write anywhere."""
     t = {"min_usd": "0"}

@@ -78,40 +78,41 @@ def _median(values: Sequence[int]) -> Fraction:
     return Fraction(ordered[mid - 1] + ordered[mid], 2)
 
 
-def _cache_channels(lanes: Sequence[Lane]) -> frozenset[str]:
-    """The serving channels of a no-cache cohort.
+def _cache_routes(lanes: Sequence[Lane]) -> frozenset[tuple[str, str]]:
+    """The provider/channel routes of a no-cache cohort.
 
     Cohorts intentionally group by team, lane kind, and billing class rather than provider. A
     generated fix must therefore use provider syntax only when every affected serving request uses
-    the same supported channel.
+    the same documented provider/channel route.
     """
-    channels = set()
+    routes = set()
     for lane in lanes:
         for req in serving_steps(lane):
             inf = req.serving_inference
             if inf is not None:
-                channels.add(inf.pricing.channel)
-    return frozenset(channels)
+                routes.add((inf.pricing.provider, inf.pricing.channel))
+    return frozenset(routes)
 
 
 def _restore_caching_fix(lanes: Sequence[Lane]) -> Fix:
     """Provider-appropriate no-cache guidance, neutral for a mixed-provider cohort."""
-    channels = _cache_channels(lanes)
-    if channels == {"openai_api"}:
+    routes = _cache_routes(lanes)
+    if routes == {("openai", "openai_api")}:
         return Fix(
             text=("Enable OpenAI prompt caching on this route: keep instructions, tool "
                   "definitions, and history stable before dynamic content. On GPT-5.6+ use "
                   'prompt_cache_options.mode="explicit" with a prompt_cache_breakpoint at the '
                   "reusable boundary, then compare cache writes with later reads."),
             config_patch=None, target="gateway", doc_url=_OPENAI_CACHE_DOC)
-    if channels == {"bedrock"}:
+    if routes and {channel for _, channel in routes} == {"bedrock"}:
         return Fix(
             text=("Enable the supported Bedrock prompt-cache controls for this model and API; "
                   "keep static context before changing values, then verify cached and cache-write "
                   "usage in the response. Do not assume that Bedrock batch inference shares the "
                   "same cache behavior."),
             config_patch=None, target="gateway", doc_url=_BEDROCK_CACHE_DOC)
-    if channels and channels <= _ANTHROPIC_CACHE_CHANNELS:
+    if routes and all(provider == "anthropic" and channel in _ANTHROPIC_CACHE_CHANNELS
+                      for provider, channel in routes):
         return Fix(
             text=("Enable prompt caching at the application or gateway boundary: preserve "
                   "cache_control and, when using the 1h TTL, anthropic-beta unchanged. With "
