@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   demonstration ledger without treating the synthetic discount as a customer contract.
 - Made cache and batch remediation provider-aware, so OpenAI, Anthropic, Bedrock, and
   mixed-provider findings do not receive an incompatible API recipe.
+- Require the effective pricing route to support batch execution before the batch detector
+  exposes a savings recommendation.
 - Prevented the TTL advisor from treating a provider's fixed cache lifetime as a configurable
   5-minute or 1-hour policy; TTL findings now carry stable provider and channel scope dimensions
   for route-specific, shard-stable recommendations.

@@ -29,6 +29,7 @@ from collections.abc import Sequence
 from decimal import Decimal
 from fractions import Fraction
 
+from tokenbill.core.errors import TokenbillError
 from tokenbill.core.evidence import CODE_REVIEW_USD_PER_REVIEW
 from tokenbill.core.findings import miss_waste
 from tokenbill.core.labels import Basis, Figure
@@ -338,7 +339,7 @@ class Automation:
     # ---------- batch-eligible ----------
 
     @staticmethod
-    def _batch_eligible(lane: Lane) -> bool:
+    def _batch_eligible(ctx: AnalysisContext, lane: Lane) -> bool:
         steps = serving_steps(lane)
         if len(lane.requests) != 1 or len(steps) != 1:
             return False
@@ -349,10 +350,15 @@ class Automation:
             return False
         if inf.pricing.service_tier == "batch" or inf.pricing.speed == "fast":
             return False
-        return not (attr.entrypoint and _MANAGED_AGENTS_MARKER in attr.entrypoint.lower())
+        if attr.entrypoint and _MANAGED_AGENTS_MARKER in attr.entrypoint.lower():
+            return False
+        try:
+            return ctx.pricer.supports(inf.pricing, "batch", ts_ms=req.ts_start_ms)
+        except (AttributeError, TokenbillError):
+            return False
 
     def _batch(self, ctx: AnalysisContext, prices: Prices, cohort: Cohort) -> Finding | None:
-        eligible = [lane for lane in cohort.lanes if self._batch_eligible(lane)]
+        eligible = [lane for lane in cohort.lanes if self._batch_eligible(ctx, lane)]
         if not eligible:
             return None
         tally = Tally()

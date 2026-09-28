@@ -6,6 +6,7 @@ from __future__ import annotations
 from tokenbill.core.evidence import CODE_REVIEW_USD_PER_REVIEW
 from tokenbill.core.labels import Evidence
 from tokenbill.core.records import LaneKind, WorkloadClass
+from tokenbill.core.testing import FakePricer
 from tokenbill.detect.automation import Automation, is_ci_lane
 from tokenbill.detect.context import opaque_ref
 
@@ -111,8 +112,8 @@ def _single(i: int, **kw):
 def test_batch_eligible_single_calls() -> None:
     rep = table_replayer({"batch=eligible": 15_000_000})
     lanes = [_single(0), _single(1), _single(2, workload=WorkloadClass.EVAL),
-             _single(3, workload=WorkloadClass.INTERACTIVE), _single(4, service_tier="batch"),
-             _single(5, model=OPUS55, speed="fast"), _single(6, entrypoint="managed-agents")]
+            _single(3, workload=WorkloadClass.INTERACTIVE), _single(4, service_tier="batch"),
+            _single(5, model=OPUS55, speed="fast"), _single(6, entrypoint="managed-agents")]
     f = one(Automation().detect(lanes, ctx(replayer=rep, thresholds={"min_usd": "0.01"})),
             "batch-eligible")
     # three eligible lanes × (10,000 × 2,000 + 1,000 × 10,000)
@@ -122,6 +123,18 @@ def test_batch_eligible_single_calls() -> None:
                workload=WorkloadClass.SERVICE)
     assert by_kind(Automation().detect([two], ctx(replayer=rep, thresholds={"min_usd": "0"})),
                    "batch-eligible") == []
+
+
+def test_batch_eligible_requires_the_pricing_route_to_support_batch() -> None:
+    class NoBatch(FakePricer):
+        def supports(self, pricing, feature, *, ts_ms):
+            return feature != "batch" and super().supports(pricing, feature, ts_ms=ts_ms)
+
+    rep = table_replayer({"batch=eligible": 15_000_000})
+    findings = Automation().detect([_single(8)],
+                                    ctx(replayer=rep, pricer=NoBatch(),
+                                        thresholds={"min_usd": "0"}))
+    assert by_kind(findings, "batch-eligible") == []
 
 
 def test_batch_eligible_fix_uses_openai_batch_for_openai_routes() -> None:
