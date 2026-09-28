@@ -5,6 +5,7 @@ A.2, A.2b, A.4, A.12)."""
 
 from __future__ import annotations
 
+from tokenbill.core.builders import FlatRates
 from tokenbill.core.labels import Basis, Evidence
 from tokenbill.core.records import LaneKind
 from tokenbill.core.types import Policy
@@ -106,6 +107,21 @@ def test_fixed_openai_ttl_is_not_reported_as_a_configurable_policy() -> None:
                   model="gpt-5.6-sol", kind=LaneKind.API_RUN, product="agent_sdk")
     replayer = table_replayer({("OA", ttl_spec("api_run", "1h")): 2_000_000_000})
     assert TtlAdvisor().detect([openai], ctx(replayer=replayer, thresholds={"min_usd": "0"})) == []
+
+
+def test_fixed_openai_bedrock_ttl_is_not_reported_as_a_configurable_policy() -> None:
+    """A shared Bedrock channel cannot turn OpenAI's 30-minute cache into a 1-hour policy."""
+    openai = lane(
+        "OA-BR",
+        [(0, 0, 0, 0, 50_000, 500), (420, 0, 0, 0, 52_000, 500)],
+        model="gpt-5.6-sol",
+        kind=LaneKind.API_RUN,
+        product="agent_sdk",
+        per_request={0: {"channel": "bedrock"}, 1: {"channel": "bedrock"}},
+    )
+    replayer = table_replayer({("OA-BR", ttl_spec("api_run", "1h")): 2_000_000_000})
+    assert TtlAdvisor().detect([openai], ctx(replayer=replayer, pricer=FlatRates(),
+                                             thresholds={"min_usd": "0"})) == []
 
 
 def test_ttl_advisor_splits_mixed_provider_routes() -> None:

@@ -1,10 +1,11 @@
 """Cache-rule table (SPEC §3.14; F-SEM): data with sources, and the conditional effort exemption.
 
-:class:`RulesTable` implements :class:`~tokenbill.core.protocols.CacheRulesProvider` with one row
-per channel: the Anthropic channels (``anthropic_api``, ``claude_platform_aws``, ``foundry``:
-workspace scope; ``bedrock``, ``vertex``: organization scope), ``openai_api`` (organization) and
-``azure_openai`` (subscription, D43). Minimum cacheable tokens are **not** here: they come from the
-rate row (``Pricer.min_cacheable_tokens``).
+:class:`RulesTable` implements :class:`~tokenbill.core.protocols.CacheRulesProvider` with rows
+keyed by provider and channel: the Anthropic channels (``anthropic_api``,
+``claude_platform_aws``, ``foundry``: workspace scope; ``bedrock``, ``vertex``: organization
+scope), OpenAI API routes (organization) and Azure OpenAI (subscription, D43). A shared cloud
+channel name never overrides the served provider's documented semantics. Minimum cacheable tokens
+are **not** here: they come from the rate row (``Pricer.min_cacheable_tokens``).
 
 :func:`effort_change_keeps_cache` is the single D28 predicate. The usage-level engine
 (``core.transitions``) and the block-level engine (``sim.block_replay``) both call it, so the two
@@ -226,14 +227,15 @@ def _openai_explicit_ttl(model: str) -> tuple[int, ...]:
 class RulesTable:
     """The built-in cache-rule table (implements ``CacheRulesProvider``).
 
-    ``rules_for`` is keyed by channel; the model matters only for OpenAI TTLs (GPT-5.6+ → 1800 s on
-    ``openai_api``; Azure's TTL for 5.6+ is unverified, so Azure rows carry no TTL option). Channel
+    ``rules_for`` is keyed by provider and channel; the model matters only for OpenAI TTLs
+    (GPT-5.6+ → 1800 s; Azure's TTL for 5.6+ is unverified, so Azure rows carry no TTL option).
+    This is material for multi-model hosts such as Bedrock: an OpenAI model there keeps OpenAI's
+    semantics rather than inheriting Anthropic's 5-minute/1-hour options. Channel
     ``github_copilot`` gets the GitHub Copilot row for any provider (provider ``github``, no TTL
     option, organization scope, ``ttl_semantics_known=False``; S-4). An unknown channel falls
-    back by provider: Anthropic → the ``anthropic_api`` semantics (workspace scope), OpenAI → the
-    ``openai_api`` semantics; any other provider gets a conservative row (no TTL option,
-    organization scope, visibility at response end). Every row except Copilot's has
-    ``ttl_semantics_known=True``.
+    back by provider: Anthropic → the ``anthropic_api`` semantics (workspace scope), OpenAI →
+    OpenAI semantics; any other provider gets a conservative row (no TTL option, organization
+    scope, visibility at response end). Every row except Copilot's has ``ttl_semantics_known=True``.
     """
 
     def __init__(self) -> None:
@@ -263,19 +265,15 @@ class RulesTable:
     def _build(self, provider: str, channel: str, model: str) -> CacheRules:
         if channel == COPILOT_CACHE_CHANNEL:
             return _COPILOT_RULES
-        row = self._anthropic.get(channel)
-        if row is not None:
-            return row
-        if channel == "openai_api":
-            return _openai_rules(channel, ttl_options_s=_openai_explicit_ttl(model))
-        if channel == "azure_openai":
-            return _openai_rules(channel, ttl_options_s=())
         if provider == "anthropic":
+            row = self._anthropic.get(channel)
+            if row is not None:
+                return row
             return dataclasses.replace(self._anthropic["anthropic_api"], channel=channel,
                                        collapse_tool_runs=False)
         if provider == "openai":
-            rules = _openai_rules("openai_api", ttl_options_s=_openai_explicit_ttl(model))
-            return dataclasses.replace(rules, channel=channel)
+            ttl_options_s = () if channel == "azure_openai" else _openai_explicit_ttl(model)
+            return _openai_rules(channel, ttl_options_s=ttl_options_s)
         return CacheRules(
             provider=provider,
             channel=channel,
