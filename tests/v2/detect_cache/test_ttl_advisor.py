@@ -167,6 +167,42 @@ def test_1h_beats_keepalive_when_replay_says_so() -> None:
     assert f.fix is not None and f.fix.config_patch is None and "cache_control" in f.fix.text
 
 
+def test_bedrock_ttl_fix_uses_bedrock_guidance_not_anthropic_request_syntax() -> None:
+    bedrock = lane(
+        "BR-TTL",
+        [(0, 0, 100_000, 0, 0, 500), (420, 0, 102_000, 0, 0, 500)],
+        model="claude-opus-5",
+        kind=LaneKind.API_RUN,
+        product="agent_sdk",
+        per_request={0: {"channel": "bedrock"}, 1: {"channel": "bedrock"}},
+    )
+    replayer = table_replayer({("BR-TTL", ttl_spec("api_run", "1h")): 2_000_000_000})
+    f = only(TtlAdvisor().detect([bedrock], ctx(replayer=replayer, thresholds={"min_usd": "0"})),
+             "ttl-1h-recommended")
+    assert f.fix is not None
+    assert f.fix.doc_url == "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html"
+    assert "cachePoint" in f.fix.text
+    assert "Set cache_control" not in f.fix.text
+
+
+def test_bedrock_keepalive_fix_does_not_assume_anthropic_max_tokens_syntax() -> None:
+    bedrock = lane(
+        "BR-KA",
+        [(0, 0, 100_000, 0, 0, 500), (420, 0, 102_000, 0, 0, 500)],
+        model="claude-opus-5",
+        kind=LaneKind.API_RUN,
+        product="agent_sdk",
+        per_request={0: {"channel": "bedrock"}, 1: {"channel": "bedrock"}},
+    )
+    replayer = table_replayer({("BR-KA", KA_API): 2_000_000_000})
+    f = only(TtlAdvisor().detect([bedrock], ctx(replayer=replayer, thresholds={"min_usd": "0"})),
+             "keepalive-recommended")
+    assert f.fix is not None
+    assert f.fix.doc_url == "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html"
+    assert "low-output cache-refresh" in f.fix.text
+    assert "max_tokens 0" not in f.fix.text
+
+
 def test_never_keepalive_for_claude_code() -> None:
     """Claude Code lanes are never pinged: even an enormous keepalive saving is not evaluated."""
     seen: list[str] = []
