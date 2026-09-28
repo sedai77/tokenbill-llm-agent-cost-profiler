@@ -1060,4 +1060,4 @@ def render_pack(pack: PolicyPack, out_dir: Path) -> list[Path]:
         if rel == HOOK_PATH:
             path.chmod(0o755)
         written.append(path)
-    return sorted(written)
+    return sorted(written, key=lambda path: path.relative_to(base).as_posix())

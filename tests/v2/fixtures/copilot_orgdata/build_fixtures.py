@@ -499,7 +499,7 @@ def write(rel: str, obj: Any, *, ndjson: bool = False) -> None:
                        for o in obj)
     else:
         text = _fix_decimals(json.dumps(obj, sort_keys=True, indent=1, ensure_ascii=False)) + "\n"
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="\n")
 
 
 def build() -> list[str]:

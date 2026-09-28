@@ -234,7 +234,7 @@ class Tx:
 
     def write(self, path: Path) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(self.text(), encoding="utf-8")
+        path.write_text(self.text(), encoding="utf-8", newline="\n")
         return path
 
     def expected(self) -> dict[str, Any]:
@@ -592,7 +592,7 @@ def build(out: Path = HERE) -> dict[str, Any]:
     record(p, "transcript", "claude-code", "subagent lane (Explore)",
            dict(sub.expected(), requests=len(sub.messages)))
     p = alpha / SID_ALPHA / "subagents" / "agent-a1b2c3.meta.json"
-    p.write_text(dumps(sub_meta) + "\n", encoding="utf-8")
+    p.write_text(dumps(sub_meta) + "\n", encoding="utf-8", newline="\n")
     record(p, "meta", None, "subagent meta (read: agentType, model, parentAgentId, spawnDepth, "
                             "toolUseId)")
     wf, wf_meta = alpha_workflow()
@@ -600,10 +600,11 @@ def build(out: Path = HERE) -> dict[str, Any]:
     record(p, "transcript", "claude-code", "workflow agent lane",
            dict(wf.expected(), requests=len(wf.messages)))
     p = alpha / SID_ALPHA / "workflows" / "run-1" / "agent-wf01.meta.json"
-    p.write_text(dumps(wf_meta) + "\n", encoding="utf-8")
+    p.write_text(dumps(wf_meta) + "\n", encoding="utf-8", newline="\n")
     record(p, "meta", None, "workflow agent meta")
     p = alpha / "journal.jsonl"
-    p.write_text(dumps({"type": "journal", "note": f"skip me {CANARY}"}) + "\n", encoding="utf-8")
+    p.write_text(dumps({"type": "journal", "note": f"skip me {CANARY}"}) + "\n",
+                 encoding="utf-8", newline="\n")
     record(p, "journal", None, "journal.jsonl is always skipped")
     b = beta_subscription()
     p = b.write(beta / f"{SID_BETA}.jsonl")
@@ -617,22 +618,22 @@ def build(out: Path = HERE) -> dict[str, Any]:
     hs = headless_stream()
     p = out / "headless" / "stream.jsonl"
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(hs.jsonl(), encoding="utf-8")
+    p.write_text(hs.jsonl(), encoding="utf-8", newline="\n")
     record(p, "headless", "claude-code-headless",
            "stream-json: parallel tool calls, subagent lane, placeholders, modelUsage result",
            {"steps": 4, "logged_output": {"claude-opus-5-5": 4, "claude-sonnet-5": 1},
             "residual_output": {"claude-opus-5-5": 1_396, "claude-sonnet-5": 599},
             "total_cost_nano": 421_000_000})
     p = out / "headless" / "claude-execution-output.json"
-    p.write_text(headless_execution_file().array(), encoding="utf-8")
+    p.write_text(headless_execution_file().array(), encoding="utf-8", newline="\n")
     record(p, "headless", "claude-code-headless", "execution file (JSON array, no timestamps)",
            {"steps": 2, "residual_output": {"claude-opus-5-5": 517}})
     p = out / "headless" / "result-only.json"
-    p.write_text(_dumps_raw(headless_result_only()) + "\n", encoding="utf-8")
+    p.write_text(_dumps_raw(headless_result_only()) + "\n", encoding="utf-8", newline="\n")
     record(p, "headless", "claude-code-headless", "--output-format json: aggregates only",
            {"steps": 0, "aggregates": 1})
     (out / "MANIFEST.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n",
-                                       encoding="utf-8")
+                                       encoding="utf-8", newline="\n")
     return manifest
 
 
@@ -648,7 +649,7 @@ def synthetic_transcript(path: Path, n_lines: int, seed: int = 7) -> dict[str, i
     path.parent.mkdir(parents=True, exist_ok=True)
     counts = {"lines": 0, "assistant_lines": 0, "messages": 0}
     ctx = 20_000
-    with open(path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         n = 0
         while counts["lines"] < n_lines:
             if n % 25 == 0:

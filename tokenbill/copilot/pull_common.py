@@ -492,6 +492,13 @@ class TokenSource:
     def _read_file(self) -> bytes:
         path = self._file
         assert path is not None
+        # Windows refuses an ``os.open`` of a directory before ``fstat`` can identify it.
+        # Keep the portable public error while fstat below remains the authoritative race check.
+        try:
+            if path.is_dir():
+                raise UsageError(f"{self.label} is not a regular file")
+        except OSError:
+            pass
         flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
         try:
             fd = os.open(path, flags)

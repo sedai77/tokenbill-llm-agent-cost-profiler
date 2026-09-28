@@ -45,6 +45,9 @@ def rebuild(src: Path, dst: Path, mutate: Callable[[Members], Members]) -> Path:
 
 def info(name: str, **kw: object) -> zipfile.ZipInfo:
     zi = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+    # ZipInfo normalizes backslashes on Windows. Restore the raw name so the archive contains the
+    # traversal spelling the reader must reject, as an untrusted external archive could.
+    zi.filename = name
     zi.compress_type = zipfile.ZIP_DEFLATED
     zi.external_attr = 0o100600 << 16
     for k, v in kw.items():

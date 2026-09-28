@@ -265,6 +265,10 @@ def _retention_map(value: object, layer: str) -> dict[str, int]:
 
 
 def _resolve_path(text: str, base: Path | None) -> str:
+    # Windows expands ``~name`` against the current home instead of reporting that the named
+    # account is unknown. Only the portable ``~`` / ``~/...`` spellings are supported there.
+    if os.name == "nt" and text.startswith("~") and len(text) > 1 and text[1] not in "/\\":
+        raise UsageError(f"cannot expand the home directory in path {text[:64]!r}")
     try:
         path = Path(text).expanduser()
     except RuntimeError:  # "~user" with no such user, or no home directory at all

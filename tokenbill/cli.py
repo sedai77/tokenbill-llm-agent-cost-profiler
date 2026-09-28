@@ -420,6 +420,7 @@ def _profile_and_render(
             render_report(profiles, scenarios, breakers, meta),
             encoding="utf-8",
             errors="backslashreplace",
+            newline="\n",
         )
         print(f"Report written to {output}")
     return 0
