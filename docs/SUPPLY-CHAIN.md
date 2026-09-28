@@ -123,7 +123,7 @@ To cut a release: bump `__version__` in `tokenbill/__init__.py`, move the CHANGE
 
 | workflow | trigger | purpose |
 |---|---|---|
-| `ci.yml` | push to `main`, pull requests | `lint` (ruff); `unit`: the full suite on Ubuntu × Python 3.10, 3.11, 3.12, 3.13 plus macOS and Windows × 3.12 (fail-fast off); `zero-deps`; `coverage`: the suite under `coverage`, a per-package table in the job summary and the report as an artifact (non-blocking; target ≥ 90% of each package's modules); `build`: sdist + wheel, `twine check`, SBOM dry run, rebuild and diff; `demo`: the offline demo, with no keys and no network |
+| `ci.yml` | push to `main`, pull requests | `lint` (ruff); `unit`: the full suite on Ubuntu × Python 3.10, 3.11, 3.12, 3.13 plus macOS and Windows × 3.12 (fail-fast off); `zero-deps`; `coverage`: the suite under `coverage`, a per-package table in the job summary and the report as an artifact (non-blocking; target ≥ 90% of each package's modules); `build`: sdist + wheel, `twine check`, rebuild and diff against the untouched checkout, then an SBOM dry run; `demo`: the offline demo, with no keys and no network |
 | `ownership.yml` | pull requests | package branches change only their own files (`OWNERSHIP.toml`); owned by F-CORE |
 | `release.yml` | `v*` tag | see above |
 | `codeql.yml` | PRs, `main`, weekly | CodeQL `security-extended` queries for Python |

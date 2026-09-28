@@ -165,12 +165,14 @@ jobs:
           uv build
       - name: Check metadata
         run: uvx --from twine==7.0.0 twine check --strict dist/*
+      # Rebuild from the same checkout state as the reference artifacts. The SBOM step writes
+      # derived files under sbom/, which must not affect the source distribution under test.
+      - name: Rebuild twice and diff against dist/
+        run: scripts/repro_check.sh dist
       - name: SBOM (asserts zero runtime components)
         run: |
           uv run --no-project python scripts/sbom.py --wheel "$(ls dist/tokenbill-*.whl)" \
             -o sbom/tokenbill.cdx.json --dev-out sbom/tokenbill.dev.cdx.json
-      - name: Rebuild twice and diff against dist/
-        run: scripts/repro_check.sh dist
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist-${{ github.sha }}
