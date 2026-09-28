@@ -166,7 +166,7 @@ def test_every_env_variable(home: Path, tmp_path: Path) -> None:
     assert dict(cfg.thresholds) == {"x.y": "0.5"}
     assert cfg.name_allowlist == frozenset({"github", "linear"})
     assert cfg.residency_required == ("us",)
-    assert cfg.key_file == "keys/org.key"                   # relative to the working directory
+    assert cfg.key_file == str(Path("keys") / "org.key")   # relative to the working directory
     assert cfg.collection_key_file == str(Path("~/c.key").expanduser())
     assert cfg.rates == (str(tmp_path / "a.json"), str(tmp_path / "b.json"))
     assert cfg.contract == "contract.json"
@@ -308,15 +308,17 @@ def test_json_numbers_and_decimals(home: Path) -> None:
 
 
 def test_file_paths_resolve_against_the_file(home: Path, tmp_path: Path) -> None:
+    collection_key = tmp_path / "absolute" / "c.key"
+    rate = tmp_path / "absolute" / "r2.json"
     conf = _write(tmp_path / "etc" / "tb.json", {
-        "key_file": "keys/org.key", "collection_key_file": "/abs/c.key",
-        "contract": "~/contract.json", "rates": ["r1.json", "/abs/r2.json"]})
+        "key_file": "keys/org.key", "collection_key_file": str(collection_key),
+        "contract": "~/contract.json", "rates": ["r1.json", str(rate)]})
     cfg = load_config(conf, _env(home), {})
     base = conf.resolve().parent
     assert cfg.key_file == str(base / "keys" / "org.key")
-    assert cfg.collection_key_file == "/abs/c.key"
+    assert cfg.collection_key_file == str(collection_key)
     assert cfg.contract == str(Path("~/contract.json").expanduser())
-    assert cfg.rates == (str(base / "r1.json"), "/abs/r2.json")
+    assert cfg.rates == (str(base / "r1.json"), str(rate))
     # a single rates path and null paths are accepted too
     conf2 = _write(tmp_path / "etc" / "tb2.json", {"rates": "one.json", "key_file": None})
     cfg2 = load_config(conf2, _env(home), {})
@@ -371,7 +373,7 @@ def test_direct_construction_is_validated_and_normalized() -> None:
     assert dict(cfg.retention) == {**DEFAULT_RETENTION, "identity_days": 30}
     assert dict(cfg.thresholds) == {"x": "1"}
     assert cfg.name_allowlist == frozenset({"a", "b"}) and cfg.residency_required == ("us",)
-    assert cfg.rates == ("one.json",) and cfg.key_file == "/k"
+    assert cfg.rates == ("one.json",) and cfg.key_file == str(Path("/k"))
     with pytest.raises(UsageError, match="k"):
         Config(k=0)
     with pytest.raises(UsageError, match="retention"):
