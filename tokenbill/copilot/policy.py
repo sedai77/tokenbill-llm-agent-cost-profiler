@@ -62,7 +62,7 @@ import json
 import re
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from tokenbill.core import catalog
 from tokenbill.core import facts as _facts
@@ -1101,11 +1101,14 @@ def write_pack(pack: PolicyPack, out_dir: Path) -> list[Path]:
         f"copilot/teams/README-{_SLUG_RE.sub('-', pack.cohort).strip('-.').lower() or 'team'}.md"
     written = []
     for rel, text in [(readme, pack.readme_md), *pack.hooks]:
-        parts = Path(rel).parts
-        if Path(rel).is_absolute() or ".." in parts or not parts:
+        if not isinstance(rel, str) or "\\" in rel or ":" in rel:
+            raise UsageError("policy pack paths must be relative")
+        relative = PurePosixPath(rel)
+        parts = relative.parts
+        if relative.is_absolute() or ".." in parts or not parts:
             raise UsageError("policy pack paths must be relative")
         dest = root.joinpath(*parts)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(text, encoding="utf-8")
+        dest.write_text(text, encoding="utf-8", newline="\n")
         written.append(dest)
     return sorted(written)

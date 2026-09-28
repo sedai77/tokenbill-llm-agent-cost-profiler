@@ -78,6 +78,13 @@ def _read_input() -> dict | None:
 
 
 def _state_path() -> Path:
+    home = os.environ.get("HOME")
+    if home:
+        return Path(home) / ".cache" / "tokenbill" / "hook_counts.json"
+    if os.name == "nt":
+        local = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if local:
+            return Path(local) / "tokenbill" / "hook_counts.json"
     return Path.home() / ".cache" / "tokenbill" / "hook_counts.json"
 
 
@@ -107,7 +114,7 @@ def _save_state(path: Path, state: dict) -> None:
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(state, handle, sort_keys=True, separators=(",", ":"))
         os.chmod(tmp, 0o600)
         os.replace(tmp, path)

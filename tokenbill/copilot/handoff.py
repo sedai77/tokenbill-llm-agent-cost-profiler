@@ -1533,11 +1533,13 @@ def _check_infos(infos: Sequence[zipfile.ZipInfo]) -> None:
     total = 0
     for info in infos:
         name = info.filename
+        original_name = info.orig_filename
         mode = info.external_attr >> 16
         if info.is_dir() or stat.S_ISDIR(mode):
             raise SourceError("bundle: directory member")
         parts = name.split("/")
-        if (name.startswith("/") or "\\" in name or ".." in parts or ":" in name
+        if (original_name != name or name.startswith("/") or "\\" in name or ".." in parts
+                or ":" in name
                 or any(not p for p in parts)):
             raise SourceError("bundle: unsafe member path")
         if stat.S_ISLNK(mode):
@@ -2174,4 +2176,3 @@ def export_from_files(paths: Sequence[Path], out_path: Path, *, key: bytes,
     manifest = write_bundle(results, out_path, manifest_seed=seed, leak_terms=terms, k=k,
                             aggregate_only=aggregate_only)
     return ExportReport(out_path=out_path, manifest=manifest, dq=_notes_of(manifest, notes))
-

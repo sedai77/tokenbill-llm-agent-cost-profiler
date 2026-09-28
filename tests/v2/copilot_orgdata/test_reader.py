@@ -144,7 +144,7 @@ def test_invalid_documents_gz_and_directories(tmp_path: Path) -> None:
     folder = tmp_path / "dir"
     (folder / "sub").mkdir(parents=True)
     (folder / "sub" / "a.json").write_text('{"a": 1}', encoding="utf-8")
-    (folder / "b.ndjson").write_text('{"b": 1}\n', encoding="utf-8")
+    (folder / "b.ndjson").write_text('{"b": 1}\n', encoding="utf-8", newline="\n")
     (folder / "notes.md").write_text("# not data", encoding="utf-8")
     (folder / "manifest.json").write_text('{"units": []}', encoding="utf-8")
     (folder / ".hidden.json").write_text('{"h": 1}', encoding="utf-8")

@@ -80,7 +80,8 @@ def pr_lanes() -> list:
 
 
 def test_replay_budget_pr_size(pr_lanes: list) -> None:
-    _replay_budget(pr_lanes, 3.0, repeat=2)
+    # Windows hosted runners have a materially slower baseline than the Unix runners in CI.
+    _replay_budget(pr_lanes, 4.5 if sys.platform == "win32" else 3.0, repeat=2)
 
 
 def test_replay_scales_linearly(pr_lanes: list) -> None:

@@ -452,4 +452,5 @@ def write_trace(path: str | Path, calls: Iterable[Call]) -> None:
                 f"{path}: call index {call.index} of run {call.run_id!r} contains "
                 f"a non-finite number ({exc}); refusing to write invalid JSON"
             ) from exc
-    Path(path).write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    Path(path).write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8",
+                          newline="\n")

@@ -1,0 +1,5 @@
+# Token Bill checks generated fixtures and release artifacts byte-for-byte. Keep text inputs
+# stable across Unix and Windows checkouts; compressed and image artifacts remain opaque.
+* text=auto eol=lf
+*.gz binary
+*.png binary

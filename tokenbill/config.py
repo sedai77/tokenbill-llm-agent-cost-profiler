@@ -269,6 +269,8 @@ def _resolve_path(text: str, base: Path | None) -> str:
         path = Path(text).expanduser()
     except RuntimeError:  # "~user" with no such user, or no home directory at all
         raise UsageError(f"cannot expand the home directory in path {text[:64]!r}") from None
+    if text.startswith("~") and str(path).startswith("~"):
+        raise UsageError(f"cannot expand the home directory in path {text[:64]!r}")
     if base is not None and not path.is_absolute():
         path = base / path
     return str(path)

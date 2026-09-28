@@ -70,7 +70,7 @@ def _lines(path: Path) -> list[dict]:
 
 def test_cc_transcripts_parse_and_reproduce_totals(world: F.FleetWorld) -> None:
     paths = _family(world, "claude-code/")
-    assert any("/subagents/agent-" in str(p) for p in paths)
+    assert any("/subagents/agent-" in p.as_posix() for p in paths)
     by_msg: dict[str, dict] = {}
     naive = 0
     subtypes: Counter = Counter()

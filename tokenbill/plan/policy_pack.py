@@ -1056,9 +1056,8 @@ def render_pack(pack: PolicyPack, out_dir: Path) -> list[Path]:
     for rel, text in files:
         path = base / rel
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        path.write_text(text, encoding="utf-8", newline="\n")
         if rel == HOOK_PATH:
             path.chmod(0o755)
         written.append(path)
     return sorted(written)
-

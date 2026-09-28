@@ -363,26 +363,27 @@ def _mutated(**changes: object) -> str:
     return json.dumps(raw)
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "not json",
-        "[]",
-        json.dumps({"schema": "tokenbill/facts@0"}),
-        '{"schema": "tokenbill/facts@1", "x": 1.5}',
-        _mutated(rates__0__source=...),
-        _mutated(evidence__0__verification="guess"),
-        _mutated(rates__0__usd_per_mtok={"input": 4, "output": "20"}),
-        _mutated(rates__0__published_absolute={"cache_read": "0.21"}),
-        _mutated(rates__0__published_absolute={"cache_write_other": "1"}),
-        _mutated(evidence__0__type="complex"),
-        _mutated(evidence__0__value="2000"),
-        _mutated(evidence__12__value=["1.00"]),
-        _mutated(evidence__8__value=7),
-        _mutated(lifecycle__successors__0__successor=...),
-        _mutated(focus_columns__finding=""),
-    ],
+_MALFORMED_FACTS = (
+    "not json",
+    "[]",
+    json.dumps({"schema": "tokenbill/facts@0"}),
+    '{"schema": "tokenbill/facts@1", "x": 1.5}',
+    _mutated(rates__0__source=...),
+    _mutated(evidence__0__verification="guess"),
+    _mutated(rates__0__usd_per_mtok={"input": 4, "output": "20"}),
+    _mutated(rates__0__published_absolute={"cache_read": "0.21"}),
+    _mutated(rates__0__published_absolute={"cache_write_other": "1"}),
+    _mutated(evidence__0__type="complex"),
+    _mutated(evidence__0__value="2000"),
+    _mutated(evidence__12__value=["1.00"]),
+    _mutated(evidence__8__value=7),
+    _mutated(lifecycle__successors__0__successor=...),
+    _mutated(focus_columns__finding=""),
 )
+
+
+@pytest.mark.parametrize("text", _MALFORMED_FACTS,
+                         ids=[f"case-{n}" for n in range(len(_MALFORMED_FACTS))])
 def test_parse_rejects_malformed_documents(text: str) -> None:
     with pytest.raises(ContractViolation):
         parse(text)

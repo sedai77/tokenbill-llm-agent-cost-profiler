@@ -75,5 +75,5 @@ def coverage_aggs(result: IngestResult) -> list:
 
 def write(tmp: Path, name: str, text: str) -> Path:
     path = tmp / name
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8", newline="\n")
     return path
