@@ -45,6 +45,7 @@ paths = [
   "pyproject.toml",
   "uv.lock",
   ".gitignore",
+  ".gitattributes",
   ".github/workflows/ownership.yml",
   "tokenbill/core/__init__.py",
   "tokenbill/core/errors.py",
