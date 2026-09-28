@@ -107,6 +107,8 @@ recorded in `tests/v2/kit/RULINGS.md`). A ruling that differs is a small, local 
   and keeps attempts 1, 2 and the final one; `fallback_credit` needs no alive_π (a provider credit);
   `shared_ci_prefix` chains consecutive run starts ≤ τπ (TTL clause, else the first request's write
   TTL, else 300 s) per (scope, model) with `S_ci` = the static floor, else `floor(0.8·min first W)`,
+  both cross-lane groups confined to the replay cohort (team, lane kind) as well (R-E24, gate-1
+  fixup 3; REPLAY-1 item 5),
   and sets `R' = min(S_ci, T − U)`. Step-3 order: restore_caching; lane-first repairs; keepalive /
   TTL flips; `fast_off` flips; fallback_credit; TTL hit→miss; retry_backoff_cap.
 - **O-16 Calibration.** CALIBRATED iff a passing report and (mode `calibrated`, or the report's

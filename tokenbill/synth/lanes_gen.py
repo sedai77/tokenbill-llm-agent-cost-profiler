@@ -709,10 +709,24 @@ def _nocache_lane(rnd: random.Random, key: str, skey: str) -> Lane:
                  kind=rnd.choice((LaneKind.MAIN, LaneKind.API_RUN)), scope="ws:w1")
 
 
+def _cohorts(family: str, seed: int, i: int, size: int, kinds: tuple[LaneKind, LaneKind],
+             teams: tuple[str, str]) -> list[tuple[LaneKind, dict[str, Any]]]:
+    """(lane kind, extra attribution) per member of a fan-out / CI group: one cohort (the first
+    kind, no team) for most groups; about a third straddle replay cohorts — members spread over
+    two teams and two lane kinds — so the differential covers the cohort-confined repair groups
+    (R-E24). A side RNG keeps the family's main random stream (every other lane) unchanged."""
+    side = rng(seed, "synth.lanes_gen.cohort", family, i)
+    if side.random() >= 0.35:
+        return [(kinds[0], {})] * size
+    return [(side.choice(kinds), {"team": side.choice(teams)}) for _ in range(size)]
+
+
 def _fanout_group(rnd: random.Random, family: str, seed: int, i: int, room: int) -> list[Lane]:
-    """2–4 subagent lanes of one (scope, model, cwd) whose cold first requests start within
-    ~10 s of each other (edges at exactly 10 s included), plus the occasional outsider."""
+    """2–4 lanes (usually subagents) of one (scope, model, cwd) whose cold first requests start
+    within ~10 s of each other (edges at exactly 10 s included), plus the occasional outsider;
+    some groups straddle replay cohorts (:func:`_cohorts`)."""
     size = min(room, rnd.randint(2, 4))
+    cohorts = _cohorts(family, seed, i, size, (LaneKind.SUBAGENT, LaneKind.MAIN), ("t1", "t2"))
     t0 = _t0(rnd)
     model = rnd.choice(("claude-opus-5-5", "claude-sonnet-5"))
     cwd = _h(rnd)
@@ -727,14 +741,19 @@ def _fanout_group(rnd: random.Random, family: str, seed: int, i: int, room: int)
         if rnd.random() < 0.15 and specs:           # a warm first request: not a fan-out member
             specs[0].reads = specs[0].writes // 2
             specs[0].writes -= specs[0].reads
-        lanes.append(_lane(key, skey, specs, {"agent_product": "claude_code", "cwd_key": cwd},
-                           rnd, kind=LaneKind.SUBAGENT, scope="ws:w1", events=events))
+        kind, extra = cohorts[k]
+        lanes.append(_lane(key, skey, specs, {"agent_product": "claude_code", "cwd_key": cwd,
+                                              **extra},
+                           rnd, kind=kind, scope="ws:w1", events=events))
     return lanes
 
 
 def _ci_group(rnd: random.Random, family: str, seed: int, i: int, room: int) -> list[Lane]:
-    """2–5 CI runs of one (scope, model) whose starts are minutes apart (some beyond τ)."""
+    """2–5 CI runs of one (scope, model) whose starts are minutes apart (some beyond τ); some
+    groups straddle replay cohorts (:func:`_cohorts`)."""
     size = min(room, rnd.randint(2, 5))
+    cohorts = _cohorts(family, seed, i, size, (LaneKind.MAIN, LaneKind.API_RUN),
+                       ("ci-a", "ci-b"))
     ts = _t0(rnd)
     model = rnd.choice(("claude-opus-5-5", "claude-sonnet-5"))
     ttl = rnd.choice(("5m", "1h"))
@@ -747,10 +766,12 @@ def _ci_group(rnd: random.Random, family: str, seed: int, i: int, room: int) -> 
         walk = _Walk(n=rnd.randint(1, 4), t0_ms=ts, model=model, ttl=ttl, write_class=ttl,
                      gaps="short", start=(15_000, 60_000))
         specs, events = _walk(rnd, key, walk)
+        kind, extra = cohorts[k]
         lanes.append(_lane(key, skey, specs, {"agent_product": "claude_code",
                                               "workload_class": WorkloadClass.CI,
-                                              "entrypoint": "claude-code-github-action"},
-                           rnd, kind=LaneKind.MAIN, scope="ws:ci", events=events))
+                                              "entrypoint": "claude-code-github-action",
+                                              **extra},
+                           rnd, kind=kind, scope="ws:ci", events=events))
     return lanes
 
 

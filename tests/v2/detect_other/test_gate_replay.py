@@ -79,6 +79,17 @@ def test_scheduled_cadence_prefers_keepalive_for_an_sdk_agent() -> None:
     assert f.recoverable.nano == 880_000_000 and "keepalive" in f.summary
 
 
+def test_scheduled_cadence_does_not_assume_openai_one_hour_ttl_or_keepalive() -> None:
+    rows = [(t, 0, 50_000, 0, 0, 100) for t in (0, 2_400, 4_800, 7_200, 9_600)]
+    openai = lane("L-oai-cron", rows, model="gpt-5.6-sol", kind=LaneKind.API_RUN,
+                  product="agent_sdk", workload=WorkloadClass.SCHEDULED)
+    f = one(Automation().detect([openai], _ctx(thresholds={"min_usd": "0.10"})),
+            "scheduled-cadence")
+    assert f.recoverable is None and f.lever_ids == ()
+    assert f.fix is not None and "not a configurable 1-hour TTL" in f.fix.text
+    assert f.fix.doc_url == "https://developers.openai.com/api/docs/guides/prompt-caching"
+
+
 def test_a6_compaction_window_is_not_recommended() -> None:
     # Appendix A.6 (S_c = 20,000): on this short Sonnet 5 lane a 400k window costs $0.569 more
     a6 = lane("L-a6", [(0, 0, 300_000, 0, 0, 1_000), (30, 300_000, 150_000, 0, 0, 1_000),

@@ -1,0 +1,182 @@
+# Weekly pricing verification (SPEC §6.7, §8.10): the built-in rate registry (incl. the Copilot
+# extension verifier) against
+#   offline - the packaged pricing snapshots (the registry and its snapshots must agree);
+#   live    - the published Claude pricing page and GitHub's Copilot pricing table (drift);
+# plus every price promotion that ends within 14 days. Opens (or comments on) one issue per
+# problem. The `verify` job holds no write permission; only `issues` may write, and only issues.
+#
+# The steps call the RATES module API (tokenbill.rates.verify.verify_report, which also runs
+# core.extensions.rate_verifiers(), i.e. tokenbill.copilot.rates_verify.verify); it is the same
+# code path as `tokenbill pricing verify [--live]` and exits 3 on an authoritative discrepancy.
+name: pricing verify
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: pricing-verify
+  cancel-in-progress: false
+
+env:
+  VERIFY_PY: |
+    import datetime, os, sys
+    from pathlib import Path
+    from tokenbill.rates.engine import STALE_AFTER_DAYS
+    from tokenbill.rates.schema import load_builtin
+    from tokenbill.rates.verify import promotions_ending, verify_report
+
+    mode = os.environ["MODE"]
+    out = Path(os.environ["RUNNER_TEMP"]) / "pricing"
+    out.mkdir(parents=True, exist_ok=True)
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    if mode == "promotions":
+        ending = promotions_ending(today, days=14)
+        for p in ending:
+            (out / f"promotion-{p.promotion_id}.md").write_text(
+                f"Promotion `{p.promotion_id}` ({p.model} on `{p.channel}`, since {p.start}) is "
+                f"guaranteed only through **{p.not_before_end}** (checked {today}).\n\n"
+                f"Confirm the end date or the post-promotion price at {p.source} and update the "
+                "rate registry before it lapses.\n", encoding="utf-8")
+            print(f"promotion {p.promotion_id} ends {p.not_before_end}")
+        print(f"{len(ending)} promotion(s) end within 14 days of {today}")
+        sys.exit(0)
+    notes = []
+    layer = load_builtin(notes=notes)
+    report = verify_report(layer, today=today, live=(mode == "live"), notes=notes)
+    auth = [d for d in report.discrepancies if d.authoritative]
+    warn = [d for d in report.discrepancies if not d.authoritative]
+    lines = [f"`pricing verify` ({mode}) on {today}: {'OK' if report.ok else 'DRIFT'}; "
+             f"{len(auth)} authoritative discrepancies, {len(warn)} warnings, "
+             f"{len(report.stale_rows)} stale rows, registry `{layer.name}`.", ""]
+    if report.discrepancies:
+        lines += ["| row | field | ours | theirs | source | authoritative |",
+                  "|---|---|---|---|---|---|"]
+        lines += [f"| `{d.row_id}` | {d.field} | {d.ours} | {d.theirs} | {d.source} | "
+                  f"{'yes' if d.authoritative else 'no'} |" for d in report.discrepancies]
+    if report.stale_rows:
+        lines += ["", f"Rows verified more than {STALE_AFTER_DAYS} days ago: "
+                  + ", ".join(f"`{r}`" for r in report.stale_rows)]
+    if notes:
+        lines += ["", "Data-quality notes:"]
+        lines += [f"- `{n.code}` ({n.severity}): {n.detail}" for n in notes]
+    text = "\n".join(lines) + "\n"
+    (out / f"{mode}.md").write_text(text, encoding="utf-8")
+    print(text)
+    sys.exit(0 if report.ok else 3)
+
+jobs:
+  verify:
+    name: verify (offline, live, promotions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read # checkout
+    outputs:
+      offline: ${{ steps.offline.outcome }}
+      live: ${{ steps.live.outcome }}
+      promotions: ${{ steps.promotions.outcome }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - name: pricing verify (offline, packaged snapshots)
+        id: offline
+        continue-on-error: true
+        env:
+          MODE: offline
+        run: uv run python -c "$VERIFY_PY"
+      - name: pricing verify --live (published pages)
+        id: live
+        continue-on-error: true
+        env:
+          MODE: live
+        run: uv run python -c "$VERIFY_PY"
+      - name: promotions ending within 14 days
+        id: promotions
+        continue-on-error: true
+        env:
+          MODE: promotions
+        run: uv run python -c "$VERIFY_PY"
+      - name: Job summary
+        if: ${{ !cancelled() }}
+        run: cat "$RUNNER_TEMP"/pricing/*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: pricing-reports
+          path: ${{ runner.temp }}/pricing/
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Fail on drift or a verifier error
+        if: ${{ steps.offline.outcome != 'success' || steps.live.outcome != 'success' || steps.promotions.outcome != 'success' }}
+        env:
+          OFFLINE: ${{ steps.offline.outcome }}
+          LIVE: ${{ steps.live.outcome }}
+          PROMOTIONS: ${{ steps.promotions.outcome }}
+        run: |
+          echo "offline=$OFFLINE live=$LIVE promotions=$PROMOTIONS" >&2
+          exit 1
+
+  issues:
+    name: open issues
+    needs: verify
+    if: ${{ !cancelled() && needs.verify.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      issues: write # open or comment on the drift / promotion issues; nothing else
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true # no artifact when every check passed and no promotion ends
+        with:
+          name: pricing-reports
+          path: reports/
+      - name: Open or update issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OFFLINE: ${{ needs.verify.outputs.offline }}
+          LIVE: ${{ needs.verify.outputs.live }}
+          PROMOTIONS: ${{ needs.verify.outputs.promotions }}
+        run: |
+          file_issue() {  # file_issue <title> <body-file>: one open issue per title
+            local title="$1" body="$2" number
+            printf '\n\nWorkflow run: %s\n' "$RUN_URL" >> "$body"
+            number="$(TITLE="$title" gh issue list --state open --search "in:title \"$title\"" \
+                       --json number,title --jq '.[] | select(.title == env.TITLE) | .number' \
+                       | head -n 1)"
+            if [ -n "$number" ]; then
+              gh issue comment "$number" --body-file "$body"
+            else
+              gh issue create --title "$title" --body-file "$body"
+            fi
+          }
+          mkdir -p reports
+          for mode in offline live; do
+            case "$mode" in offline) outcome="$OFFLINE" ;; live) outcome="$LIVE" ;; esac
+            [ "$outcome" = "success" ] && continue
+            body="reports/$mode.issue.md"
+            if [ -s "reports/$mode.md" ]; then
+              cp "reports/$mode.md" "$body"
+            else
+              echo "The $mode verifier did not produce a report (outcome: $outcome); see the run log." > "$body"
+            fi
+            file_issue "pricing verify ($mode): rate registry drift" "$body"
+          done
+          if [ "$PROMOTIONS" != "success" ]; then
+            echo "The promotions check failed (outcome: $PROMOTIONS); see the run log." > reports/promo.issue.md
+            file_issue "pricing verify: promotions check failed" reports/promo.issue.md
+          fi
+          for f in reports/promotion-*.md; do
+            [ -e "$f" ] || continue
+            id="$(basename "$f" .md)"
+            file_issue "pricing: ${id#promotion-} ends within 14 days" "$f"
+          done

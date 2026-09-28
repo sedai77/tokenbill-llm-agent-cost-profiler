@@ -237,6 +237,30 @@ def test_parse_line_equals_the_core_parser(raw: bytes) -> None:
     assert cc.parse_line(raw) == jsonl.parse_json_line(raw)
 
 
+def test_lone_surrogate_scan_is_iterative() -> None:
+    """Gate-1 fixup 1 (F-CORE-C review D7): the surrogate scan walks 50k levels without
+    ``RecursionError`` (it was recursive, ~3 frames per level)."""
+    deep: Any = ["\ud800"]
+    clean: Any = ["ok"]
+    for _ in range(50_000):
+        deep = [deep]
+        clean = {"k": clean}
+    assert cc._has_lone_surrogate(deep) is True
+    assert cc._has_lone_surrogate(clean) is False
+    assert cc._has_lone_surrogate({"\udc00": 1}) is True
+
+
+@pytest.mark.parametrize("depth", [500, 900, 5000])
+def test_parse_line_deep_surrogate_line_equals_core(depth: int) -> None:
+    """A line nested deeper than the old recursive scan could walk, holding a lone surrogate, is
+    refused (None) exactly like ``core.jsonl`` instead of raising ``RecursionError``."""
+    raw = b'{"a":' + b"[" * depth + b'"\\ud800"' + b"]" * depth + b"}"
+    assert cc.parse_line(raw) is None
+    assert cc.parse_line(raw) == jsonl.parse_json_line(raw)
+    ok = b'{"a":' + b"[" * depth + b'"\\ud83d\\ude00"' + b"]" * depth + b"}"
+    assert cc.parse_line(ok) == jsonl.parse_json_line(ok)
+
+
 secret_texts = st.one_of(
     st.text(max_size=120),
     st.sampled_from(["key sk-ant-abcdefghijklmnop", "AKIAABCDEFGHIJKLMNOP", "ghp_" + "a1" * 12,

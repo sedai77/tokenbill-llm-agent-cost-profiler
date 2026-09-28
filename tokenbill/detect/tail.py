@@ -4,8 +4,10 @@
 billing_class)`` — the cohort statistics keep the detector shard-invariant:
 
 * ``runaway-session`` — a session whose exact spend in some rolling hour exceeds
-  ``max($50, 5 × p99)``, where p99 is the cohort's 99th percentile (nearest rank) of the
-  sessions' maximum rolling-hour spend.
+  ``max($50, 5 × p99)``, where p99 is the 99th percentile (nearest rank) of the maximum
+  rolling-hour spend of the cohort's **other** sessions (leave-one-out, ruling R-E41: a loop is
+  never its own yardstick, so small teams are covered too). Cohorts of fewer than
+  :data:`MIN_COHORT_SESSIONS` (20) sessions judge no session.
 * ``idle-loop`` (needs ``human_prompts``) — a session with a stretch of ≥ 50 requests spanning
   ≥ 1 hour with no HUMAN_PROMPT event.
 
@@ -19,7 +21,7 @@ session; the CLI audits the reveal, R-E13). See ``detect.context`` for the share
 from __future__ import annotations
 
 import dataclasses
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from collections.abc import Mapping, Sequence
 from fractions import Fraction
 
@@ -48,7 +50,10 @@ from tokenbill.detect.context import (
     usd_threshold_nano,
 )
 
-__all__ = ["Runaway", "SessionStats"]
+__all__ = ["MIN_COHORT_SESSIONS", "Runaway", "SessionStats"]
+
+#: The minimum number of sessions of a cohort for ``runaway-session`` (R-E41).
+MIN_COHORT_SESSIONS = 20
 
 _REFS = ("runaway-circuit-breaker", "cc-heavy-tail-concentration")
 _FIX = ("Set spend limits where they are enforced (gateway budgets, Console workspace limits; "
@@ -90,6 +95,13 @@ class SessionStats:
             return Fraction(0)
         starts = [ts for ts, _ in self.items]
         return Fraction(max(starts) - min(starts), HOUR_MS)
+
+
+def _p99_without(ordered: Sequence[int], value: int) -> int:
+    """The nearest-rank p99 of *ordered* (ascending, at least two values) with one occurrence of
+    *value* left out — a session's cohort p99 over the **other** sessions (R-E41)."""
+    rank = max(1, -(-99 * (len(ordered) - 1) // 100))
+    return ordered[rank - 1] if rank - 1 < bisect_left(ordered, value) else ordered[rank]
 
 
 def _idle_stretch(lane: Lane) -> tuple[int, int]:
@@ -144,12 +156,20 @@ class Runaway:
             totals = [s.spend.point for s in sessions.values()]
             peaks = {k: s.peak_hour() for k, s in sessions.items()}
             p95 = nearest_rank(totals, 95)
-            p99 = nearest_rank(list(peaks.values()), 99)
-            limit = max(min_hourly, round_fraction(multiple * p99))
+            ordered = sorted(peaks.values())
+            limits: dict[str, tuple[int, int]] = {}     # session → (p99 of the others, limit)
+            if len(sessions) >= MIN_COHORT_SESSIONS:
+                for k, peak in peaks.items():
+                    p99 = _p99_without(ordered, peak)
+                    limits[k] = (p99, max(min_hourly, round_fraction(multiple * p99)))
+            # the cohort item shows the bar of its heaviest session (None below the minimum)
+            bar = limits.get(max(peaks, key=lambda k: (peaks[k], k)), (None, None))
             stats = evidence_item("aggregate", "tail:cohort", sessions=len(sessions),
-                                  p95_session_nano=p95, p99_hourly_nano=p99, threshold_nano=limit,
+                                  p95_session_nano=p95, p99_hourly_nano=bar[0],
+                                  threshold_nano=bar[1], min_sessions=MIN_COHORT_SESSIONS,
                                   magnitude=0)
-            runaway = [s for k, s in sorted(sessions.items()) if peaks[k] > limit]
+            runaway = [s for k, s in sorted(sessions.items())
+                       if k in limits and peaks[k] > limits[k][1]]
             idle = [s for _, s in sorted(sessions.items()) if s.idle is not None
                     and s.idle[0] >= max(1, idle_n) and s.idle[1] >= idle_ms] if idle_on else []
             for kind, flagged in (("runaway-session", runaway), ("idle-loop", idle)):
@@ -157,7 +177,7 @@ class Runaway:
                     continue
                 groups = [[s] for s in flagged] if ctx.break_glass else [flagged]
                 for group in groups:
-                    found = self._finding(ctx, cohort, kind, group, p95, peaks, limit, stats)
+                    found = self._finding(ctx, cohort, kind, group, p95, peaks, limits, stats)
                     if found is not None:
                         out.append(found)
         return sort_findings(out)
@@ -183,8 +203,8 @@ class Runaway:
         return sessions
 
     def _finding(self, ctx: AnalysisContext, cohort: Cohort, kind: str,
-                 group: Sequence[SessionStats], p95: int, peaks: Mapping[str, int], limit: int,
-                 stats: EvidenceItem) -> Finding | None:
+                 group: Sequence[SessionStats], p95: int, peaks: Mapping[str, int],
+                 limits: Mapping[str, tuple[int, int]], stats: EvidenceItem) -> Finding | None:
         tally = Tally()
         items: list[EvidenceItem] = [stats]
         ranked = sorted(group, key=lambda s: (-s.spend.point, s.key))
@@ -206,6 +226,8 @@ class Runaway:
                 "requests": len(session.items), "hours": decimal_str(session.hours(), 2),
                 "session_nano": session.spend.point, "rolling_1h_max_nano": peaks[session.key],
                 "nano": above.point}
+            if kind == "runaway-session":
+                attrs["p99_hourly_nano"], attrs["threshold_nano"] = limits[session.key]
             if kind == "idle-loop" and session.idle is not None:
                 attrs["idle_requests"] = session.idle[0]
                 attrs["idle_hours"] = decimal_str(Fraction(session.idle[1], HOUR_MS), 2)
@@ -219,8 +241,8 @@ class Runaway:
         if ctx.break_glass:
             scope_extra["session"] = group[0].key
         if kind == "runaway-session":
-            what = ("spent more in a rolling hour than max($50, 5 x the cohort's p99 hourly "
-                    "session spend)")
+            what = ("spent more in a rolling hour than max($50, 5 x the p99 hourly spend of the "
+                    "cohort's other sessions)")
         else:
             what = "ran a long stretch of requests (50 or more over an hour) with no human prompt"
         n = tally.events

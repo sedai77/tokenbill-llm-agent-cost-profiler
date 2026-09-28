@@ -60,7 +60,13 @@ from typing import Any, TypeVar
 from tokenbill.config import Config
 from tokenbill.core import extensions, keys, registry
 from tokenbill.core.cache_rules import RulesTable
-from tokenbill.core.errors import ContractViolation, PricingError, SourceError, UsageError
+from tokenbill.core.errors import (
+    ContractViolation,
+    PricingError,
+    PrivacyError,
+    SourceError,
+    UsageError,
+)
 from tokenbill.core.ids import key_id
 from tokenbill.core.jsonl import load_json_exact
 from tokenbill.core.kanon import AUDIENCES, publish, require_self_or_aggregate
@@ -123,6 +129,7 @@ __all__ = [
     "median_tokens",
     "open_store",
     "org_compaction_median",
+    "require_consistent_self_view",
     "shard_store",
     "with_compaction_post",
 ]
@@ -668,6 +675,24 @@ def _close(store: object) -> None:
         close()
 
 
+def require_consistent_self_view(store: LedgerStore, *, since_ms: int, until_ms: int,
+                                 principal: str | None = None) -> None:
+    """Reject a self view if one merged request carries conflicting principal claims.
+
+    The optional capability keeps lightweight test and extension stores compatible while the
+    SQLite ledger supplies the provenance check.
+    """
+    checker = getattr(store, "identity_conflicts", None)
+    if not callable(checker):
+        return
+    conflicts = checker(since_ms=since_ms, until_ms=until_ms, principal=principal)
+    if type(conflicts) is not int or conflicts < 0:
+        raise ContractViolation("store identity_conflicts must return a non-negative int")
+    if conflicts:
+        raise PrivacyError("--self needs a ledger holding one person's data "
+                           "(merged requests have conflicting principal claims)")
+
+
 def _worker_init(db_path: str | None, store_class: str) -> None:
     global _SHARD_STORE
     _SHARD_STORE = _open_read_only(db_path, store_class) if db_path is not None else None
@@ -1011,4 +1036,3 @@ def with_compaction_post(policy: Policy, post_tokens: int | None) -> Policy:
     if type(post_tokens) is not int or post_tokens < 0:
         raise UsageError("post_tokens must be a non-negative int")
     return dataclasses.replace(policy, compaction_window=(window[0], post_tokens))
-

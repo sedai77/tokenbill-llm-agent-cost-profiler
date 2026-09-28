@@ -1,0 +1,41 @@
+# Nightly full-size performance gates (SPEC §8.10; INTEGRATION item 2): the `perf`-marked tests
+# (excluded from the default run by `addopts = -m 'not perf'`) at full size with their budgets,
+# summarized per gate by scripts/perf_gates.py.
+name: perf (nightly)
+
+on:
+  schedule:
+    - cron: "41 3 * * *" # daily 03:41 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: perf
+  cancel-in-progress: false
+
+jobs:
+  perf:
+    name: perf gates (full size)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read # checkout
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - name: Perf gates
+        run: |
+          uv run --extra dev python scripts/perf_gates.py \
+            --junit "$RUNNER_TEMP/perf-junit.xml" --markdown "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: perf-junit
+          path: ${{ runner.temp }}/perf-junit.xml
+          if-no-files-found: ignore
+          retention-days: 30

@@ -496,6 +496,30 @@ def test_human_prompt_detection_rules(tmp_path: Path) -> None:
     assert "human_prompts" in r.capabilities
 
 
+def test_compact_summary_is_not_appended_user_text(tmp_path: Path) -> None:
+    """R-E33 (gate-1 fixup 2): an ``isCompactSummary`` user entry is neither a HUMAN_PROMPT nor a
+    ``user_text`` appended item of the next request; human text alongside it still is."""
+    t = tx()
+    t.human("hello")
+    t.call("msg_a", OPUS, inp=5, outputs=(9,), stop="end_turn")
+    t.system("compact_boundary", compactMetadata={"trigger": "auto", "preTokens": 9_000,
+                                                  "postTokens": 700, "durationMs": 1_000})
+    t.add(t.base("user", 10, isCompactSummary=True, isVisibleInTranscriptOnly=True,
+                 message={"role": "user", "content": "summary " * 40}))
+    t.call("msg_b", OPUS, inp=5, outputs=(9,), stop="end_turn")
+    t.add(t.base("user", 10, isCompactSummary=True,
+                 message={"role": "user", "content": [{"type": "text", "text": "sum"}]}))
+    t.human("next")
+    t.call("msg_c", OPUS, inp=5, outputs=(9,), stop="end_turn")
+    r = read(tmp_path, t)
+    reqs = by_message(r)
+    assert [(a.kind, a.n_bytes) for a in reqs["msg_a"].appended] == [("user_text", 5)]
+    assert reqs["msg_b"].appended == ()
+    assert [(a.kind, a.n_bytes) for a in reqs["msg_c"].appended] == [("user_text", 4)]
+    assert len(events(r, LaneEventKind.HUMAN_PROMPT)) == 2
+    assert len(events(r, LaneEventKind.COMPACTION)) == 1
+
+
 def test_appended_items_are_sizes_only(tmp_path: Path) -> None:
     t = tx()
     t.human("hello")

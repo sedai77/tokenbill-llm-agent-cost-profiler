@@ -65,6 +65,9 @@ _BETA_MIN_REQUESTS = 20
 _TOOL_SEARCH_PER_100 = "3"
 _ONE_HOUR_MS = 3_600_000
 _READ_SHARE_DEFAULT = "0.95"
+_OPENAI_CACHE_DOC = "https://developers.openai.com/api/docs/guides/prompt-caching"
+_BEDROCK_CACHE_DOC = "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html"
+_ANTHROPIC_CACHE_CHANNELS = frozenset({"anthropic_api", "claude_platform_aws", "vertex"})
 
 
 def _median(values: Sequence[int]) -> Fraction:
@@ -73,6 +76,54 @@ def _median(values: Sequence[int]) -> Fraction:
     if len(ordered) % 2:
         return Fraction(ordered[mid])
     return Fraction(ordered[mid - 1] + ordered[mid], 2)
+
+
+def _cache_routes(lanes: Sequence[Lane]) -> frozenset[tuple[str, str]]:
+    """The provider/channel routes of a no-cache cohort.
+
+    Cohorts intentionally group by team, lane kind, and billing class rather than provider. A
+    generated fix must therefore use provider syntax only when every affected serving request uses
+    the same documented provider/channel route.
+    """
+    routes = set()
+    for lane in lanes:
+        for req in serving_steps(lane):
+            inf = req.serving_inference
+            if inf is not None:
+                routes.add((inf.pricing.provider, inf.pricing.channel))
+    return frozenset(routes)
+
+
+def _restore_caching_fix(lanes: Sequence[Lane]) -> Fix:
+    """Provider-appropriate no-cache guidance, neutral for a mixed-provider cohort."""
+    routes = _cache_routes(lanes)
+    if routes == {("openai", "openai_api")}:
+        return Fix(
+            text=("Enable OpenAI prompt caching on this route: keep instructions, tool "
+                  "definitions, and history stable before dynamic content. On GPT-5.6+ use "
+                  'prompt_cache_options.mode="explicit" with a prompt_cache_breakpoint at the '
+                  "reusable boundary, then compare cache writes with later reads."),
+            config_patch=None, target="gateway", doc_url=_OPENAI_CACHE_DOC)
+    if routes and {channel for _, channel in routes} == {"bedrock"}:
+        return Fix(
+            text=("Enable the supported Bedrock prompt-cache controls for this model and API; "
+                  "keep static context before changing values, then verify cached and cache-write "
+                  "usage in the response. Do not assume that Bedrock batch inference shares the "
+                  "same cache behavior."),
+            config_patch=None, target="gateway", doc_url=_BEDROCK_CACHE_DOC)
+    if routes and all(provider == "anthropic" and channel in _ANTHROPIC_CACHE_CHANNELS
+                      for provider, channel in routes):
+        return Fix(
+            text=("Enable prompt caching at the application or gateway boundary: preserve "
+                  "cache_control and, when using the 1h TTL, anthropic-beta unchanged. With "
+                  "LiteLLM, set cache_control_injection_points at the system message and last "
+                  "message."),
+            config_patch=None, target="gateway", doc_url=API_CACHE_DOC)
+    return Fix(
+        text=("Enable the documented prompt-caching controls for each affected provider route; "
+              "keep stable instructions, tool definitions, and history before dynamic content, "
+              "then verify actual cache-read and cache-write usage before rollout."),
+        config_patch=None, target="gateway", doc_url=None)
 
 
 # =============================================================================================
@@ -167,11 +218,7 @@ class GatewayDisabled:
                      f"replays restored caching."),
             references=_GATEWAY_REFS,
             lever_ids=applicable_levers("no-cache", lanes),
-            fix=Fix(text=("Forward cache_control and anthropic-beta unchanged through the "
-                          "gateway and do not flatten system blocks; with LiteLLM set "
-                          "cache_control_injection_points (system message and the last "
-                          "message)."),
-                    config_patch=None, target="gateway", doc_url=API_CACHE_DOC),
+            fix=_restore_caching_fix(lanes),
             confidence="high")
         return emit(self, ctx, cohort, tally, spec, cost, recoverable)
 

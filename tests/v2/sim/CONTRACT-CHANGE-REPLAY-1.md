@@ -66,6 +66,9 @@ no line is a range; anything else is ESTIMATED with its calibration label. **Pro
 
 ## 5. Cross-lane repairs stay inside the replay cohort (differs from the oracle's O-15 keys)
 
+**Resolved (R-E24):** REPLAY's reading is canonical; SYNTH-ORACLE adopted the cohort keys in
+the gate-1 fixups, and the `repairs` lane family now includes groups straddling cohorts.
+
 `stagger_fanout` groups by (scope, model, cwd_key) and `shared_ci_prefix` by (scope, model) in
 §9.3.6. REPLAY adds the cohort keys (team, lane kind) (billing class is one per call), because D30
 requires sharded and unsharded replays to be identical and shards are teams (split by lane kind

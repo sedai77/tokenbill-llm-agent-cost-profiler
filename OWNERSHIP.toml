@@ -226,6 +226,7 @@ paths = [
 
 [packages.DETECT-CACHE]
 paths = [
+  "tokenbill/detect/capabilities.py",
   "tokenbill/detect/cache_miss.py",
   "tokenbill/detect/cache_ttl.py",
   "tokenbill/detect/cache_structure.py",

@@ -117,7 +117,8 @@ def test_figures_are_meaningful(world: F.FleetWorld) -> None:
     assert p("ops.regional-premium").recoverable_nano > 0
     run = p("ops.runaway")
     assert int(run.detail("rolling_1h_max_nano")) > int(run.detail("threshold_nano"))
-    assert int(run.detail("sessions")) >= 100
+    assert int(run.detail("sessions")) >= T.RUNAWAY_MIN_SESSIONS       # R-E41
+    assert (run.detail("fires"), run.detail("flagged_sessions")) == ("1", "1")
     trunc = p("ci-bots.truncation")
     assert 0 < trunc.recoverable_nano <= trunc.cost_observed_nano
     batch = p("ci-bots.batch-eligible")

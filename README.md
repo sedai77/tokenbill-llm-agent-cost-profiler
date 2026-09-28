@@ -8,6 +8,16 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/tokenbill)](https://pypi.org/project/tokenbill/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+> **v0.2 enterprise status (2026-09-27).** Token Bill is transitioning from the
+> legacy single-trace analyzer described below to a local-first accounting and
+> optimization system. Active integration work adds a usage ledger, reconciliation,
+> privacy controls, counterfactual policy analysis, and GitHub Copilot sources. The
+> walkthrough below remains the v0.1 experience and is not a v0.2 support matrix.
+> Enterprise use requires a reviewed release, provider/contract reconciliation, and
+> organization-specific quality validation before policy enforcement.
+> See the [enterprise pilot guide](docs/ENTERPRISE.md) for the v0.2 rollout path,
+> support boundaries, and evidence labels.
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/sedai77/tokenbill-llm-agent-cost-profiler/main/docs/images/report-overview.png" width="820"
        alt="Token Bill HTML report: the headline waste figure, a per-call token chart, the cost of the run under four scenarios, and a detected cache breaker with its fix">

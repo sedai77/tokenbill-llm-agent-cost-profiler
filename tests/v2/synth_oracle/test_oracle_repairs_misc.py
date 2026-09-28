@@ -30,7 +30,18 @@ from tokenbill.synth.oracle import (
     round_half_even,
 )
 
-from .helpers import EPOCH_MS, PRICER, RULES, bounds, costs, lane, lane_of, replay, req
+from .helpers import (
+    EPOCH_MS,
+    PRICER,
+    RULES,
+    bounds,
+    costs,
+    first_difference,
+    lane,
+    lane_of,
+    replay,
+    req,
+)
 
 READ, W5, W1, OUT, IN = 200, 5_000, 8_000, 20_000, 4_000
 CWD = "h_0123456789abcdef0123"
@@ -113,6 +124,30 @@ def test_stagger_fanout_shares_the_group_minimum() -> None:
     assert per_lane["F5"] == 30_000 * W5              # another directory: its own group
     assert per_lane["F6"] == 20_000 * READ + 10_000 * W5   # warm first request: not a member
     assert res.saving.nano == 384_000_000 and res.saving.upper_bound
+
+
+def _member(key, ts_ms, writes, team, kind=LaneKind.SUBAGENT):
+    r = req(key, 0, 0, {"cache_write_5m": writes},
+            attribution={"agent_product": "claude_code", "cwd_key": CWD, "team": team})
+    from dataclasses import replace
+
+    att = replace(r.attempts[0], ts_start_ms=EPOCH_MS + ts_ms)
+    return lane_of([replace(r, attempts=(att,))], kind=kind)
+
+
+def test_stagger_fanout_groups_stay_inside_the_replay_cohort() -> None:
+    """R-E24 (gate-1 fixup 3): a fan-out group never spans teams or lane kinds (REPLAY's
+    cohort-confined reading), so sharded and unsharded replays agree; REPLAY agrees to the nano."""
+    lanes = [_member("G1", 0, 50_000, "t1"), _member("G2", 2_000, 60_000, "t2"),
+             _member("G3", 3_000, 40_000, "t1", LaneKind.MAIN),
+             _member("G4", 5_000, 45_000, "t1")]
+    res = replay(lanes, "repair=stagger_fanout")
+    per_lane = dict(res.per_lane)
+    assert per_lane["G1"] == 50_000 * W5
+    assert per_lane["G2"] == 60_000 * W5              # another team: its own group
+    assert per_lane["G3"] == 40_000 * W5              # another lane kind: its own group
+    assert per_lane["G4"] == 45_000 * READ            # reads min W of {G1, G4}
+    _agrees_with_replay(lanes, "repair=stagger_fanout", res)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -228,6 +263,36 @@ def test_shared_ci_prefix_reads_the_shared_prefix_on_consecutive_runs() -> None:
     c2 = floor.outcomes[2].usage  # type: ignore[index]
     assert (c2.cache_read, c2.cache_write_5m) == (20_000, 12_000)
     assert floor.saving.upper_bound
+
+
+def test_shared_ci_prefix_chains_stay_inside_the_replay_cohort() -> None:
+    """R-E24 (gate-1 fixup 3): CI runs chain per (team, lane kind, scope, model); the static
+    floor stays keyed by (scope, model)."""
+    def run(key, ts_s, writes, team, kind=LaneKind.MAIN):
+        return lane([(ts_s, 0, writes, 0, 0, 0), (ts_s + 30, writes, 1_000, 0, 0, 0)],
+                    lane_key=key, scope="ws:ci", kind=kind,
+                    attribution={"agent_product": "claude_code", "team": team,
+                                 "workload_class": WorkloadClass.CI})
+
+    lanes = [run("C1", 0, 30_000, "ci-a"), run("C2", 120, 32_000, "ci-b"),
+             run("C3", 150, 31_000, "ci-a", LaneKind.API_RUN), run("C4", 200, 29_000, "ci-a")]
+    res = replay(lanes, "repair=shared_ci_prefix")
+    firsts = {ln.lane_key: request_costs(res)[ln.requests[0].request_id][0] for ln in lanes}
+    s_ci = 23_200                                   # floor(0.8 · min(30,000, 29,000))
+    assert firsts == {"C1": 30_000 * W5, "C2": 32_000 * W5, "C3": 31_000 * W5,
+                      "C4": s_ci * READ + 5_800 * W5}
+    _agrees_with_replay(lanes, "repair=shared_ci_prefix", res)
+    floor = replay(lanes, "repair=shared_ci_prefix", floor={("ws:ci", "claude-opus-5-5"): 20_000})
+    c4 = floor.outcomes[6].usage  # type: ignore[index]
+    assert (c4.cache_read, c4.cache_write_5m) == (20_000, 9_000)
+    _agrees_with_replay(lanes, "repair=shared_ci_prefix", floor,
+                        floor={("ws:ci", "claude-opus-5-5"): 20_000})
+
+
+def _agrees_with_replay(lanes, spec, expected, **kw) -> None:
+    usage_replay = pytest.importorskip("tokenbill.sim.usage_replay")
+    actual = replay(lanes, spec, replayer=usage_replay.UsageReplayer(), **kw)
+    assert first_difference(expected, actual, lanes) is None
 
 
 # ---------------------------------------------------------------------------------------------

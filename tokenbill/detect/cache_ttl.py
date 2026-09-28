@@ -61,6 +61,7 @@ from tokenbill.detect.cache_miss import (
     sort_findings,
     transitions,
 )
+from tokenbill.detect.capabilities import common_ttl_options, supports_every_serving
 
 __all__ = [
     "GAP_BANDS",
@@ -187,6 +188,10 @@ _ADVISED_KINDS = frozenset({LaneKind.MAIN.value, LaneKind.SUBAGENT.value,
 _TTL_REFS = ("cc-ttl-advisor", "cc-ttl-policy", "anth-ttl-choice-keepalive",
              "keepalive-economics", "cc-apps-gateway-routing-tax")
 _GATEWAY_NOTE = " Behind a gateway: forward anthropic-beta; the Claude apps gateway cannot use 1h."
+_BEDROCK_CACHE_DOC = "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html"
+# These channels accept Anthropic-compatible prompt-cache controls. Bedrock's API shape depends on
+# the selected model/API, and Foundry's route is not verified for this request syntax.
+_ANTHROPIC_CACHE_CONTROL_CHANNELS = frozenset({"anthropic_api", "claude_platform_aws", "vertex"})
 _SAVING_KEYS = {"ttl-1h-recommended": "saving_ttl_1h_nano",
                 "ttl-5m-recommended": "saving_ttl_5m_nano",
                 "keepalive-recommended": "saving_keepalive_nano"}
@@ -207,12 +212,96 @@ def keepalive_spec(lane_kind: str) -> str:
     return to_spec(Policy(name="", keepalive=(f"lane_kind:{lane_kind}", kappa, max_idle)))
 
 
+def _serving_routes(lanes: Sequence[Lane]) -> frozenset[tuple[str, str]]:
+    """The provider/channel routes represented by a TTL finding's serving requests."""
+    routes = set()
+    for lane in lanes:
+        for req in lane.requests:
+            inf = req.serving_inference
+            if inf is not None:
+                routes.add((inf.pricing.provider, inf.pricing.channel))
+    return frozenset(routes)
+
+
+def _uses_anthropic_cache_controls(lanes: Sequence[Lane]) -> bool:
+    """Whether every affected request supports the documented Anthropic request syntax."""
+    routes = _serving_routes(lanes)
+    return bool(routes) and all(
+        provider == "anthropic" and channel in _ANTHROPIC_CACHE_CONTROL_CHANNELS
+        for provider, channel in routes
+    )
+
+
+def _bedrock_only(lanes: Sequence[Lane]) -> bool:
+    """Whether every affected request is served through Bedrock (possibly by different models)."""
+    routes = _serving_routes(lanes)
+    return bool(routes) and {channel for _, channel in routes} == {"bedrock"}
+
+
+def _sdk_ttl_guidance(lanes: Sequence[Lane], ttl: str, *, per_cohort: str,
+                      gateway_note: str) -> tuple[str, str | None]:
+    """Provider-appropriate TTL guidance; never copy one provider's request shape to another."""
+    if _uses_anthropic_cache_controls(lanes):
+        return (
+            f"Set cache_control {{\"type\": \"ephemeral\", \"ttl\": \"{ttl}\"}} on the "
+            f"prompt-cache breakpoints of these agents.{per_cohort}{gateway_note}",
+            API_CACHE_DOC,
+        )
+    if _bedrock_only(lanes):
+        return (
+            "Configure the documented Bedrock prompt-cache TTL and checkpoint for this model and "
+            "API. Converse uses cachePoint, while InvokeModel request shapes vary by model; keep "
+            "static context before dynamic content and verify cache reads and writes after rollout."
+            f"{per_cohort}",
+            _BEDROCK_CACHE_DOC,
+        )
+    return (
+        "Configure the documented prompt-cache TTL and checkpoint separately for each provider "
+        "route; do not copy one provider's request syntax to another. Keep static context before "
+        f"dynamic content and verify cache reads and writes after rollout.{per_cohort}",
+        None,
+    )
+
+
+def _keepalive_guidance(lanes: Sequence[Lane]) -> tuple[str, str | None]:
+    """Provider-appropriate delivery guidance for the replayed keepalive policy."""
+    if _uses_anthropic_cache_controls(lanes):
+        return (
+            "SDK keepalive: while an agent idles, re-send the cached prefix with max_tokens 0 "
+            "every 240 s for up to 3,600 s (not with stream, structured outputs, a forced "
+            "tool_choice or thinking enabled); pings bill reads only.",
+            API_CACHE_DOC,
+        )
+    if _bedrock_only(lanes):
+        return (
+            "Before enabling the replayed 240 s keepalive, validate a low-output cache-refresh "
+            "request with the selected Bedrock model and API. Request shapes vary by model; "
+            "preserve authentication, prevent tool side effects, and verify cache reads and "
+            "writes after rollout.",
+            _BEDROCK_CACHE_DOC,
+        )
+    return (
+        "Before enabling the replayed 240 s keepalive, validate a low-output cache-refresh "
+        "request with each provider route's documented cache semantics. Preserve authentication, "
+        "prevent tool side effects, verify cache reads and writes after rollout, and do not copy "
+        "one provider's request syntax to another.",
+        None,
+    )
+
+
 def _billing_path(lane: Lane) -> str:
     first = lane.requests[0]
     if first.attribution.billing_path:
         return first.attribution.billing_path
     si = first.serving_inference
     return si.pricing.billing_path if si is not None else "unknown"
+
+
+def _route(lane: Lane) -> tuple[str, str] | None:
+    """The one provider/channel route of *lane*, or None when it changes mid-lane."""
+    routes = {(inf.pricing.provider, inf.pricing.channel) for req in lane.requests
+              if (inf := req.serving_inference) is not None}
+    return next(iter(routes)) if len(routes) == 1 else None
 
 
 def _observed_ttl(lanes: Sequence[Lane]) -> str:
@@ -239,26 +328,35 @@ def _observed_ttl(lanes: Sequence[Lane]) -> str:
 
 
 class _Sub:
-    """An advisor cohort: a (team, lane kind, billing class) cohort narrowed to a billing path."""
+    """An advisor cohort narrowed to one billing path and one serving route."""
 
-    def __init__(self, cohort: Cohort, billing_path: str, lanes: list[Lane],
-                 split: bool) -> None:
+    def __init__(self, cohort: Cohort, billing_path: str, provider: str, channel: str,
+                 lanes: list[Lane], path_split: bool) -> None:
         self.cohort = cohort
         self.billing_path = billing_path
+        self.provider = provider
+        self.channel = channel
         self.lanes = lanes
-        self.split = split
+        self.path_split = path_split
         self.unpriced = 0        # lanes left out of the replays (an unpriced inference)
 
     def scope_extra(self) -> dict[str, str | None]:
-        return {"billing_path": self.billing_path} if self.split else {}
+        # A route is an action boundary. Keeping it in every scope makes full and sharded
+        # analyses produce identical finding identities.
+        out: dict[str, str | None] = {"provider": self.provider, "channel": self.channel}
+        if self.path_split:
+            out["billing_path"] = self.billing_path
+        return out
 
 
 class TtlAdvisor:
     """``cache.ttl-advisor`` (SPEC §10.2, D8, D9, R-E11). See the module docstring.
 
-    Replays (through ``ctx.replayer``, on the cohort's lanes only): ``observed``,
-    :func:`ttl_spec` for 5m and 1h, and :func:`keepalive_spec` for API_RUN cohorts on their
-    SDK/API (non-Claude-Code) lanes. ``cost_observed`` is the cohort spend (EXACT,
+    Replays (through ``ctx.replayer``, on the route's lanes only): ``observed``, each documented
+    configurable :func:`ttl_spec` for 5m or 1h, and :func:`keepalive_spec` for API_RUN cohorts
+    on SDK/API (non-Claude-Code) lanes that support it. A fixed provider cache lifetime, such as
+    OpenAI's 30-minute cache, is not treated as a configurable TTL policy. ``cost_observed`` is
+    the route spend (EXACT,
     LIST_EQUIVALENT for allowance cohorts);
     ``recoverable`` the recommended policy's saving (ESTIMATED; calibration from the replay).
     Thresholds: ``min_usd``, ``cache.ttl-advisor.spend_share`` (0.02) and
@@ -280,12 +378,18 @@ class TtlAdvisor:
         for cohort in cohorts(lanes, ctx):
             if cohort.lane_kind not in _ADVISED_KINDS:
                 continue
-            by_path: dict[str, list[Lane]] = {}
+            by_route: dict[tuple[str, str, str], list[Lane]] = {}
             for lane in cohort.lanes:
-                by_path.setdefault(_billing_path(lane), []).append(lane)
-            split = len(by_path) > 1
-            for path in sorted(by_path):
-                found = self._advise(ctx, prices, _Sub(cohort, path, by_path[path], split))
+                route = _route(lane)
+                if route is None:
+                    continue
+                path = _billing_path(lane)
+                provider, channel = route
+                by_route.setdefault((path, provider, channel), []).append(lane)
+            path_split = len({path for path, _, _ in by_route}) > 1
+            for (path, provider, channel), members in sorted(by_route.items()):
+                sub = _Sub(cohort, path, provider, channel, members, path_split)
+                found = self._advise(ctx, prices, sub)
                 if found is not None:
                     out.append(found)
         return sort_findings(out)
@@ -304,17 +408,19 @@ class TtlAdvisor:
         if spend.basis is not basis:
             return None
         current = _observed_ttl(lanes)
+        ttl_options = common_ttl_options(ctx, lanes)
         candidates: list[tuple[str, str]] = []   # (kind, spec)
-        if current != "1h":
+        if current != "1h" and 3600 in ttl_options:
             candidates.append(("ttl-1h-recommended", ttl_spec(cohort.lane_kind, "1h")))
-        if current != "5m":
+        if current != "5m" and 300 in ttl_options:
             candidates.append(("ttl-5m-recommended", ttl_spec(cohort.lane_kind, "5m")))
         # Keepalive is replayed only on the SDK/API lanes of an API_RUN cohort: Claude Code cannot
         # be configured to ping (§9.3.2, R-E11), so its lanes never enter the keepalive saving,
         # whatever the replayer does with them (a conforming replayer leaves them unchanged, so
         # the saving stays comparable with the TTL candidates replayed on the whole cohort).
         pingable = [lane for lane in lanes if not is_claude_code(lane)]
-        if cohort.lane_kind == LaneKind.API_RUN.value and pingable:
+        if cohort.lane_kind == LaneKind.API_RUN.value and pingable and \
+                supports_every_serving(ctx, pingable, "keepalive"):
             candidates.append(("keepalive-recommended", keepalive_spec(cohort.lane_kind)))
         results: dict[str, ReplayResult] = {}
         for kind, spec in candidates:
@@ -444,16 +550,15 @@ class TtlAdvisor:
         gateway = any(gateway_of(lane) for lane in lanes)
         if kind == "keepalive-recommended":
             levers = applicable_levers("keepalive-recommended", lanes) or ("sdk.keepalive",)
-            text = ("SDK keepalive: while an agent idles, re-send the cached prefix with "
-                    "max_tokens 0 every 240 s for up to 3,600 s (not with stream, structured "
-                    "outputs, a forced tool_choice or thinking enabled); pings bill reads only.")
-            return Fix(text=text, config_patch=None, target="sdk", doc_url=API_CACHE_DOC), levers
+            text, doc_url = _keepalive_guidance(lanes)
+            return Fix(text=text, config_patch=None, target="sdk", doc_url=doc_url), levers
         assert ttl is not None
         levers = applicable_levers(kind, lanes)
         claude_code = [lane for lane in lanes if is_claude_code(lane)]
         per_cohort = (" Deliver it per cohort (MDM group or Claude apps gateway IdP group), not "
                       "org-wide.") if hetero is not None else ""
-        note = _GATEWAY_NOTE if gateway and ttl == "1h" else ""
+        note = _GATEWAY_NOTE if gateway and ttl == "1h" and \
+            _uses_anthropic_cache_controls(lanes) else ""
         if claude_code and cohort.lane_kind in (LaneKind.MAIN.value, LaneKind.SUBAGENT.value,
                                                 LaneKind.WORKFLOW_AGENT.value):
             main = cohort.lane_kind == LaneKind.MAIN.value
@@ -463,15 +568,15 @@ class TtlAdvisor:
             text = (f"Set {key} to \"{ttl}\" in managed settings (env {env} for gateway "
                     f"fleets).{per_cohort}{note}")
             if len(claude_code) < len(lanes):
-                text += (" For the SDK lanes of this cohort set cache_control ttl "
-                         f"\"{ttl}\" on the breakpoints.")
+                sdk_lanes = [lane for lane in lanes if not is_claude_code(lane)]
+                sdk_text, _ = _sdk_ttl_guidance(sdk_lanes, ttl, per_cohort="", gateway_note="")
+                text += f" For the SDK lanes of this cohort: {sdk_text}"
             fix = Fix(text=text, config_patch=patch((key, f'"{ttl}"')),
                       target="claude-code-managed-settings", doc_url=settings_doc(key),
                       gates=cc_gates(key))
             return fix, levers
-        text = (f"Set cache_control {{\"type\": \"ephemeral\", \"ttl\": \"{ttl}\"}} on the "
-                f"prompt-cache breakpoints of these agents.{per_cohort}{note}")
-        return Fix(text=text, config_patch=None, target="sdk", doc_url=API_CACHE_DOC), levers
+        text, doc_url = _sdk_ttl_guidance(lanes, ttl, per_cohort=per_cohort, gateway_note=note)
+        return Fix(text=text, config_patch=None, target="sdk", doc_url=doc_url), levers
 
 
 def _rule_verdict(gaps: Sequence[int]) -> str:
@@ -511,4 +616,3 @@ def _break_even(ctx: AnalysisContext, prices: Prices,
     seconds = keepalive_break_even_s(rates.cache_write_5m, rates.cache_read)
     whole = int(seconds.to_integral_value())
     return whole, decimal_str(seconds / 60)
-

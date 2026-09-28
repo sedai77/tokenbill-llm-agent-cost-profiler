@@ -5,6 +5,7 @@ A.2, A.2b, A.4, A.12)."""
 
 from __future__ import annotations
 
+from tokenbill.core.builders import FlatRates
 from tokenbill.core.labels import Basis, Evidence
 from tokenbill.core.records import LaneKind
 from tokenbill.core.types import Policy
@@ -43,7 +44,8 @@ def test_appendix_a1_recommends_1h() -> None:
     assert f.fix is not None and f.fix.config_patch == (("promptCacheTtl", '"1h"'),)
     assert f.fix.target == "claude-code-managed-settings"
     assert f.fix.gates == ("claude-code>=2.1.242",)
-    assert f.scope.dims == (("lane_kind", "main"), ("team", "payments"))
+    assert f.scope.dims == (("channel", "anthropic_api"), ("lane_kind", "main"),
+                            ("provider", "anthropic"), ("team", "payments"))
     ev = {e.ref: dict(e.attrs) for e in f.evidence}
     hist = ev["ttl:gap-histogram"]
     assert hist["gaps_5_10m"] == 3 and hist["transitions"] == 3
@@ -99,6 +101,43 @@ def test_no_replayer_no_advice() -> None:
     assert TtlAdvisor().detect([lane_a1()], ctx()) == []
 
 
+def test_fixed_openai_ttl_is_not_reported_as_a_configurable_policy() -> None:
+    """A replay stub cannot turn OpenAI's fixed 30-minute cache into a 1h setting."""
+    openai = lane("OA", [(0, 0, 0, 0, 50_000, 500), (420, 0, 0, 0, 52_000, 500)],
+                  model="gpt-5.6-sol", kind=LaneKind.API_RUN, product="agent_sdk")
+    replayer = table_replayer({("OA", ttl_spec("api_run", "1h")): 2_000_000_000})
+    assert TtlAdvisor().detect([openai], ctx(replayer=replayer, thresholds={"min_usd": "0"})) == []
+
+
+def test_fixed_openai_bedrock_ttl_is_not_reported_as_a_configurable_policy() -> None:
+    """A shared Bedrock channel cannot turn OpenAI's 30-minute cache into a 1-hour policy."""
+    openai = lane(
+        "OA-BR",
+        [(0, 0, 0, 0, 50_000, 500), (420, 0, 0, 0, 52_000, 500)],
+        model="gpt-5.6-sol",
+        kind=LaneKind.API_RUN,
+        product="agent_sdk",
+        per_request={0: {"channel": "bedrock"}, 1: {"channel": "bedrock"}},
+    )
+    replayer = table_replayer({("OA-BR", ttl_spec("api_run", "1h")): 2_000_000_000})
+    assert TtlAdvisor().detect([openai], ctx(replayer=replayer, pricer=FlatRates(),
+                                             thresholds={"min_usd": "0"})) == []
+
+
+def test_ttl_advisor_splits_mixed_provider_routes() -> None:
+    anthropic = _sdk_lane("ANT")
+    openai = lane("OA", [(0, 0, 0, 0, 50_000, 500), (420, 0, 0, 0, 52_000, 500)],
+                  model="gpt-5.6-sol", kind=LaneKind.API_RUN, product="agent_sdk",
+                  team="agents")
+    replayer = table_replayer({("ANT", ttl_spec("api_run", "1h")): 2_000_000_000})
+    f = only(TtlAdvisor().detect([anthropic, openai],
+                                  ctx(replayer=replayer, thresholds={"min_usd": "0"})),
+             "ttl-1h-recommended")
+    assert ("channel", "anthropic_api") in f.scope.dims
+    assert ("provider", "anthropic") in f.scope.dims
+    assert f.n_lanes == 1
+
+
 def _sdk_lane(key: str, **kw):
     """An SDK agent lane with 7-minute idle gaps (Appendix A.4 shape)."""
     return lane_a1(key, kind=LaneKind.API_RUN, product="agent_sdk", team="agents", **kw)
@@ -126,6 +165,42 @@ def test_1h_beats_keepalive_when_replay_says_so() -> None:
              "ttl-1h-recommended")
     assert f.lever_ids == ("sdk.ttl",)
     assert f.fix is not None and f.fix.config_patch is None and "cache_control" in f.fix.text
+
+
+def test_bedrock_ttl_fix_uses_bedrock_guidance_not_anthropic_request_syntax() -> None:
+    bedrock = lane(
+        "BR-TTL",
+        [(0, 0, 100_000, 0, 0, 500), (420, 0, 102_000, 0, 0, 500)],
+        model="claude-opus-5",
+        kind=LaneKind.API_RUN,
+        product="agent_sdk",
+        per_request={0: {"channel": "bedrock"}, 1: {"channel": "bedrock"}},
+    )
+    replayer = table_replayer({("BR-TTL", ttl_spec("api_run", "1h")): 2_000_000_000})
+    f = only(TtlAdvisor().detect([bedrock], ctx(replayer=replayer, thresholds={"min_usd": "0"})),
+             "ttl-1h-recommended")
+    assert f.fix is not None
+    assert f.fix.doc_url == "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html"
+    assert "cachePoint" in f.fix.text
+    assert "Set cache_control" not in f.fix.text
+
+
+def test_bedrock_keepalive_fix_does_not_assume_anthropic_max_tokens_syntax() -> None:
+    bedrock = lane(
+        "BR-KA",
+        [(0, 0, 100_000, 0, 0, 500), (420, 0, 102_000, 0, 0, 500)],
+        model="claude-opus-5",
+        kind=LaneKind.API_RUN,
+        product="agent_sdk",
+        per_request={0: {"channel": "bedrock"}, 1: {"channel": "bedrock"}},
+    )
+    replayer = table_replayer({("BR-KA", KA_API): 2_000_000_000})
+    f = only(TtlAdvisor().detect([bedrock], ctx(replayer=replayer, thresholds={"min_usd": "0"})),
+             "keepalive-recommended")
+    assert f.fix is not None
+    assert f.fix.doc_url == "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html"
+    assert "low-output cache-refresh" in f.fix.text
+    assert "max_tokens 0" not in f.fix.text
 
 
 def test_never_keepalive_for_claude_code() -> None:
@@ -221,10 +296,14 @@ def test_cohorts_by_team_lane_kind_and_billing_path() -> None:
     findings = TtlAdvisor().detect(lanes, ctx(replayer=replayer))
     scopes = sorted(f.scope.dims for f in findings)
     assert scopes == sorted([
-        (("billing_path", "api_key"), ("lane_kind", "main"), ("team", "payments")),
-        (("billing_path", "usage_credits"), ("lane_kind", "main"), ("team", "payments")),
-        (("lane_kind", "subagent"), ("team", "payments")),
-        (("lane_kind", "main"), ("team", "search")),
+        (("billing_path", "api_key"), ("channel", "anthropic_api"),
+         ("lane_kind", "main"), ("provider", "anthropic"), ("team", "payments")),
+        (("billing_path", "usage_credits"), ("channel", "anthropic_api"),
+         ("lane_kind", "main"), ("provider", "anthropic"), ("team", "payments")),
+        (("channel", "anthropic_api"), ("lane_kind", "subagent"),
+         ("provider", "anthropic"), ("team", "payments")),
+        (("channel", "anthropic_api"), ("lane_kind", "main"),
+         ("provider", "anthropic"), ("team", "search")),
     ])
     sub = next(f for f in findings if ("lane_kind", "subagent") in f.scope.dims)
     assert sub.lever_ids == ("cc.prompt_cache_ttl.subagent",)

@@ -23,6 +23,7 @@ from tokenbill.core.records import (
     LaneEventKind,
     LaneKind,
     Outcome,
+    to_json,
 )
 from tokenbill.core.testing import FakePricer
 from tokenbill.core.types import IngestResult
@@ -612,3 +613,88 @@ def test_nested_agents_and_named_attributes(tmp_path: Path) -> None:
     a = read(named, name_allowlist=frozenset({"Explore"})).requests[0].attribution
     assert a.agent_type == "Explore"
     assert all(v.startswith("h_") for v in (a.skill, a.mcp_server, a.plugin))
+
+
+# ---------------------------------------------------------------------------------------------
+# late change request A-4 (SPEC-v0.2-COPILOT §5.10 / §21.4a, ruling R-E23): Copilot resources
+# ---------------------------------------------------------------------------------------------
+
+_CHAT = {"gen_ai.operation.name": "chat", "gen_ai.provider.name": "openai",
+         "gen_ai.request.model": "gpt-5.6-sol", "gen_ai.usage.input_tokens": 10,
+         "gen_ai.usage.output_tokens": 2}
+
+
+def _copilot_lines() -> list[dict[str, Any]]:
+    """One resource per Copilot predicate clause, each holding records ``otlp`` would read."""
+    by_service = h.spans([h.span("chat", "00000000000000c1", h.T0, h.T0 + 5,
+                                 {**_CHAT, "gen_ai.response.id": "resp_cp_1"})],
+                         {"service.name": "github-copilot"})
+    by_scope = h.spans([h.span("chat", "00000000000000c2", h.T0, h.T0 + 5,
+                               {**_CHAT, "gen_ai.response.id": "resp_cp_2"})],
+                       {"service.name": "vscode"})
+    by_scope["resourceSpans"][0]["scopeSpans"][0]["scope"] = {"name": "github.copilot.chat"}
+    by_attr = h.spans([h.span("chat", "00000000000000c3", h.T0, h.T0 + 5,
+                              {**_CHAT, "gen_ai.response.id": "resp_cp_3",
+                               "copilot_chat.copilot_usage_nano_aiu": 7})])
+    by_opts = h.logs([api_request(h.T0, "r_cp")], {"service.name": "acme-copilot"})
+    metric = {"name": "claude_code.token.usage", "sum": {
+        "aggregationTemporality": 1, "dataPoints": [
+            h.point(h.T0, h.T0 + 60_000, 100, {"model": "claude-sonnet-5", "type": "input"})]}}
+    by_metric = h.metrics([metric], {"service.name": "copilot-chat"})
+    return [by_service, by_scope, by_attr, by_opts, by_metric]
+
+
+def _plain_lines() -> list[dict[str, Any]]:
+    return [h.spans([h.span("chat", "0000000000000001", h.T0, h.T0 + 5,
+                            {**_CHAT, "gen_ai.response.id": "resp_plain"})],
+                    {"service.name": "my-agent"}),
+            h.logs([api_request(h.T0 + 1_000, "r_plain")], {"service.name": "claude-code"})]
+
+
+def _projection(result: IngestResult) -> list[Any]:
+    """Every request and lane without the source locators (line and record numbers)."""
+    reqs = sorted((r.request_id, r.session_key, r.lane_key, r.ts_start_ms,
+                   repr(to_json(r.final_attempt.inferences[0].usage)),
+                   repr(to_json(r.final_attempt.inferences[0].pricing)),
+                   repr(to_json(r.attribution)))
+                  for r in result.requests)
+    return [reqs, sorted(lane.lane_key for s in result.sessions for lane in s.lanes)]
+
+
+def test_copilot_resources_are_skipped_and_deferred_to_copilot_otel(tmp_path: Path) -> None:
+    """A-4 / R-E23: ``otlp`` skips every resource ``core.models.is_copilot_resource`` flags
+    (service name incl. ``opts.otel_service_names``, scope name, record attribute key) and counts
+    them in ``stats["defer:copilot-otel"]``; the other resources of the same file and of the same
+    line read exactly as in a file without Copilot resources."""
+    from tokenbill.adapters.otel import DEFER_COPILOT_OTEL
+    from tokenbill.pipeline.common import DEFER_STAT_PREFIX
+
+    assert DEFER_COPILOT_OTEL == DEFER_STAT_PREFIX + "copilot-otel"
+    path = tmp_path / "mixed.jsonl"
+    plain = read(h.write_lines(path, _plain_lines()),
+                 otel_service_names=("acme-copilot=copilot_other",))
+    assert DEFER_COPILOT_OTEL not in plain.stats
+    assert len(plain.requests) == 2 and not plain.aggregates
+    first, second = _plain_lines()
+    copilot = _copilot_lines()
+    # Copilot resources in the same line as a foreign one, before and after it
+    first["resourceSpans"] = (copilot[0]["resourceSpans"] + first["resourceSpans"]
+                              + copilot[2]["resourceSpans"])
+    second["resourceLogs"] = copilot[3]["resourceLogs"] + second["resourceLogs"]
+    mixed = read(h.write_lines(path, [first, second, copilot[1], copilot[4]]),
+                 otel_service_names=("acme-copilot=copilot_other",))
+    assert mixed.stats[DEFER_COPILOT_OTEL] == 5
+    assert _projection(mixed) == _projection(plain)
+    assert not mixed.aggregates and not mixed.quarantined
+    assert sorted(r.source.locator for r in mixed.requests) == ["line:1", "line:2"]
+    # without the configured service name the acme resource is an ordinary Claude Code resource
+    unconfigured = read(path)
+    assert unconfigured.stats[DEFER_COPILOT_OTEL] == 4
+    assert len(unconfigured.requests) == 3
+
+
+def test_a_copilot_only_file_reads_nothing_and_defers_everything(tmp_path: Path) -> None:
+    result = read(h.write_lines(tmp_path / "cp.jsonl", _copilot_lines()),
+                  otel_service_names=("acme-copilot",))
+    assert result.stats["defer:copilot-otel"] == 5
+    assert not result.requests and not result.aggregates and not result.events

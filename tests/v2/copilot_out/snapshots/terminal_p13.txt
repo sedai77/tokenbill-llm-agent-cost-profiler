@@ -1,0 +1,76 @@
+COPILOT
+------------------------
+Plan unknown for at least one entity: every pool-dependent figure is shown for Business and for
+  Enterprise, side by side, each ESTIMATED; no scenario is chosen.
+PLAN
+  - enterprise (2026-09): unknown — shown as Business and as Enterprise, each ESTIMATED, never
+    combined; how to find out: the seats API plan_type (copilot pull --sources seats), the detailed
+    usage report's seat SKU copilot_for_business / copilot_enterprise, Enterprise settings →
+    Licensing, or the admin's answers.json (--plan ENTITY=business|enterprise)
+window 2026-09-01 … 2026-09-30
+
+COPILOT BILL — enterprise · 2026-09 · closed; billing unknown
+  PLAN enterprise (2026-09): unknown — shown as Business and as Enterprise, each ESTIMATED, never
+    combined; how to find out: the seats API plan_type (copilot pull --sources seats), the detailed
+    usage report's seat SKU copilot_for_business / copilot_enterprise, Enterprise settings →
+    Licensing, or the admin's answers.json (--plan ENTITY=business|enterprise)
+  line                                   quantity         amount  label
+  ai_credits.gross                     250,000 cr      $2,500.00  exact·list-equivalent (not billed)
+  ai_credits.discount_unclassified     190,000 cr      $1,900.00  exact·list
+  ai_credits.overage                    60,000 cr        $600.00  invoice
+  - ai_credits.gross: credit valuation of usage (list-equivalent), not invoice dollars
+  - ai_credits.discount_unclassified: includes included usage and other discounts
+  - ai_credits.overage: observed net of pooled report rows (GitHub's per-row net); the
+      plan-dependent overage is shown per scenario
+  SCENARIOS (plan unknown; each ESTIMATED; never combined)
+if Business                                      | if Enterprise
+  seats.unknown_plan 100 seats                   |   seats.unknown_plan 100 seats
+      ~$1,900.00 est.·list                       |       ~$3,900.00 est.·list
+  ai_credits.overage 60,000 cr                   |   ai_credits.overage 0 cr
+      ~$600.00 est.·list                         |       ~$0.00 est.·list
+  total.invoice                                  |   total.invoice
+      ~$2,500.00 est.·list                       |       ~$3,900.00 est.·list
+  POOL 190,000 cr · consumed 250,000 cr · regime |   POOL 390,000 cr · consumed 250,000 cr · regime
+    overage                                      |     slack
+    [##############################!!!!!!!!!!]   |     [##########################..............]
+    (# consumed in pool · ! over pool · . pool   |     (# consumed in pool · ! over pool · . pool
+      left · ~ forecast p10–p90)                 |       left · ~ forecast p10–p90)
+    billing unknown · direct draws pool: unknown |     billing unknown · direct draws pool: unknown
+      · closed, 30/30 days final · discounts     |       · closed, 30/30 days final · discounts
+      unclassified                               |       unclassified
+    overage ~$600.00 est.·list                   |     overage ~$0.00 est.·list
+  - seats.unknown_plan: plan unknown: priced as  |   - seats.unknown_plan: plan unknown: priced as
+      business; both scenarios shown; list price |       enterprise; both scenarios shown; list
+      × seats; proration, upfront charges,       |       price × seats; proration, upfront charges,
+      volume/EA pricing not modeled              |       volume/EA pricing not modeled
+  - ai_credits.overage: plan unknown: scenario   |   - ai_credits.overage: plan unknown: scenario
+      business: consumption − the scenario's     |       enterprise: consumption − the scenario's
+      pool at $0.01 per credit                   |       pool at $0.01 per credit
+  - total.invoice: total of seats.unknown_plan,  |   - total.invoice: total of seats.unknown_plan,
+      ai_credits.overage; non-invoice            |       ai_credits.overage; non-invoice
+      components: seats.unknown_plan (estimated  |       components: seats.unknown_plan (estimated
+      list), ai_credits.overage (estimated       |       list), ai_credits.overage (estimated
+      list); plan unknown: scenario business,    |       list); plan unknown: scenario enterprise,
+      never combined with the other scenario     |       never combined with the other scenario
+  VERDICTS github_actions: reconciled · github_copilot: reconciled · github_sandbox: reconciled
+
+COPILOT PLAN
+if Business                                      | if Enterprise
+  headline ~$100.00 est.·list /month (invoice    |   headline ~$0.00 est.·list /month (invoice
+    dollars)                                     |     dollars)
+  pool headroom ~$40.00 est.·list-equivalent     |   pool headroom ~$40.00 est.·list-equivalent
+    (not billed) /month — list-equivalent, not   |     (not billed) /month — list-equivalent, not
+    invoice dollars; never added to the headline |     invoice dollars; never added to the headline
+  - copilot.default_model_auto: Shapley ~$100.00 |   - copilot.default_model_auto: Shapley ~$0.00
+      est.·list; projected ~$100.00 est.·list    |       est.·list; projected ~$0.00 est.·list
+      /month; reach 80%; needs eval              |       /month; reach 80%; needs eval
+  Lever figures are Shapley shares of the joint  |   Lever figures are Shapley shares of the joint
+    plan; standalone values are never summed.    |     plan; standalone values are never summed.
+
+WHAT TO CHANGE IN GITHUB
+  - [enterprise settings] Set the default model to Auto.; deadline 2026-10-01; auth: enterprise
+    owner; projection ~$50.00 est.·list; doc docs.github.com/en/copilot/example
+
+COPILOT NOTES
+  - plan unknown for at least one entity: pool-dependent figures are shown as Business and as
+    Enterprise, each ESTIMATED, never combined

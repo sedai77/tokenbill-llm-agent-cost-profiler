@@ -422,6 +422,12 @@ def test_sdk_target_ships_snippets() -> None:
                 "ci.shared_prefix", "blocks.breakpoints", "sdk.defer_loading"):
         assert snippet(lid), lid
 
+    batch = snippet("batch.eligible")
+    gateway = snippet("gateway.restore_caching")
+    assert batch is not None and "OpenAI" in batch
+    assert gateway is not None
+    assert "prompt_cache_options" in gateway and "anthropic-beta" in gateway
+
 
 def test_model_pricing_from_the_contract() -> None:
     overlay = ContractOverlay(name="acme", multiplier=Decimal("0.85"), overrides=(),

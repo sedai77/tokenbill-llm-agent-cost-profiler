@@ -50,12 +50,45 @@ def test_runaway_break_glass_names_the_session() -> None:
 def test_runaway_limits() -> None:
     assert by_kind(Runaway().detect(_small(), ctx(thresholds={"min_usd": "0"})),
                    "runaway-session") == []
-    # a small cohort: the loop is its own p99, so 5 × p99 exceeds its hour
-    assert by_kind(Runaway().detect(_small(20) + [_loop()], ctx()), "runaway-session") == []
+    # R-E41: the p99 is over the *other* sessions (leave-one-out), so a loop in a small cohort
+    # is no longer its own yardstick; below 20 sessions no session is judged
+    f = one(Runaway().detect(_small(19) + [_loop()], ctx()), "runaway-session")
+    cohort = evidence(f, "tail:cohort")
+    assert (cohort["sessions"], cohort["min_sessions"], cohort["p99_hourly_nano"],
+            cohort["threshold_nano"]) == (20, 20, 30_000_000, 50_000_000_000)
+    item = evidence(f, "tail:runaway-session:1")
+    assert (item["p99_hourly_nano"], item["threshold_nano"]) == (30_000_000, 50_000_000_000)
+    assert f.cost_observed.nano == 60_000_000_000 - 30_000_000    # p95: rank 19 of 20
+    assert by_kind(Runaway().detect(_small(18) + [_loop()], ctx()), "runaway-session") == []
     lowered = ctx(thresholds={"tail.runaway.min_hourly_usd": "10"})
     assert by_kind(Runaway().detect(_small() + [_loop()], lowered), "runaway-session")
     raised = ctx(thresholds={"tail.runaway.min_hourly_usd": "70"})
     assert by_kind(Runaway().detect(_small() + [_loop()], raised), "runaway-session") == []
+
+
+def test_leave_one_out_p99_equals_the_naive_computation() -> None:
+    import random
+
+    from tokenbill.detect.context import nearest_rank
+    from tokenbill.detect.tail import _p99_without
+
+    rnd = random.Random(41)
+    for _ in range(300):
+        values = sorted(rnd.choice((rnd.randint(0, 9), rnd.randint(0, 10**12)))
+                        for _ in range(rnd.randint(2, 260)))
+        for i in {0, len(values) - 1, rnd.randrange(len(values))}:
+            others = values[:i] + values[i + 1:]
+            assert _p99_without(values, values[i]) == nearest_rank(others, 99)
+
+
+def test_two_loops_in_a_cohort_are_both_judged_against_the_others() -> None:
+    """R-E41: each session's yardstick leaves only itself out, so a second loop does not hide
+    the first in a cohort of 100+ sessions (and vice versa)."""
+    other = lane("L-loop2", [(4_000_000 + 240 * i, 0, 0, 0, 1_000_000, 0) for i in range(14)],
+                 team="ops", principal="r_loop2", session_key="s_runaway2")
+    findings = Runaway().detect(_small() + [_loop(), other], ctx(break_glass="incident 41"))
+    assert sorted(dict(f.scope.dims)["session"] for f in findings
+                  if f.kind == "runaway-session") == ["s_runaway", "s_runaway2"]
 
 
 def test_runaway_cohorts_scope_lane_kind_and_billing_class() -> None:

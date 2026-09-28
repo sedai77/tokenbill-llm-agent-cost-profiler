@@ -10,7 +10,7 @@
 * ``scheduled-cadence`` — lanes with at least 4 requests at near-constant intervals (coefficient
   of variation of the gaps < 0.25) longer than ``τ``, and no human prompt: every run starts
   cold. ``cost_observed`` = the TTL-expiry rewrites billed (EXACT); ``recoverable`` = the better
-  of ``ttl=1h`` and (SDK/API lanes) a keepalive replay.
+  of the documented, provider-eligible ``ttl=1h`` and (SDK/API lanes) keepalive replays.
 * ``batch-eligible`` — single-request lanes of CI / eval / scheduled / service workloads not
   already on the batch tier, not fast, not Managed Agents (SPEC §9.3.5 predicate).
   ``cost_observed`` = their spend (EXACT); ``recoverable`` = the ``batch=eligible`` replay
@@ -35,6 +35,7 @@ from tokenbill.core.labels import Basis, Figure
 from tokenbill.core.policy import to_spec
 from tokenbill.core.records import Lane, LaneEventKind, WorkloadClass
 from tokenbill.core.types import AnalysisContext, Finding, Fix, Policy, ReplayResult
+from tokenbill.detect.capabilities import common_ttl_options, supports_every_serving
 from tokenbill.detect.context import (
     API_CACHE_DOC,
     DEFAULT_TTL_S,
@@ -78,6 +79,11 @@ _REFS_SCHED = ("sched-cadence-ttl",)
 _REFS_BATCH = ("anth-batch-stacking",)
 _REFS_RUN_COST = ("ci-headless-ingest", "ci-review-unit-costs")
 _BATCH_DOC = "https://platform.claude.com/docs/en/build-with-claude/batch-processing"
+_OPENAI_BATCH_DOC = "https://developers.openai.com/api/docs/guides/batch"
+_BEDROCK_BATCH_DOC = "https://docs.aws.amazon.com/bedrock/latest/userguide/batch-inference.html"
+_OPENAI_CACHE_DOC = "https://developers.openai.com/api/docs/guides/prompt-caching"
+_BEDROCK_CACHE_DOC = "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html"
+_ANTHROPIC_CACHE_CHANNELS = frozenset({"anthropic_api", "claude_platform_aws", "vertex"})
 _CV_LIMIT = "0.25"
 
 
@@ -95,6 +101,93 @@ def _extra(lane: Lane, key: str) -> str | None:
         if k == key:
             return v
     return None
+
+
+def _serving_channels(lanes: Sequence[Lane]) -> frozenset[str]:
+    """Serving channels of the affected lanes, for provider-specific delivery guidance."""
+    channels = set()
+    for lane in lanes:
+        for req in serving_steps(lane):
+            channels.add(serving(req).pricing.channel)
+    return frozenset(channels)
+
+
+def _batch_fix(lanes: Sequence[Lane]) -> Fix:
+    """A delivery hint that never sends one provider's API instructions to another."""
+    channels = _serving_channels(lanes)
+    if channels == {"openai_api"}:
+        return Fix(
+            text=("Submit these non-interactive calls through the OpenAI Batch API when the "
+                  "24-hour completion deadline is acceptable; it has a 50% discount. Flex is "
+                  "also an option for lower-priority traffic that tolerates slower, occasionally "
+                  "unavailable capacity."),
+            config_patch=None, target="sdk", doc_url=_OPENAI_BATCH_DOC)
+    if channels == {"anthropic_api"}:
+        return Fix(
+            text=("Submit these non-interactive calls through the Anthropic Message Batches API "
+                  "at batch rates only when the workload deadline and retry path can tolerate "
+                  "asynchronous completion."),
+            config_patch=None, target="sdk", doc_url=_BATCH_DOC)
+    if channels == {"bedrock"}:
+        return Fix(
+            text=("Evaluate Amazon Bedrock batch inference for these non-interactive calls after "
+                  "confirming that the selected model, pricing, and completion deadline fit the "
+                  "workload. Its prompt-cache behavior differs from on-demand inference."),
+            config_patch=None, target="sdk", doc_url=_BEDROCK_BATCH_DOC)
+    return Fix(
+        text=("Use the provider-specific asynchronous batch or Flex offering only when the "
+              "workload can tolerate its completion deadline and retry behavior; verify the "
+              "served tier and billed result after rollout."),
+        config_patch=None, target="sdk", doc_url=None)
+
+
+def _scheduled_fix(lanes: Sequence[Lane], *, ttl_options: frozenset[int],
+                   ttl_1h_supported: bool, keepalive_supported: bool) -> Fix:
+    """Provider-safe scheduled-work guidance for the viable replay controls only."""
+    channels = _serving_channels(lanes)
+    if channels == {"openai_api"} and ttl_options == frozenset({1800}) and \
+            not keepalive_supported:
+        return Fix(
+            text=("This OpenAI route has a fixed 30-minute cache lifetime, not a configurable "
+                  "1-hour TTL. Do not assume SDK keepalive support; prefer event-triggered work "
+                  "or group compatible calls within the documented cache window, then verify "
+                  "cache reads and writes after rollout."),
+            config_patch=None, target="sdk", doc_url=_OPENAI_CACHE_DOC)
+    if ttl_1h_supported and keepalive_supported:
+        text = ("A cadence longer than the cache TTL rewrites the prompt on every run: use a "
+                "documented 1-hour TTL for 5-60 minute cadences, a supported SDK keepalive for "
+                "agents, or event triggers instead of polling.")
+    elif ttl_1h_supported:
+        text = ("A cadence longer than the cache TTL rewrites the prompt on every run: use a "
+                "documented 1-hour TTL for 5-60 minute cadences or event triggers instead of "
+                "polling.")
+    elif keepalive_supported:
+        text = ("A cadence longer than the cache TTL rewrites the prompt on every run: use a "
+                "supported SDK keepalive for agents or event triggers instead of polling.")
+    else:
+        text = ("A cadence longer than the cache TTL rewrites the prompt on every run: prefer "
+                "event-triggered work, and use only the provider-specific caching controls "
+                "documented for each route. Do not assume a configurable 1-hour TTL or SDK "
+                "keepalive.")
+    if channels == {"openai_api"}:
+        doc_url = _OPENAI_CACHE_DOC
+    elif channels == {"bedrock"}:
+        doc_url = _BEDROCK_CACHE_DOC
+    elif channels and channels <= _ANTHROPIC_CACHE_CHANNELS:
+        doc_url = API_CACHE_DOC
+    else:
+        doc_url = None
+    return Fix(text=text, config_patch=None, target="sdk", doc_url=doc_url)
+
+
+def _scheduled_levers(lanes: Sequence[Lane], *, ttl_1h_supported: bool,
+                      keepalive_supported: bool) -> tuple[str, ...]:
+    """Only attach rollout levers whose corresponding provider control is available."""
+    return tuple(
+        lever_id for lever_id in applicable_levers("scheduled-cadence", lanes)
+        if (lever_id != "sdk.ttl" or ttl_1h_supported)
+        and (lever_id != "sdk.keepalive" or keepalive_supported)
+    )
 
 
 class Automation:
@@ -257,10 +350,16 @@ class Automation:
         if not lanes or tally.events == tally.unpriced:
             return None
         basis = cohort.basis(ctx.pricer)
-        recoverable, what = self._cadence_saving(ctx, prices, cohort, lanes, basis)
-        text = ("A cadence longer than the cache TTL rewrites the prompt on every run: use a 1h "
-                "TTL for 5-60 min cadences, an SDK keepalive for agents, or event triggers "
-                "instead of polling.")
+        targets = [lane for lane in lanes if prices.priceable(lane)]
+        ttl_options = common_ttl_options(ctx, lanes)
+        ttl_1h_supported = 3600 in ttl_options
+        all_pingable = [lane for lane in lanes if not is_claude_code(lane)]
+        pingable = [lane for lane in targets if not is_claude_code(lane)]
+        keepalive_supported = bool(pingable) and supports_every_serving(ctx, all_pingable,
+                                                                         "keepalive")
+        recoverable, what = self._cadence_saving(
+            ctx, cohort, targets, pingable, basis, ttl_1h_supported=ttl_1h_supported,
+            keepalive_supported=keepalive_supported)
         spec = Emit(
             kind="scheduled-cadence", category="breaker", lever_class="cache_transform",
             title=f"Scheduled runs start cold in {cohort.label()} lanes",
@@ -269,18 +368,24 @@ class Automation:
                      f"no human prompt; {tally.events} runs rewrote their prefix."
                      + (f" Replayed: {what}." if what else "")),
             references=_REFS_SCHED,
-            fix=Fix(text=text, config_patch=None, target="sdk", doc_url=API_CACHE_DOC),
-            confidence="medium", lever_ids=applicable_levers("scheduled-cadence", lanes))
+            fix=_scheduled_fix(lanes, ttl_options=ttl_options,
+                               ttl_1h_supported=ttl_1h_supported,
+                               keepalive_supported=keepalive_supported),
+            confidence="medium", lever_ids=_scheduled_levers(
+                lanes, ttl_1h_supported=ttl_1h_supported,
+                keepalive_supported=keepalive_supported))
         return emit(self, ctx, cohort, tally, spec, tally.cost.billed(basis), recoverable)
 
     @staticmethod
-    def _cadence_saving(ctx: AnalysisContext, prices: Prices, cohort: Cohort,
-                        lanes: Sequence[Lane], basis: Basis) -> tuple[Figure | None, str]:
-        targets = [lane for lane in lanes if prices.priceable(lane)]
+    def _cadence_saving(ctx: AnalysisContext, cohort: Cohort, targets: Sequence[Lane],
+                        pingable: Sequence[Lane], basis: Basis, *, ttl_1h_supported: bool,
+                        keepalive_supported: bool) -> tuple[Figure | None, str]:
         selector = f"lane_kind:{cohort.lane_kind}"
-        candidates = [("ttl=1h", to_spec(Policy(name="", ttl=((selector, "1h"),))), targets)]
-        pingable = [lane for lane in targets if not is_claude_code(lane)]
-        if pingable:
+        candidates: list[tuple[str, str, Sequence[Lane]]] = []
+        if ttl_1h_supported:
+            candidates.append(("ttl=1h", to_spec(Policy(name="", ttl=((selector, "1h"),))),
+                               targets))
+        if keepalive_supported:
             candidates.append(("keepalive",
                                to_spec(Policy(name="", keepalive=(selector, 240, 3600))),
                                pingable))
@@ -298,7 +403,7 @@ class Automation:
     # ---------- batch-eligible ----------
 
     @staticmethod
-    def _batch_eligible(lane: Lane) -> bool:
+    def _batch_eligible(ctx: AnalysisContext, lane: Lane) -> bool:
         steps = serving_steps(lane)
         if len(lane.requests) != 1 or len(steps) != 1:
             return False
@@ -309,10 +414,12 @@ class Automation:
             return False
         if inf.pricing.service_tier == "batch" or inf.pricing.speed == "fast":
             return False
-        return not (attr.entrypoint and _MANAGED_AGENTS_MARKER in attr.entrypoint.lower())
+        if attr.entrypoint and _MANAGED_AGENTS_MARKER in attr.entrypoint.lower():
+            return False
+        return supports_every_serving(ctx, [lane], "batch")
 
     def _batch(self, ctx: AnalysisContext, prices: Prices, cohort: Cohort) -> Finding | None:
-        eligible = [lane for lane in cohort.lanes if self._batch_eligible(lane)]
+        eligible = [lane for lane in cohort.lanes if self._batch_eligible(ctx, lane)]
         if not eligible:
             return None
         tally = Tally()
@@ -332,8 +439,6 @@ class Automation:
         recoverable = saving_figure(replay(ctx, priced, "batch=eligible"), basis)
         item = evidence_item("aggregate", "batch:eligible", lanes=len(priced),
                              nano=tally.cost.point)
-        text = ("Send one-shot CI, eval, scheduled and service calls through the Message Batches "
-                "API (50% off every token category, cache hits best effort) or a flex tier.")
         spec = Emit(
             kind="batch-eligible", category="lever", lever_class="rate",
             title=f"Batch-eligible single calls in {cohort.label()} lanes",
@@ -341,7 +446,7 @@ class Automation:
                      f"standard tier; the batch tier halves their price (range from the batch "
                      f"cache-hit band)."),
             references=_REFS_BATCH,
-            fix=Fix(text=text, config_patch=None, target="sdk", doc_url=_BATCH_DOC),
+            fix=_batch_fix(priced),
             confidence="high", lever_ids=applicable_levers("batch-eligible", priced))
         return emit(self, ctx, cohort, tally, spec, tally.cost.billed(basis), recoverable, [item])
 

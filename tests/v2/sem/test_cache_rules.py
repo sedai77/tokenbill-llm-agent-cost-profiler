@@ -150,6 +150,21 @@ def test_openai_row() -> None:
     assert TABLE.rules_for("openai", "openai_api", "o3").ttl_options_s == ()
 
 
+def test_shared_cloud_channel_keeps_the_served_provider_cache_rules() -> None:
+    """Bedrock can serve both Claude and OpenAI models; its channel alone is not cache semantics."""
+    anthropic = TABLE.rules_for("anthropic", "bedrock", "claude-opus-5")
+    assert anthropic.provider == "anthropic"
+    assert anthropic.ttl_options_s == (300, 3600)
+
+    openai = TABLE.rules_for("openai", "bedrock", "gpt-5.6-sol")
+    assert openai.provider == "openai" and openai.channel == "bedrock"
+    assert openai.ttl_options_s == (1800,)
+    assert openai.ttl_measured_from == "last_use"
+
+    unknown = TABLE.rules_for("other", "bedrock", "model-x")
+    assert unknown.ttl_options_s == ()
+
+
 def test_azure_scope_is_subscription() -> None:
     rules = TABLE.rules_for("openai", "azure_openai", "gpt-5.6")
     assert rules.scope == "subscription"
