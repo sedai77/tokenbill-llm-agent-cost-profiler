@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Made the default synthetic fleet's discounted Anthropic invoice reconcile with its
+  demonstration ledger without treating the synthetic discount as a customer contract.
+- Made cache and batch remediation provider-aware, so OpenAI, Anthropic, Bedrock, and
+  mixed-provider findings do not receive an incompatible API recipe.
+- Prevented the TTL advisor from treating a provider's fixed cache lifetime as a configurable
+  5-minute or 1-hour policy; TTL findings now carry stable provider and channel scope dimensions
+  for route-specific, shard-stable recommendations.
+
 ## [0.2.0] - 2026-09-27
 
 ### Added

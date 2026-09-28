@@ -215,6 +215,47 @@ def _billing_path(lane: Lane) -> str:
     return si.pricing.billing_path if si is not None else "unknown"
 
 
+def _route(lane: Lane) -> tuple[str, str] | None:
+    """The one provider/channel route of *lane*, or None when it changes mid-lane."""
+    routes = {(inf.pricing.provider, inf.pricing.channel) for req in lane.requests
+              if (inf := req.serving_inference) is not None}
+    return next(iter(routes)) if len(routes) == 1 else None
+
+
+def _common_ttl_options(ctx: AnalysisContext, lanes: Sequence[Lane]) -> frozenset[int]:
+    """Documented cache lifetimes common to every serving request in *lanes*."""
+    common: set[int] | None = None
+    for lane in lanes:
+        for req in lane.requests:
+            inf = req.serving_inference
+            if inf is None:
+                continue
+            try:
+                options = set(ctx.rules.rules_for(
+                    inf.pricing.provider, inf.pricing.channel, inf.pricing.model).ttl_options_s)
+            except (AttributeError, TokenbillError):
+                return frozenset()
+            common = options if common is None else common & options
+    return frozenset() if common is None else frozenset(common)
+
+
+def _keepalive_supported(ctx: AnalysisContext, lanes: Sequence[Lane]) -> bool:
+    """True only when every serving request explicitly supports a keepalive."""
+    seen = False
+    for lane in lanes:
+        for req in lane.requests:
+            inf = req.serving_inference
+            if inf is None:
+                continue
+            seen = True
+            try:
+                if not ctx.pricer.supports(inf.pricing, "keepalive", ts_ms=req.ts_start_ms):
+                    return False
+            except (AttributeError, TokenbillError):
+                return False
+    return seen
+
+
 def _observed_ttl(lanes: Sequence[Lane]) -> str:
     """``5m`` / ``1h`` / ``mixed`` / ``unknown`` from the cohort's billed write tokens (unknown-TTL
     writes count by their hint)."""
@@ -239,26 +280,35 @@ def _observed_ttl(lanes: Sequence[Lane]) -> str:
 
 
 class _Sub:
-    """An advisor cohort: a (team, lane kind, billing class) cohort narrowed to a billing path."""
+    """An advisor cohort narrowed to one billing path and one serving route."""
 
-    def __init__(self, cohort: Cohort, billing_path: str, lanes: list[Lane],
-                 split: bool) -> None:
+    def __init__(self, cohort: Cohort, billing_path: str, provider: str, channel: str,
+                 lanes: list[Lane], path_split: bool) -> None:
         self.cohort = cohort
         self.billing_path = billing_path
+        self.provider = provider
+        self.channel = channel
         self.lanes = lanes
-        self.split = split
+        self.path_split = path_split
         self.unpriced = 0        # lanes left out of the replays (an unpriced inference)
 
     def scope_extra(self) -> dict[str, str | None]:
-        return {"billing_path": self.billing_path} if self.split else {}
+        # A route is an action boundary. Keeping it in every scope makes full and sharded
+        # analyses produce identical finding identities.
+        out: dict[str, str | None] = {"provider": self.provider, "channel": self.channel}
+        if self.path_split:
+            out["billing_path"] = self.billing_path
+        return out
 
 
 class TtlAdvisor:
     """``cache.ttl-advisor`` (SPEC §10.2, D8, D9, R-E11). See the module docstring.
 
-    Replays (through ``ctx.replayer``, on the cohort's lanes only): ``observed``,
-    :func:`ttl_spec` for 5m and 1h, and :func:`keepalive_spec` for API_RUN cohorts on their
-    SDK/API (non-Claude-Code) lanes. ``cost_observed`` is the cohort spend (EXACT,
+    Replays (through ``ctx.replayer``, on the route's lanes only): ``observed``, each documented
+    configurable :func:`ttl_spec` for 5m or 1h, and :func:`keepalive_spec` for API_RUN cohorts
+    on SDK/API (non-Claude-Code) lanes that support it. A fixed provider cache lifetime, such as
+    OpenAI's 30-minute cache, is not treated as a configurable TTL policy. ``cost_observed`` is
+    the route spend (EXACT,
     LIST_EQUIVALENT for allowance cohorts);
     ``recoverable`` the recommended policy's saving (ESTIMATED; calibration from the replay).
     Thresholds: ``min_usd``, ``cache.ttl-advisor.spend_share`` (0.02) and
@@ -280,12 +330,18 @@ class TtlAdvisor:
         for cohort in cohorts(lanes, ctx):
             if cohort.lane_kind not in _ADVISED_KINDS:
                 continue
-            by_path: dict[str, list[Lane]] = {}
+            by_route: dict[tuple[str, str, str], list[Lane]] = {}
             for lane in cohort.lanes:
-                by_path.setdefault(_billing_path(lane), []).append(lane)
-            split = len(by_path) > 1
-            for path in sorted(by_path):
-                found = self._advise(ctx, prices, _Sub(cohort, path, by_path[path], split))
+                route = _route(lane)
+                if route is None:
+                    continue
+                path = _billing_path(lane)
+                provider, channel = route
+                by_route.setdefault((path, provider, channel), []).append(lane)
+            path_split = len({path for path, _, _ in by_route}) > 1
+            for (path, provider, channel), members in sorted(by_route.items()):
+                sub = _Sub(cohort, path, provider, channel, members, path_split)
+                found = self._advise(ctx, prices, sub)
                 if found is not None:
                     out.append(found)
         return sort_findings(out)
@@ -304,17 +360,19 @@ class TtlAdvisor:
         if spend.basis is not basis:
             return None
         current = _observed_ttl(lanes)
+        ttl_options = _common_ttl_options(ctx, lanes)
         candidates: list[tuple[str, str]] = []   # (kind, spec)
-        if current != "1h":
+        if current != "1h" and 3600 in ttl_options:
             candidates.append(("ttl-1h-recommended", ttl_spec(cohort.lane_kind, "1h")))
-        if current != "5m":
+        if current != "5m" and 300 in ttl_options:
             candidates.append(("ttl-5m-recommended", ttl_spec(cohort.lane_kind, "5m")))
         # Keepalive is replayed only on the SDK/API lanes of an API_RUN cohort: Claude Code cannot
         # be configured to ping (§9.3.2, R-E11), so its lanes never enter the keepalive saving,
         # whatever the replayer does with them (a conforming replayer leaves them unchanged, so
         # the saving stays comparable with the TTL candidates replayed on the whole cohort).
         pingable = [lane for lane in lanes if not is_claude_code(lane)]
-        if cohort.lane_kind == LaneKind.API_RUN.value and pingable:
+        if cohort.lane_kind == LaneKind.API_RUN.value and pingable and \
+                _keepalive_supported(ctx, pingable):
             candidates.append(("keepalive-recommended", keepalive_spec(cohort.lane_kind)))
         results: dict[str, ReplayResult] = {}
         for kind, spec in candidates:
@@ -511,4 +569,3 @@ def _break_even(ctx: AnalysisContext, prices: Prices,
     seconds = keepalive_break_even_s(rates.cache_write_5m, rates.cache_read)
     whole = int(seconds.to_integral_value())
     return whole, decimal_str(seconds / 60)
-
