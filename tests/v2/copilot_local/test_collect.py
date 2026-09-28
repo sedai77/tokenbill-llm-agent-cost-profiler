@@ -43,11 +43,12 @@ from .helpers import (
     usage,
 )
 
-NOW = int(time.time() * 1000)
 FLAG = frozenset({"copilot-store"})
 
 
-def collect(home: Path, state: CopilotCollectorState, *, now: int = NOW, **kw):
+def collect(home: Path, state: CopilotCollectorState, *, now: int | None = None, **kw):
+    if now is None:
+        now = int(time.time() * 1000)
     return list(collect_incremental_copilot(home, state, opts(**kw.pop("o", {})), now_ms=now,
                                             **kw))
 
@@ -341,18 +342,19 @@ def test_store_mode_quiescent_settles_and_residuals(tmp_path: Path) -> None:
 
 
 def test_store_mode_fresh_store_only_rows_held(tmp_path: Path) -> None:
-    make_store(tmp_path / "session-store.db", [row(1, "elsewhere", NOW - 1_000),
-                                               row(2, "covered", NOW - 10**9),
-                                               row(3, "elsewhere", NOW - 10**9)])
+    now = int(time.time() * 1000)
+    make_store(tmp_path / "session-store.db", [row(1, "elsewhere", now - 1_000),
+                                               row(2, "covered", now - 10**9),
+                                               row(3, "elsewhere", now - 10**9)])
     (tmp_path / "session-state").mkdir()
     state = CopilotCollectorState()
-    results = collect(tmp_path, state, o={"experimental": FLAG},
+    results = collect(tmp_path, state, now=now, o={"experimental": FLAG},
                       skip_session_ids=frozenset({"covered"}))
     reqs = _requests(results)
     assert [r.seq for r in reqs] == [3]                                    # row 1 too fresh
     assert notes_by_code(results[-1])["dq.copilot_session_covered_by_vscode"] == 1
     assert state.store["hwm"] == 0 and state.store["done"] == [2, 3]
-    again = collect(tmp_path, state, o={"experimental": FLAG}, now=NOW + 3_600_000)
+    again = collect(tmp_path, state, o={"experimental": FLAG}, now=now + 3_600_000)
     assert [r.seq for r in _requests(again)] == [1] and state.store["hwm"] == 3
 
 
