@@ -1,28 +1,48 @@
 # Token Bill
 
-> Local-first cost intelligence for LLM agents and coding assistants: reconcile
-> usage, isolate the cost drivers, model defensible savings, and measure the
-> result without sending usage data to a hosted analytics service.
+> Local-first cost intelligence for LLM agents and coding assistants. Build a
+> governed usage ledger from provider evidence, reconcile it with billing,
+> isolate cost drivers, model defensible changes, and measure the result.
 
 [![CI](https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/actions/workflows/ci.yml/badge.svg)](https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/tokenbill)](https://pypi.org/project/tokenbill/)
 [![Python versions](https://img.shields.io/pypi/pyversions/tokenbill)](https://pypi.org/project/tokenbill/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> **v0.2 enterprise pilot (2026-09-28).** Token Bill combines a local usage
-> ledger, provider and contract reconciliation, privacy controls, counterfactual
-> policy analysis, calibration, rollout measurement, and GitHub Copilot sources.
-> Exact billed figures, modeled estimates, and list-equivalent allowance usage are
-> intentionally kept separate. Enterprise use still requires provider/contract
-> reconciliation and organization-specific quality validation before enforcement.
-> See the [enterprise pilot guide](docs/ENTERPRISE.md) for the v0.2 rollout path,
-> support boundaries, and evidence labels.
+> **Release status: v0.2.0 controlled enterprise pilot.** Token Bill is a
+> local CLI, not a hosted analytics service or unattended enforcement system.
+> It supports a governed ledger, content-free collection, provider and contract
+> reconciliation, findings, policy artifacts, measurement, and exports. Every
+> organization still needs to validate its provider contract, source coverage,
+> quality metrics, and finance reconciliation before acting on a recommendation.
 
-## See the v0.2 fleet report
+## What Token Bill Does Today
 
-The built-in fleet demo runs the current end-to-end reporting path against a
-deterministic, keyless, networkless synthetic fleet: 61 developers, 28 days,
-reconciled provider channels, and a calibrated action plan.
+- Ingests content-free usage evidence, governed `trace@2` records, legacy
+  `trace@1` files, OpenTelemetry GenAI data, and selected provider billing
+  exports into a local SQLite ledger.
+- Separates **billed/reconciled**, **rate-card or list-equivalent**, and
+  **modeled/estimated** figures instead of rolling them into one misleading
+  savings number.
+- Reconciles Anthropic, OpenAI, AWS CUR, and GCP billing evidence by provider
+  channel and time window; supports private rate and contract overlays.
+- Finds cache, retry, failure-path, context, model, and workflow cost drivers;
+  emits reviewable policy and measurement artifacts rather than changing a
+  developer environment itself.
+- Supports Claude Code evidence collection and file-based integrations for
+  OpenAI, Azure-shaped records, Amazon Bedrock, generic OTLP, and GitHub
+  Copilot evidence formats.
+
+The default flow is offline after source exports are supplied. The only
+built-in live provider pull in v0.2.0 is an optional Anthropic Admin API
+reconciliation path. Its credential is read from an environment variable and
+is never written to the ledger, reports, or logs.
+
+## See The Fleet Report
+
+The deterministic fleet demo exercises the current reporting path using a
+keyless, networkless synthetic fleet: 61 developers, 28 days, reconciled
+provider channels, and a calibrated action plan.
 
 ```bash
 pip install tokenbill
@@ -33,314 +53,210 @@ tokenbill demo --fleet -o fleet-report.html
   <img src="docs/images/fleet-report-overview.png" width="960"
        alt="Token Bill v0.2 fleet report with a projected monthly savings opportunity, exact bill, pricing coverage, reconciliation and calibration status, and three highest-impact action plan items">
   <br>
-  <sub>Actual v0.2 output from <code>tokenbill demo --fleet</code>. The numbers are synthetic and the report labels exact, estimated, and list-equivalent figures separately.</sub>
+  <sub>Actual v0.2 output from <code>tokenbill demo --fleet</code>. The numbers are synthetic. The report labels reconciled, estimated, and list-equivalent figures separately.</sub>
 </p>
 
-The overview promotes only Shapley-credited billed actions into its headline;
-trade-offs stay in the detailed findings with their evaluation requirements.
-The legacy single-trace walkthrough below remains available for the v0.1
-recorder workflow.
+The overview promotes only evidence-backed, Shapley-credited billed actions
+into its headline. Trade-offs remain in the detailed findings with their
+required evaluation evidence.
 
-## The problem, in plain English
+## How An Enterprise Runs It
 
-An AI agent works in a loop. On every step it sends the model **the whole
-conversation so far**: its instructions, its list of tools, every earlier
-message, plus one new line. A 20-step task pays to send almost the same text
-20 times.
-
-Anthropic softens this with a discount called the **prompt cache**. Text the
-model saw in the last few minutes costs **a tenth of the normal price** (or
-less, on some models) to send again. The catch: the discount only applies
-while the start of the request is **exactly** the same as last time, character
-for character. Change one character near the top and everything after it is
-billed at full price again.
-
-Think of a print shop that gives you 90% off reprinting any page it printed a
-few minutes ago, as long as every page before it is unchanged. Put today's
-time on page 1, and every page in the stack costs full price.
-
-The usual causes are small and easy to miss:
-
-- **A clock time or random ID** in the agent's instructions (`Current time: 14:03:07`)
-- **The tool list changing order** between steps
-- **Caching never switched on** for the request
-- **Editing earlier messages**, or **switching models** partway through
-
-Nothing warns you. The bill is just higher than it should be.
-
-## What Token Bill tells you
-
-Point it at a trace (a log of the API calls one agent run made, with the usage
-the API billed) and it reports:
-
-1. **Where the money went.** Each call split into cached text, full-price
-   text, and output, in tokens and dollars, straight from what you were billed.
-2. **How much was wasted.** The share of input you paid full price to send again.
-3. **What broke the discount, and what fixing it is worth.** The cause, the
-   step where it started, a one-sentence fix, and the dollars that fix recovers.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/sedai77/tokenbill-llm-agent-cost-profiler/main/docs/images/report-breakers.png" width="820"
-       alt="Three cache breakers detected in the demo: a timestamp in the system prompt, a tool list that changes order, and a missing cache breakpoint, each with its fix and estimated dollars recovered">
-</p>
-
-Everything runs on your machine: no account, no network, no dependencies beyond
-Python 3.10+. v0.1 covers Anthropic's prompt cache; the trace format itself is
-provider-neutral (adapters welcome, see the roadmap).
-
-Token Bill is an independent open-source project, not affiliated with or
-endorsed by Anthropic.
-
-## 60-second start (no keys, no network)
-
-```bash
-pip install tokenbill
-tokenbill demo
-```
-
-(Latest development version: `pip install git+https://github.com/sedai77/tokenbill-llm-agent-cost-profiler`.)
-
-> **No `pip` on your machine?** Common on stock macOS, whose built-in Python is
-> also too old (3.9). The painless path is [uv](https://docs.astral.sh/uv/):
-> `curl -LsSf https://astral.sh/uv/install.sh | sh`, reopen your terminal, then
-> `uv tool install tokenbill` — uv brings its own Python, and `tokenbill` is on
-> your PATH from then on.
-
-The demo runs the whole pipeline on four made-up agent runs with problems
-*planted* in them (a timestamp in the instructions, a shuffling tool list,
-caching never switched on) plus one healthy run for comparison, then finds
-exactly what was planted. No API key, no network, no other package. Add
-`-o report.html` to also get the HTML report shown above.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/sedai77/tokenbill-llm-agent-cost-profiler/main/docs/images/terminal-demo.png" width="820"
-       alt="Terminal output of tokenbill demo: a headline saying 43% of input tokens were re-sent and the fixes recover $0.26 of $0.41, then one run's token and dollar breakdown and a volatile-system breaker with its fix">
-</p>
-
-<details>
-<summary>The same output as text (trimmed to one of the four runs; the demo is deterministic, so your numbers will match)</summary>
+Token Bill belongs inside the organization's existing data, security, FinOps,
+and change-management boundaries:
 
 ```text
-~43% of billed input tokens went to re-sending bytes the model had already seen; the three fixes below recover an estimated $0.26 of $0.41.
-bundled demo scenarios (seed 7) | 4 runs | 56 calls | models: claude-sonnet-5
-[synthetic demo data: bundled scenarios with planted waste]
-
-[... run demo-well-behaved-seed7 (the control: zero breakers) trimmed ...]
-
-Run demo-timestamp-seed7
-  billed tokens    cache read 0 | cache write 0 | uncached input 56,880 | output 993
-  billed dollars   $0.12  (cache read $0.00 | cache write $0.00 | uncached input $0.11 | output $0.0099)
-  redundant input  ~17.7% of billed input tokens re-sent (approx)
-  scenarios
-    as-billed        $0.12  ########################
-    no-cache         $0.12  ########################
-    optimal-cache    $0.12  ########################
-    fixed-cache    $0.0353  #######
-    note (as-billed): exact: real billed usage priced at published rates (ground truth)
-    note (no-cache): counterfactual: every billed input token repriced at the full uncached rate (no cache reads, no write premium)
-    note (optimal-cache): simulated (approx): documented cache rules — 300s TTL sliding on read, min-cacheable gate, one breakpoint at end of messages; char-based token split scaled to billed totals
-    note (fixed-cache): simulated (approx): optimal-cache rules over the breaker-repaired rendering; billed usage totals reused for the token split
-  breakers
-    volatile-system | first at call index 1 | recovers ~$0.0884
-      fix: move the volatile value (timestamp/UUID/counter) out of the system prompt — inject it in the latest user message instead
-      evidence: system chars [355:374] at call 1: '...reen.\nSession: [session 2026-07-26 14:03:00]\n\nRepository layout:\n  ...' -> '..... [truncated, 196 chars total]
-
-[... runs demo-tool-churn-seed7 and demo-no-cache-seed7 trimmed ...]
-
-approx (~): char-based attribution scaled to billed totals; dollar and token totals come from real billed usage.
+provider exports / application telemetry
+        -> restricted collector or CI runner
+        -> local Token Bill SQLite ledger
+        -> provider and contract reconciliation
+        -> findings, reviewable report, policy artifact, measurement receipt
+        -> existing approval and rollout process
 ```
 
-</details>
+It is intentionally observation-first. It does not downgrade a model, rewrite
+prompts, delete context, modify Copilot or IDE settings, or claim a subscription
+allowance as cash savings.
 
-## Your first real trace (5 minutes, ~$0.05)
-
-Ready-made path from zero to a report about *real* API calls —
-[`examples/record_demo.py`](examples/record_demo.py) is a miniature agent
-(12 Claude calls on Haiku, ~5 cents total) with the recorder already wired in:
+Create a protected pilot workspace before ingesting employee or production
+evidence. The central identity mode pseudonymizes identities in the controlled
+workspace; use two-stage mode when the collector must transform identities
+before data leaves its boundary.
 
 ```bash
-pip install tokenbill anthropic
-export ANTHROPIC_API_KEY="sk-ant-..."   # console.anthropic.com → API keys
-curl -O https://raw.githubusercontent.com/sedai77/tokenbill-llm-agent-cost-profiler/main/examples/record_demo.py
-python record_demo.py                   # watch real cache_read tokens appear from turn 2
-tokenbill analyze trace.jsonl -o report.html
+PILOT=.tokenbill-pilot
+CFG="$PILOT/config.json"
+DB="$PILOT/store/tokenbill.db"
+
+tokenbill init --dir "$PILOT" --identity-mode central --k 5
+tokenbill --config "$CFG" ingest --db "$DB" --adapter otlp --content none exports/otel.json
+tokenbill --config "$CFG" findings --db "$DB" --since 2026-09-01 --until 2026-10-01
+tokenbill --config "$CFG" report --db "$DB" --since 2026-09-01 --until 2026-10-01 -o reports/fleet.html
 ```
 
-(The `curl` is because a pip install ships no `examples/` directory — skip it if
-you cloned the repo and run `python examples/record_demo.py` instead.)
+For a scheduled job, pin an explicit adapter rather than relying on format
+sniffing, retain the protected raw evidence needed to reproduce a result, and
+enable `--strict-dq` only after the expected source coverage is understood.
 
-The report will show the system prompt being cached for real (billed
-`cache_read` tokens from Anthropic's servers) and call out that the growing
-conversation history is re-sent uncached each turn — an honest finding about
-that script's design, with dollars attached. Then do the experiment in the
-script's docstring: prepend a volatile per-turn value (e.g. `f"[session {turn}] "`)
-to the system prompt, record to a second trace file, and watch Token Bill catch
-the cache breaker you just introduced.
+Read the [enterprise pilot guide](docs/ENTERPRISE.md) for roles, rollout gates,
+privacy controls, and measurement requirements. Read the
+[integration guide](docs/INTEGRATIONS.md) for source-specific deployment
+recipes and current feature boundaries.
 
-## Recording your own agent
+## Integration Matrix
 
-Wrap your Anthropic SDK client; run your agent exactly as before:
+| Provider or source | Evidence Token Bill accepts | v0.2.0 status | Important boundary |
+| --- | --- | --- | --- |
+| Anthropic and Claude Code | `trace@1`, `trace@2`, local Claude Code evidence, Admin usage/cost pages, Enterprise Analytics | Supported pilot path | The legacy recorder captures prompt-bearing `trace@1`; treat it as sensitive. |
+| OpenAI and Azure-shaped records | Responses/chat usage records, OpenAI usage and cost exports | Supported file-based path | Reconcile provider exports before presenting spend as billed. |
+| Amazon Bedrock | Bedrock invocation logs or Converse response records, AWS CUR 2.0 CSV/CSV.gz | Supported file-based path | Token Bill does not need AWS credentials when a controlled export is supplied. |
+| Generic OpenTelemetry | OTLP GenAI records and related traces | Supported file-based path | Preserve semantic-convention version and data-quality notes. |
+| GitHub Copilot | AI usage CSV, metered usage CSV, recorded billing/config/metrics/seats/activity responses, local VS Code traces, OTEL, export bundles | Integration preview | Ingestion and detector components exist; the packaged end-to-end Copilot CLI and audited Copilot money-report path do not. See below. |
+
+## Amazon Bedrock Setup
+
+Use Bedrock in the same export-and-reconcile pattern as other cloud services.
+Have the cloud platform team place either Bedrock invocation logs or
+application-side Converse response records in a restricted export location, and
+provide AWS CUR files for the same billing window. Keep account, region,
+contract, and cost-allocation context in the protected source records.
+
+```bash
+PILOT=.tokenbill-pilot
+CFG="$PILOT/config.json"
+DB="$PILOT/store/tokenbill.db"
+
+tokenbill --config "$CFG" ingest --db "$DB" \
+  --adapter bedrock --content none exports/bedrock/
+
+tokenbill --config "$CFG" reconcile --db "$DB" \
+  --aws-cur exports/aws-cur/cur-2026-09.csv.gz \
+  --since 2026-09-01 --until 2026-10-01 \
+  --contract protected/bedrock-contract.json
+
+tokenbill --config "$CFG" findings --db "$DB" \
+  --since 2026-09-01 --until 2026-10-01 --min-usd 25
+tokenbill --config "$CFG" report --db "$DB" \
+  --since 2026-09-01 --until 2026-10-01 -o reports/bedrock-september.html
+```
+
+Use a contract overlay only for approved private rates or discount treatment;
+keep it versioned and access-controlled. An invocation-derived rate-card total
+is useful for diagnostics, but it becomes a finance claim only after the AWS
+CUR reconciliation gate passes for that channel and window.
+
+## GitHub Copilot: Current, Honest Status
+
+The repository contains useful Copilot ingestion and analysis components. It
+can import organization evidence through adapters such as
+`github-ai-usage`, `github-metered-usage`, `github-billing-api`,
+`github-copilot-config`, `github-copilot-metrics`, `github-copilot-seats`,
+`github-copilot-activity-report`, `copilot-vscode-traces`, `copilot-otel`, and
+`copilot-export`.
+
+For a controlled evidence pilot, export the relevant organization reports using
+the enterprise's normal GitHub administrator process, store them in a protected
+location, and ingest them with an explicit adapter:
+
+```bash
+PILOT=.tokenbill-pilot
+CFG="$PILOT/config.json"
+DB="$PILOT/store/tokenbill.db"
+
+tokenbill --config "$CFG" ingest --db "$DB" \
+  --adapter github-ai-usage --content none exports/github/ai-usage.csv
+tokenbill --config "$CFG" ingest --db "$DB" \
+  --adapter github-metered-usage --content none exports/github/metered-usage.csv
+tokenbill --config "$CFG" findings --db "$DB" \
+  --since 2026-09-01 --until 2026-10-01
+```
+
+That is **not** yet a finished enterprise Copilot cost product in v0.2.0:
+
+- There is no shipped `tokenbill copilot` command and no direct GitHub OAuth or
+  live GitHub API pull in the public CLI.
+- The generic `bill`, `report`, `showback`, and `policy` paths do not package
+  Copilot pool, seat, allowance, and credit facts into a complete audited
+  Copilot financial report. A generic bill can omit extension-owned Copilot
+  facts rather than falsely converting them to cash.
+- Do not use generic Token Bill output as a Copilot invoice, subscription
+  showback, procurement decision, or automated Copilot policy. Treat the
+  current path as evidence ingestion and detector evaluation only.
+
+This distinction is deliberate documentation, not a licensing caveat. A
+production Copilot workflow needs the missing public command and dedicated
+summary/policy integration, plus fixture-backed tests against the GitHub plan
+and billing model in use.
+
+## Cost Labels Matter
+
+| Label | Meaning | Can it be called realized savings? |
+| --- | --- | --- |
+| Billed or reconciled | Provider cost evidence and the ledger agree within the configured gate for a declared window. | Only after finance accepts the reconciliation. |
+| Rate-card or list-equivalent | Usage or allowance priced from a rate card, entitlement, credit, or contract assumption. | No. It is a planning or diagnostic value. |
+| Modeled or estimated | A counterfactual from a documented intervention and assumptions. | No. Measure quality and incremental spend after rollout. |
+| Measured or verified | A registered rollout comparison with cost and quality evidence. | Potentially, subject to the enterprise's measurement and finance review. |
+
+## Legacy Direct Anthropic Tracing
+
+The original local recorder workflow remains supported for a single agent or
+developer investigation. It records completed Anthropic SDK calls into a
+prompt-bearing `trace@1` JSONL file, then analyzes cache economics.
 
 ```python
 from pathlib import Path
+
 from anthropic import Anthropic
 from tokenbill.instrument import Recorder
 
 client = Recorder(Path("trace.jsonl")).wrap(Anthropic())
 ```
 
-Then:
-
 ```bash
 tokenbill analyze trace.jsonl -o report.html
 ```
 
-Honest notes on what the recorder does: it duck-types the client — Token Bill
-never imports `anthropic` — wrapping `messages.create` and `messages.stream`
-(streaming usage is read from `get_final_message()`). `AsyncAnthropic` works
-too: the async wrapper awaits the response before recording, and
-`async with client.messages.stream(...)` is supported. At call time it
-captures the model, system prompt, tools, messages, and cache-breakpoint
-count; from the response it captures billed usage and stop reason. Each
-completed call is appended to the JSONL immediately, so a crashed run keeps
-every call that finished. One caveat: raw streaming via
-`messages.create(stream=True)` returns a stream object that carries no
-`usage`, so those calls are *not* recorded (a warning tells you to use
-`messages.stream(...)` instead) — never silently logged as zero-cost. Your
-API calls, your credentials, your SDK — Token Bill only observes. Treat the
-resulting trace file as a secret: it contains your prompts
-(see [SECURITY.md](SECURITY.md)).
+The recorder never imports the Anthropic SDK itself and keeps completed calls
+when a run crashes, but the resulting file can contain prompts and source-code
+context. Do not use it as the default enterprise collection route; start with
+content-free `trace@2`, OTLP, or provider-export evidence instead. The exact
+legacy trace contract is in [docs/SPEC.md](docs/SPEC.md), and the cache model
+and attribution limits are in [DESIGN.md](DESIGN.md).
 
-You can price models Token Bill doesn't know (self-hosted, brand-new) with
-`--model-price MODEL=IN,OUT` ($/MTok); unknown models otherwise report tokens
-with dollars marked unknown rather than guessing.
+## Data And Change Controls
 
-## Exact vs. approximate — where the line is
+- Start with `--content none`; the fleet ingest path refuses full prompt
+  collection. Use fingerprint evidence only for a defined question and an
+  approved retention plan.
+- Keep generated keys, the SQLite ledger, raw exports, contract overlays, and
+  reports outside source control and under the enterprise's normal access and
+  retention controls.
+- Keep provider, region, billing period, currency, allowance, discount, and
+  contract facts separate. Never turn a seat allowance or AI credit into an
+  invoice total by arithmetic alone.
+- Treat generated policy as a review artifact. Use the existing approval,
+  rollout, rollback, exception, and quality-evaluation process to apply it.
+- Run data-quality and reconciliation gates before publishing an executive
+  number. A lower model bill that increases rework is not a savings result.
 
-Most cost tools hand-wave this line; Token Bill draws it explicitly:
+## Start Locally
 
-- **Every dollar total is exact.** It comes from the trace's real billed
-  `usage` fields (`input_tokens`, `cache_read_input_tokens`,
-  `cache_creation_input_tokens`, `output_tokens`) times the published prices —
-  the provider's own accounting, not an estimate.
-- **Attribution is approximate, and labeled.** Splitting one call's billed
-  input across system/tools/history segments, and locating divergence points
-  in token terms, uses a character heuristic (chars ÷ 3.7) — never tiktoken,
-  which is the wrong tokenizer for Claude. Every approximate number is scaled
-  so segments sum to the call's exact billed total, and carries an "approx"
-  label everywhere it surfaces.
+```bash
+pip install tokenbill
+tokenbill demo
+tokenbill demo --fleet -o fleet-report.html
+```
 
-The full rationale — the redundancy formula, why 3.7, error bounds, threats to
-validity — is in [DESIGN.md](DESIGN.md).
+The bundled demos are deterministic, synthetic, keyless, and networkless. They
+certify the instrument path, not an enterprise's provider configuration or
+financial results.
 
-## What it finds: the cache breakers
+## Contributing And Verification
 
-| Breaker | What it looks like in the trace | The shape of the fix |
-| --- | --- | --- |
-| `volatile-system` | Consecutive calls' system prompts differ only in a timestamp / UUID / counter span | Move the volatile value out of the system prompt (e.g. into the latest user message) |
-| `tool-churn` | The tool definition list changes order or content mid-run | Freeze tool registration order |
-| `history-rewrite` | An already-delivered message was edited or truncated in place | Append new messages; never rewrite delivered history |
-| `model-switch` | The model changes mid-run | Pin one model per run, or budget for a cold cache per switch |
-| `missing-breakpoint` | Prefix is byte-stable and big enough to cache, but no `cache_control` marker was sent and nothing was cached | Add a cache breakpoint |
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development environment,
+[docs/SPEC.md](docs/SPEC.md) for the core contracts,
+[SECURITY.md](SECURITY.md) for security reporting,
+[docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md) for release verification, and
+[CHANGELOG.md](CHANGELOG.md) for release history.
 
-Each detected breaker comes with the evidence span from your trace, the first
-call it appears at, and `est_recovered_usd` — what you actually paid minus the
-run re-simulated with only that breaker repaired (positive = money the fix
-recovers). `model-switch` and `history-rewrite` have no mechanical repair
-(rewriting your content or model would change semantics), so no dollar
-estimate is attached to them — the report says "recovery estimate
-unavailable" rather than printing a number the fix couldn't deliver.
-
-## How the simulator works
-
-The replay implements the provider's documented prompt caching rules (pricing
-and cache constants are versioned data in `tokenbill/pricing.py`, sourced from
-the [published pricing doc](https://platform.claude.com/docs/en/about-claude/pricing.md),
-verified 2026-09 and re-verified each release): caching operates on a
-byte-identical prefix of the rendered request in the documented render order
-tools → system → messages, per model (a cache entry written under one model is
-cold for every other model); the 5-minute cache (TTL 300 s, refreshed on
-read — a flagged assumption); a per-model minimum cacheable prefix (512–4096
-tokens); cache writes at 1.25× base input; cache reads at 0.10× (0.025× on
-claude-fable-5-1). Dated snapshot ids such as `claude-haiku-4-5-20251001` are
-priced as their base model.
-
-Four scenarios, all priced:
-
-- **as-billed** — ground truth from `usage`. Exact.
-- **no-cache** — every input token at full price. What caching is saving you
-  today.
-- **optimal-cache** — the run's actual bytes replayed with an ideally placed
-  breakpoint every call. The caching ceiling for the bytes as sent (repairing
-  the bytes themselves is fixed-cache's job). Write premiums are counted
-  retrospectively: an optimal policy knows the whole run, so it never pays
-  the 1.25× premium for an entry nothing ever reads back — which also means
-  optimal-cache can never cost more than no-cache.
-- **fixed-cache** — optimal-cache after repairing the detected breakers.
-  What the fixes above are worth. This minus as-billed is the headline dollar
-  number.
-
-**How you know the simulator isn't making it up:** whenever a trace's billed
-usage shows real cache activity, the simulator compares its predicted cache
-reads against the billed cache reads and prints the agreement ratio. On the
-demo's well-behaved scenario the two must agree within rounding — CI enforces
-this on every commit via the flagship test
-(`tests/test_demo_recovers_planted_waste.py`), which also asserts each demo
-scenario's planted waste is recovered exactly. Scenario semantics and the full
-assumption table: [DESIGN.md](DESIGN.md).
-
-## Trace format
-
-JSONL, one API call per line, `schema: "tokenbill/trace@1"`: run id, call
-index, timestamp, model, system prompt, tool definitions, messages,
-cache-breakpoint count, billed usage, stop reason. The recorder writes it; you
-can also generate it from any logging you already have — the exact contract is
-in [docs/SPEC.md](docs/SPEC.md).
-
-## Limitations
-
-- **Anthropic-shaped traces only in v0.1.** The schema is provider-neutral,
-  but usage fields, cache rules, and pricing model the Anthropic prompt
-  cache. Adapters welcome.
-- **Attribution is approximate** (see above); billed totals are exact.
-- **The simulator models the documented rules**, not undocumented server
-  behavior — no eviction under load, no regional effects, no concurrency
-  races. The agreement check surfaces divergence when the trace has real
-  cache activity to compare against.
-- **No live proxy yet.** Recording is in-process via the SDK wrapper;
-  `tokenbill analyze` is post-hoc.
-- **The demo data is synthetic** and labeled as such in the report. It
-  certifies the instruments, not any real agent.
-
-## Roadmap
-
-- OpenAI adapter (usage-field mapping + their cache semantics).
-- A recording proxy, so anything speaking HTTP can be traced without SDK
-  integration.
-- Claude Code session-log importer.
-- 1-hour-TTL cache scenarios.
-- Batch-pricing awareness (batch discounts change what "waste" is worth).
-
-## Related work
-
-- **Provider usage dashboards** (Anthropic Console, OpenAI usage page) show
-  spend totals by model and day — indispensable for *what* you spent, silent
-  on *why*. No per-call waterfall, no counterfactual, no fix.
-- **LangSmith / Langfuse / W&B Weave-style agent observability** are excellent
-  at traces: spans, latencies, token counts, prompt playgrounds. They treat
-  cost as an attribute to display; none replays your run under the provider's
-  cache rules, measures re-sent-prefix redundancy, or prices a specific fix.
-  Token Bill is deliberately narrow: cache economics, with receipts.
-- **Anthropic's prompt-caching docs and token-counting endpoint** define the
-  rules Token Bill implements. The docs tell you how to cache; Token Bill
-  tells you why your cache hit rate isn't what the docs promised — from your
-  own trace.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) — dev setup is `uv` plus nothing, and
-[docs/SPEC.md](docs/SPEC.md) is the authoritative internal contract. Security
-policy in [SECURITY.md](SECURITY.md); design rationale and threats to validity
-in [DESIGN.md](DESIGN.md); release history in [CHANGELOG.md](CHANGELOG.md).
-
-MIT © 2026 Token Bill contributors — see [LICENSE](LICENSE).
+MIT Copyright 2026 Token Bill contributors. See [LICENSE](LICENSE).

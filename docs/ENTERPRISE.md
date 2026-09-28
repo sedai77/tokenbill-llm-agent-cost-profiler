@@ -7,6 +7,13 @@ not an unattended policy-enforcement service. A pilot should begin in
 observation-only mode, reconcile costs with finance, validate recommendation
 quality on representative work, and enable a policy only after approval.
 
+GitHub Copilot import and detector components are present, but v0.2.0 does not
+ship the public `tokenbill copilot` workflow or a complete audited Copilot
+summary and policy path. Treat Copilot as an integration preview, not as a
+Copilot invoice or automated-policy product. See
+[INTEGRATIONS.md](INTEGRATIONS.md) for the exact provider boundaries and
+deployment recipes.
+
 The product boundary is intentional:
 
 - TokenBill records evidence, explains cost, models a documented alternative,
@@ -40,8 +47,8 @@ promise that an organization-specific provider contract has been reconciled.
 | Claude Code | Local transcripts, headless output, Agent SDK streams | Personal, CI, and fleet workload analysis | Treat local transcript collection as sensitive source-code metadata. |
 | OpenTelemetry | OTLP GenAI and related conventions | Provider-neutral request/attempt evidence | Retain semantic-convention version and data-quality notes; providers expose different fields. |
 | API and cloud billing | Anthropic Admin pages, OpenAI usage/cost exports, AWS CUR 2.0 CSV/CSV.gz, GCP billing CSV/JSONL | Reconciliation and invoice-aware reporting | Reconcile per provider and channel. Rate-card estimates do not replace invoices. |
-| GitHub Copilot | Billing, metrics, seats, configuration, local/VS Code traces, OTEL, export bundles | Copilot showback and optimization analysis | Keep AI credits, subscription allowance, seats, and activity metrics as separate facts. |
-| Policy packs | Claude Code, LiteLLM, SDK, and extension targets such as GitHub Copilot | Human-reviewed rollout artifacts | Emission only. Apply through the enterprise's normal change-control process. |
+| GitHub Copilot | Billing, metrics, seats, configuration, local/VS Code traces, OTEL, export bundles | Evidence-import and detector evaluation | Integration preview only: keep AI credits, subscription allowance, seats, and activity metrics as separate facts; do not use generic reports as Copilot invoices. |
+| Policy packs | Claude Code, LiteLLM, and SDK targets | Human-reviewed rollout artifacts | Emission only. Apply through the enterprise's normal change-control process. Copilot policy wiring is not packaged in v0.2.0. |
 
 Out of scope for this release candidate:
 
