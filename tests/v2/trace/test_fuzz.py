@@ -138,7 +138,9 @@ def test_trace2_reader_never_raises_leniently(tmp_path_factory: Any, lines: list
 def test_trace2_usage_reader_fuzz(tmp_path_factory: Any, lines: list[str]) -> None:
     path = _write_lines(tmp_path_factory.mktemp("f2u"), lines)
     items = list(T.iter_trace_v2(path))
-    assert len(items) <= len(lines)
+    # Garbage mutations may embed a newline, which creates multiple physical JSONL records.
+    # The reader yields at most one item per physical line, not per strategy element.
+    assert len(items) <= sum(line.count("\n") + 1 for line in lines)
     _only_tokenbill_errors(lambda: list(T.iter_trace_v2(path, lenient=False)))
 
 
