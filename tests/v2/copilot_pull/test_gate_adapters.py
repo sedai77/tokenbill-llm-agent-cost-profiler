@@ -97,7 +97,7 @@ class FixtureWorld:
             gh.route("GET", API + path, ok(pages[path]))
         self.exports: dict[str, str] = {}
         gh.route("POST", rf"{base}/settings/billing/reports", self._post)
-        gh.route("GET", rf"blob\.example\.net/exports/(\w+)\.csv", lambda c: ok(
+        gh.route("GET", r"blob\.example\.net/exports/(\w+)\.csv", lambda c: ok(
             (BILL / ("ai_usage_2026-09.csv" if "ai" in c.path else "detailed_2026-09.csv"))
             .read_bytes()))
         files = {"users-1-day": "users-1-day_12x3.ndjson",
@@ -194,6 +194,15 @@ def test_recorded_files_give_the_fixture_records(tmp_path: Path, fixture: str,
             shutil.copy(ORGDATA / p, src / Path(p).name)
     else:
         src = ORGDATA / fixture
+        if fixture == "seats/enterprise_seats.json":
+            # A pull stamps a live seat snapshot at collection time. Rebase the fixture's original
+            # envelope timestamp to the deterministic pull clock so recency buckets stay part of
+            # this full-record equivalence check.
+            doc = json.loads(src.read_text(encoding="utf-8"))
+            doc.pop("fetched_at", None)
+            doc["fetched_ms"] = NOW_MS
+            src = tmp_path / "enterprise_seats_at_pull_time.json"
+            src.write_text(json.dumps(doc), encoding="utf-8")
     adapter = registry.sniff_adapter(out / recorded if (out / recorded).is_file()
                                      else next((out / recorded).rglob("*.jsonl")))
     assert adapter is not None

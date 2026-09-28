@@ -11,7 +11,6 @@ from fractions import Fraction
 
 import pytest
 
-from tokenbill.core import pool as cpool
 from tokenbill.core import testing as kit
 from tokenbill.core.builders import make_copilot_ctx
 from tokenbill.core.records import UsageBuckets

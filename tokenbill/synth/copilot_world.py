@@ -918,8 +918,8 @@ def _activity(st: _State, date: str, drafts: Sequence[_Draft]) -> list[ActivityD
         else:
             counts["interactions"] = 10 * k
             split = {"mix": (7, 3), "vscode": (10, 0), "jetbrains": (1, 9)}[u.editor]
-            counts.update({f"ide:{name}": n * k for name, n in zip(("vscode", "intellij"), split)
-                           if n})
+            counts.update({f"ide:{name}": n * k
+                           for name, n in zip(("vscode", "intellij"), split, strict=True) if n})
         out.append(ActivityDay(
             date_utc=date, product=_CHANNEL, principal=u.principal, team=u.team,
             cost_center=u.cost_center, reported_cost_nano=sum(d.gross for d in items),

@@ -24,7 +24,7 @@ def ms(date: str) -> int:
     return (dt.date.fromisoformat(date) - dt.date(1970, 1, 1)).days * DAY_MS
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def world(*variants: str) -> CopilotWorld:
     """The seed-7 world of *variants* (generated once per test session)."""
     return generate(seed=7, variants=variants)

@@ -547,6 +547,10 @@ class _Analysis:
     # ---------- 1–3: index, shards, survey, floor ----------
 
     def survey(self) -> None:
+        if self.self_view:
+            common.require_consistent_self_view(
+                self.store, since_ms=self.since_ms, until_ms=self.until_ms,
+                principal=self.principal)
         index = list(self.store.lane_index(since_ms=self.since_ms, until_ms=self.until_ms))
         if self.team is not None:
             index = [row for row in index if (row.team or "") == self.team]
@@ -1785,4 +1789,3 @@ def iter_dates(since: str, days: int) -> Iterator[str]:
     start = _dt.date.fromisoformat(since)
     for i in range(days):
         yield (start + _dt.timedelta(days=i)).isoformat()
-

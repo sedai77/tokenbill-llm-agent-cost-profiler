@@ -260,7 +260,7 @@ class World:
         gh.route("POST", rf"{base}/settings/billing/reports", self._post_export)
         gh.route("GET", rf"{base}/settings/billing/reports/([A-Za-z0-9_.-]+)",
                  self._get_export)
-        gh.route("GET", rf"blob\.example\.net/exports/([A-Za-z0-9_.-]+)\.csv", self._download)
+        gh.route("GET", r"blob\.example\.net/exports/([A-Za-z0-9_.-]+)\.csv", self._download)
         gh.route("GET", rf"{base}/settings/billing/usage/summary", ok(
             {"enterprise": ENT, "timePeriod": {"year": 2026, "month": 9},
              "usageItems": _usage_items(False)}))

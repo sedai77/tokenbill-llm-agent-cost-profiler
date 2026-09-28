@@ -63,9 +63,18 @@ span_objects = st.fixed_dictionaries(
                    "time": hr,
                    "attributes": st.dictionaries(KEYS, scalars, max_size=3).map(_planted)}),
                   max_size=3),
-              "resource": st.one_of(json_values, st.fixed_dictionaries({"attributes": st.dictionaries(
-                  st.sampled_from(["service.name", "host.name", "user.name", "tokenbill.team"]),
-                  st.just(f"x {CANARY}"), max_size=3)})),
+              "resource": st.one_of(
+                  json_values,
+                  st.fixed_dictionaries({
+                      "attributes": st.dictionaries(
+                          st.sampled_from([
+                              "service.name", "host.name", "user.name", "tokenbill.team",
+                          ]),
+                          st.just(f"x {CANARY}"),
+                          max_size=3,
+                      ),
+                  }),
+              ),
               "instrumentationScope": json_values, "kind": json_values, "duration": hr,
               "ended": json_values, "traceFlags": json_values})
 

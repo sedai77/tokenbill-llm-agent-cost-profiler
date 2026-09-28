@@ -20,7 +20,7 @@ import pytest
 from tokenbill.core import pool as cpool
 from tokenbill.core.types import AnalysisContext, Finding
 
-from .helpers import ctx, detect, dims, evidence, of_kind
+from .helpers import ctx, detect, dims, evidence, ms, of_kind
 
 pytestmark = pytest.mark.gate
 
@@ -121,7 +121,7 @@ def test_gate_synth_world_through_adapters_and_enricher(tmp_path: Path) -> None:
         identity_mode="central-ingest",
         name_key=world.name_key, name_key_id=key_id(world.name_key),
         principal_key=world.principal_key, principal_key_id=key_id(world.principal_key),
-        team_map=tuple(world.team_map.items()), now_ms=0)
+        team_map=tuple(world.team_map.items()), now_ms=ms(str(world.today)))
     # the store's org key must match the key the adapters pseudonymize logins under, so the
     # record store accepts the seat/activity rows (R-E21 key-id check in persist).
     store = kit.MemoryStore(org_key=world.principal_key, pricer=kit.FakePricer(),

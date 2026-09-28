@@ -1,12 +1,8 @@
-"""Token Bill: token economics and prompt-cache profiling for LLM agents.
+"""Token Bill: local-first LLM and Copilot cost accounting and optimization.
 
-Answers "why is our agent bill so high" with receipts: parses agent traces,
-computes per-call token waterfalls from real billed usage, measures what share
-of billed input tokens re-sent bytes the model had already seen, simulates what
-prompt caching would actually save under the provider's documented rules, and
-pinpoints the exact orchestration choices (a timestamp in the system prompt, a
-reordered tool list) that break cache hits — each with a concrete fix and the
-dollars it recovers.
+It collects governed usage evidence, distinguishes billed and allowance paths,
+reconciles provider costs, detects costly agent behavior, simulates documented
+counterfactuals, and measures savings after a controlled rollout.
 """
 
-__version__ = "0.1.2"
+__version__ = "0.2.0"

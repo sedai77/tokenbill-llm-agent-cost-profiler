@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "tokenbill"
 dynamic = ["version"]
-description = "Why is your agent bill so high? Profile LLM agent traces: token waterfalls, re-sent-prefix waste, prompt-cache simulation, and cache-breaker detection with concrete fixes. Pure stdlib; the demo needs no API keys."
+description = "Local-first LLM and Copilot cost control: collect usage, reconcile bills, explain waste, simulate policies, and verify savings. Pure stdlib; the demo needs no API keys."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -23,6 +23,9 @@ keywords = [
   "observability",
   "finops",
   "anthropic",
+  "github-copilot",
+  "reconciliation",
+  "policy",
 ]
 classifiers = [
   "Development Status :: 4 - Beta",

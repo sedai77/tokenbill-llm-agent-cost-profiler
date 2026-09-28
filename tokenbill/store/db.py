@@ -1417,6 +1417,26 @@ class SqliteStore:
             f"SELECT COUNT(DISTINCT r.principal) FROM requests r{join} "
             f"WHERE r.ts_start_ms >= ? AND r.ts_start_ms < ?{sql}", (lo, hi, *params)).fetchone()[0]
 
+    def identity_conflicts(self, *, since_ms: int, until_ms: int,
+                           principal: str | None = None) -> int:
+        """Merged requests in the window whose source contributions name different principals.
+
+        This returns only a count so self-view validation can reject an ambiguous identity without
+        disclosing either principal.
+        """
+        lo, hi = self._window(since_ms, until_ms)
+        clause = ("m.ts_start_ms >= ? AND m.ts_start_ms < ? AND m.principal IS NOT NULL")
+        params: list[Any] = [lo, hi]
+        if principal is not None:
+            clause += (" AND EXISTS (SELECT 1 FROM merge_members mine "
+                       "WHERE mine.request_id = m.request_id AND mine.principal = ?)")
+            params.append(principal)
+        row = self.connection.execute(
+            "SELECT COUNT(*) FROM (SELECT m.request_id FROM merge_members m "
+            f"WHERE {clause} GROUP BY m.request_id HAVING COUNT(DISTINCT m.principal) > 1)",
+            tuple(params)).fetchone()
+        return int(row[0])
+
     # ---------- protocol: provider-side records ----------
 
     @staticmethod

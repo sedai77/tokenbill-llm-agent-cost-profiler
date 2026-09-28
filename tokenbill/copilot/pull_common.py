@@ -727,6 +727,37 @@ def scrub(value: Any) -> tuple[Any, int]:
         raise PullError("a response is nested too deeply to record", "invalid_json") from None
 
 
+def _budget_repo_labels(text: str) -> frozenset[str]:
+    """Repository-shaped budget labels in one recorded JSON line.
+
+    The secret scan remains strict for every other field and every specific secret pattern. This
+    only exempts a repository label from the generic entropy heuristic.
+    """
+    try:
+        doc = json.loads(text)
+    except (ValueError, RecursionError):
+        return frozenset()
+    labels: set[str] = set()
+
+    def visit(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                if key == "budget_entity_name" and isinstance(item, str):
+                    if _REPO_RE.fullmatch(item):
+                        labels.add(item)
+                else:
+                    visit(item)
+
+    try:
+        visit(doc)
+    except RecursionError:
+        return frozenset()
+    return frozenset(labels)
+
+
 def envelope_line(path: str, query: Mapping[str, str], body: Any, *, fetched_ms: int,
                   link: str | None = None) -> str:
     """One recorded request as a canonical JSON line (no newline): ``{"fetched_ms", "request":
@@ -1080,8 +1111,11 @@ def _scan_file(path: Path, tokens: Iterable[str]) -> str | None:
                     return "token"
                 if _SIGNED_URL_RE.search(text):
                     return "signed_url"
+                budget_labels = _budget_repo_labels(text)
                 for kind, start, end in find_secrets(text):
-                    if kind == "high_entropy" and _UUID_RE.fullmatch(text[start:end]):
+                    candidate = text[start:end]
+                    if kind == "high_entropy" and (
+                            _UUID_RE.fullmatch(candidate) or candidate in budget_labels):
                         continue
                     return kind
     except (OSError, EOFError, gzip.BadGzipFile):
@@ -1796,9 +1830,27 @@ def _harden_dir(path: Path, *, runner: Callable[[Sequence[str]], int] | None,
 
 
 def _rmtree(path: Path) -> None:
-    def onerror(func: Callable[..., Any], target: str, _exc: Any) -> None:
+    def make_writable(target: Path, mode: int) -> None:
+        if target.is_symlink():
+            return
         with contextlib.suppress(OSError):
-            os.chmod(target, 0o700)
+            os.chmod(target, mode)
+
+    # On macOS, a read-only file beneath a non-writable directory can defeat rmtree even after
+    # its error callback runs. Restore owner access from the root down without following links.
+    for root, dirs, files in os.walk(path, topdown=True, followlinks=False):
+        root_path = Path(root)
+        make_writable(root_path, 0o700)
+        for name in dirs:
+            make_writable(root_path / name, 0o700)
+        for name in files:
+            make_writable(root_path / name, 0o600)
+
+    def onerror(func: Callable[..., Any], target: str, _exc: Any) -> None:
+        target_path = Path(target)
+        make_writable(target_path.parent, 0o700)
+        make_writable(target_path, 0o700)
+        with contextlib.suppress(OSError):
             func(target)
 
     if sys.version_info >= (3, 12):

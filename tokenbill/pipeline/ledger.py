@@ -79,6 +79,7 @@ from tokenbill.pipeline.common import (
     ingest_options,
     ingest_paths,
     open_store,
+    require_consistent_self_view,
 )
 
 __all__ = [
@@ -120,6 +121,7 @@ __all__ = [
     "run_purge",
     "run_reconcile",
     "run_showback",
+    "validate_purge_target",
 ]
 
 logger = logging.getLogger("tokenbill.pipeline.ledger")
@@ -821,6 +823,7 @@ def run_bill(store_path: Path, env: Env, *, since_ms: int, until_ms: int,
         if reprice:
             store.reprice(env.pricer, since_ms=since_ms, until_ms=until_ms)
         if self_view:
+            require_consistent_self_view(store, since_ms=since_ms, until_ms=until_ms)
             people = store.count_users(since_ms=since_ms, until_ms=until_ms, where={})
             if people > 1:
                 raise PrivacyError("--self needs a ledger holding one person's data "
@@ -1321,17 +1324,22 @@ def run_emit_model_pricing(contract: Path) -> str:
 # =================================================================================================
 
 
+def validate_purge_target(principal: str | None, before_ms: int | None) -> None:
+    """Validate the target before the CLI asks for irreversible-operation confirmation."""
+    if principal is None and before_ms is None:
+        raise UsageError("purge needs --principal P or --before DATE")
+    if principal is not None and not _P_RE.match(principal):
+        raise UsageError("--principal must be a p_ pseudonym (p_ + 20 hex); see "
+                         "tokenbill copilot pseudonym")
+
+
 def run_purge(store_path: Path, env: Env, *, principal: str | None = None,
               before_ms: int | None = None, actor: str = "tokenbill purge") -> dict[str, int]:
     """``purge``: erase one principal's rows (``p_…`` pseudonym, e.g. printed by ``tokenbill
     copilot pseudonym``; also rows under an adopted key id) and/or everything before *before_ms*,
     in the ledger and in every extension record store. Each store writes its own audit row (never
     the identity). Returns ``{"requests": …, "records": …}`` removed."""
-    if principal is None and before_ms is None:
-        raise UsageError("purge needs --principal P or --before DATE")
-    if principal is not None and not _P_RE.match(principal):
-        raise UsageError("--principal must be a p_ pseudonym (p_ + 20 hex); see "
-                         "`tokenbill copilot pseudonym`")
+    validate_purge_target(principal, before_ms)
     path = Path(store_path).expanduser()
     store = open_store(path, env, create=False)
     try:
@@ -1379,4 +1387,3 @@ def run_analyze_v2(paths: Sequence[Path], env: Env) -> RunResult:
                                                          *_pricer_notes(env.pricer, today)]))
         finally:
             _close(store)
-

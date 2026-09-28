@@ -17,8 +17,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from tokenbill.core.builders import (
-    make_activity,
     make_actions_line,
+    make_activity,
     make_ai_usage_row,
     make_attempt,
     make_config,

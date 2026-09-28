@@ -328,7 +328,7 @@ def test_an_uninstalled_extension_verb_is_a_usage_error() -> None:
     assert "Traceback" not in err
 
 
-# --- demo --fleet ----------------------------------------------------------------------------------
+# --- demo --fleet -------------------------------------------------------------------------------
 
 
 def _result() -> Any:

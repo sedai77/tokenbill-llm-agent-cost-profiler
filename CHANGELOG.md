@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-27
+
+### Added
+
+- Local-first fleet ledger for governed LLM and Copilot usage: content-tiered
+  collection, pseudonymized identity, source provenance, exact and estimated
+  figures, reconciliation, showback, FOCUS-style export, and retention controls.
+- Fleet optimization workflow: cache/context/model/failure detectors,
+  documented and calibrated counterfactual replay, policy packs, Shapley
+  attribution, randomized/ITS measurement, and signed savings receipts.
+- GitHub Copilot integrations for billing, metrics, seats, policy/configuration,
+  local CLI events, VS Code traces, OpenTelemetry, and managed export bundles.
+- Supply-chain release controls: zero-runtime-dependency gate, reproducible
+  builds, CycloneDX SBOMs, provenance, pricing verification, CodeQL, Scorecard,
+  zizmor, and pinned least-privilege workflows.
+
+### Changed
+
+- Package metadata and CLI version now identify the v0.2 enterprise surface.
+- README now distinguishes the legacy v0.1 walkthrough from the v0.2
+  enterprise integration work and its review requirements.
+
+### Fixed
+
+- Prevented complementary adapters from suppressing one another when they read
+  the same artifact, and hardened merged-record self-view privacy checks.
+- Repaired Copilot pull secret scanning, restrictive temporary-file cleanup,
+  deterministic synthetic timing, allowance/overage accounting tests, and the
+  repository-wide lint baseline.
+
 ## [0.1.2] - 2026-09-13
 
 ### Changed
@@ -75,7 +105,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Zero runtime dependencies (pure standard library); Python 3.10+; typed
   (PEP 561 `py.typed`).
 
-[Unreleased]: https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/sedai77/tokenbill-llm-agent-cost-profiler/releases/tag/v0.1.0

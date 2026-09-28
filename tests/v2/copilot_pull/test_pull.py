@@ -420,6 +420,21 @@ def test_a_secret_in_a_response_aborts_the_unit(tmp_path: Path,
     assert manifest.unit("config/cost_centers").status == "complete"  # type: ignore[union-attr]
 
 
+def test_budget_repo_label_only_bypasses_generic_entropy(tmp_path: Path) -> None:
+    label = "acme-eng/secret-TB-CANARY-7f3a91"
+    safe = tmp_path / "safe.jsonl"
+    safe.write_text(json.dumps({
+        "response": {"budgets": [{"budget_entity_name": label}]},
+    }) + "\n", encoding="utf-8")
+    assert pull_common._scan_file(safe, ()) is None
+
+    unsafe = tmp_path / "unsafe.jsonl"
+    unsafe.write_text(json.dumps({
+        "response": {"note": label},
+    }) + "\n", encoding="utf-8")
+    assert pull_common._scan_file(unsafe, ()) == "high_entropy"
+
+
 def test_the_token_echoed_by_a_response_aborts_the_unit(tmp_path: Path) -> None:
     gh = FakeGitHub()
     World(gh)

@@ -26,11 +26,15 @@ def add_parser(subparsers: Any) -> argparse.ArgumentParser:
 
 def run(args: argparse.Namespace) -> int:
     """Purge and print the counts (never the identity)."""
-    from tokenbill.pipeline.ledger import date_start_ms, parse_date, run_purge
+    from tokenbill.pipeline.ledger import (
+        date_start_ms,
+        parse_date,
+        run_purge,
+        validate_purge_target,
+    )
 
-    if args.principal is None and args.before is None:
-        raise UsageError("purge needs --principal P or --before DATE")
     before_ms = date_start_ms(parse_date(args.before, "--before")) if args.before else None
+    validate_purge_target(args.principal, before_ms)
     db = cli.require_db(args)
     if not args.yes:
         raise UsageError("purge is irreversible: re-run with --yes to confirm")

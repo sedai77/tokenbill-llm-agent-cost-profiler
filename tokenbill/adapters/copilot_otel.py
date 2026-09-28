@@ -596,7 +596,9 @@ class Scan:
             where = os.fspath(self.path.resolve())
         except (OSError, RuntimeError):  # pragma: no cover - resolve() of odd paths
             where = os.fspath(self.path)
-        self.source_id = pseudonym(opts.name_key, "s", where)
+        # A physical file can intentionally be read by complementary adapters. Source
+        # idempotency is therefore scoped by both the adapter and the path.
+        self.source_id = pseudonym(opts.name_key, "s", f"{adapter}:{where}")
         self.quarantined: list[QuarantineItem] = []
         self.stats: dict[str, int] = {}
         self._notes: dict[str, list[int]] = {}
