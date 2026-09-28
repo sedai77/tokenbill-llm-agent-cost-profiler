@@ -158,6 +158,8 @@ LANE_CACHE_MAX_REQUESTS = 200_000
 #: Shapley sample of ``demo --fleet`` (the plan's credits are scaled to one full-scope joint
 #: replay, SPEC §11.2 step 6; a small sample keeps the demo within its 60 s budget, §17).
 DEMO_SAMPLE_LANES = 64
+_DEMO_CONTRACT_NAME = "synthetic-demo-anthropic-contract"
+_DEMO_CONTRACT_CHANNEL = "anthropic_api"
 
 
 # =============================================================================================
@@ -175,6 +177,32 @@ def _date_ms(date: str) -> int:
     except (TypeError, ValueError):
         raise UsageError("dates must be YYYY-MM-DD") from None
     return (day - _dt.date(1970, 1, 1)).days * DAY_MS
+
+
+def _synthetic_demo_pricer_factory(*, effective_from: str,
+                                   multiplier: Decimal) -> Callable[..., Pricer]:
+    """Build the demo-only Anthropic contract pricer without writing a contract file.
+
+    The synthetic fleet's generated cost report applies a known Anthropic API discount. The
+    default demo must apply the same synthetic contract so its ledger demonstrates a reconciled
+    workflow. Callers that provide an Env or a pricer factory retain complete control over pricing.
+    """
+    from tokenbill.rates.contract import make_overlay
+    from tokenbill.rates.engine import RateCard
+    from tokenbill.rates.schema import load_builtin
+
+    overlay = make_overlay(
+        name=_DEMO_CONTRACT_NAME,
+        multiplier=multiplier,
+        overrides={},
+        effective_from=effective_from,
+        channels=(_DEMO_CONTRACT_CHANNEL,),
+    )
+
+    def factory(**_kwargs: Any) -> Pricer:
+        return RateCard(load_builtin(), contract=overlay)
+
+    return factory
 
 
 def today_of(env: Env) -> str:
@@ -1450,8 +1478,15 @@ def run_demo_fleet(*, seed: int = 7, out_dir: Path | None = None, jobs: int = 1,
     and the action plan → a ``RunResult`` marked ``synthetic``. Byte-identical for a seed."""
     from tokenbill.synth import fleet
 
+    embedded_demo_contract = env is None and pricer_factory is None
     if env is None:
-        env = common.build_env(Config(jobs=jobs), pricer_factory=pricer_factory, now_ms=0)
+        factory = pricer_factory
+        if factory is None:
+            factory = _synthetic_demo_pricer_factory(
+                effective_from=fleet.WINDOW_START,
+                multiplier=fleet.CONTRACT_MULTIPLIERS[_DEMO_CONTRACT_CHANNEL],
+            )
+        env = common.build_env(Config(jobs=jobs), pricer_factory=factory, now_ms=0)
     fenv = dataclasses.replace(env, org_key=fleet.FLEET_ORG_KEY, name_key=fleet.FLEET_NAME_KEY,
                                name_key_id=key_id(fleet.FLEET_NAME_KEY))
     with tempfile.TemporaryDirectory(prefix="tokenbill-fleet-") as tmp:
@@ -1479,6 +1514,10 @@ def run_demo_fleet(*, seed: int = 7, out_dir: Path | None = None, jobs: int = 1,
     text = [f"SYNTHETIC DATA: tokenbill demo --fleet (seed {seed}, {devs} developers, {days} "
             "days); every number is generated, nothing describes a real organization",
             *run.text_notes]
+    if embedded_demo_contract:
+        text.append("SYNTHETIC CONTRACT: the generated invoice includes a demo-only Anthropic API "
+                    "discount, applied here to demonstrate a reconciled ledger; it is not a "
+                    "customer rate.")
     return RunResult(command="demo --fleet", window=run.window, inputs=inputs,
                      privacy=_privacy(fenv, identity_mode="central-ingest",
                                       suppressed=fr.suppressed),
