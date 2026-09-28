@@ -42,7 +42,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6", "hypothesis>=6.100", "coverage>=7.4"]
+dev = ["pytest>=8", "ruff>=0.16.8", "hypothesis>=6.100", "coverage>=7.4"]
 
 [project.urls]
 Homepage = "https://github.com/sedai77/tokenbill-llm-agent-cost-profiler"
