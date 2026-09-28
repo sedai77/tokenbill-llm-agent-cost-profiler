@@ -122,3 +122,14 @@ def test_batch_eligible_single_calls() -> None:
                workload=WorkloadClass.SERVICE)
     assert by_kind(Automation().detect([two], ctx(replayer=rep, thresholds={"min_usd": "0"})),
                    "batch-eligible") == []
+
+
+def test_batch_eligible_fix_uses_openai_batch_for_openai_routes() -> None:
+    """Provider-specific delivery guidance follows the eligible requests' serving channel."""
+    rep = table_replayer({"batch=eligible": 15_000_000})
+    f = one(Automation().detect([_single(10, model="gpt-5.6-sol")],
+                                ctx(replayer=rep, thresholds={"min_usd": "0"})),
+            "batch-eligible")
+    assert f.fix is not None
+    assert "OpenAI Batch API" in f.fix.text
+    assert f.fix.doc_url == "https://developers.openai.com/api/docs/guides/batch"

@@ -78,6 +78,8 @@ _REFS_SCHED = ("sched-cadence-ttl",)
 _REFS_BATCH = ("anth-batch-stacking",)
 _REFS_RUN_COST = ("ci-headless-ingest", "ci-review-unit-costs")
 _BATCH_DOC = "https://platform.claude.com/docs/en/build-with-claude/batch-processing"
+_OPENAI_BATCH_DOC = "https://developers.openai.com/api/docs/guides/batch"
+_BEDROCK_BATCH_DOC = "https://docs.aws.amazon.com/bedrock/latest/userguide/batch-inference.html"
 _CV_LIMIT = "0.25"
 
 
@@ -95,6 +97,44 @@ def _extra(lane: Lane, key: str) -> str | None:
         if k == key:
             return v
     return None
+
+
+def _batch_channels(lanes: Sequence[Lane]) -> frozenset[str]:
+    """Serving channels of the eligible lanes, for provider-specific delivery guidance."""
+    channels = set()
+    for lane in lanes:
+        for req in serving_steps(lane):
+            channels.add(serving(req).pricing.channel)
+    return frozenset(channels)
+
+
+def _batch_fix(lanes: Sequence[Lane]) -> Fix:
+    """A delivery hint that never sends one provider's API instructions to another."""
+    channels = _batch_channels(lanes)
+    if channels == {"openai_api"}:
+        return Fix(
+            text=("Submit these non-interactive calls through the OpenAI Batch API when the "
+                  "24-hour completion deadline is acceptable; it has a 50% discount. Flex is "
+                  "also an option for lower-priority traffic that tolerates slower, occasionally "
+                  "unavailable capacity."),
+            config_patch=None, target="sdk", doc_url=_OPENAI_BATCH_DOC)
+    if channels == {"anthropic_api"}:
+        return Fix(
+            text=("Submit these non-interactive calls through the Anthropic Message Batches API "
+                  "at batch rates only when the workload deadline and retry path can tolerate "
+                  "asynchronous completion."),
+            config_patch=None, target="sdk", doc_url=_BATCH_DOC)
+    if channels == {"bedrock"}:
+        return Fix(
+            text=("Evaluate Amazon Bedrock batch inference for these non-interactive calls after "
+                  "confirming that the selected model, pricing, and completion deadline fit the "
+                  "workload. Its prompt-cache behavior differs from on-demand inference."),
+            config_patch=None, target="sdk", doc_url=_BEDROCK_BATCH_DOC)
+    return Fix(
+        text=("Use the provider-specific asynchronous batch or Flex offering only when the "
+              "workload can tolerate its completion deadline and retry behavior; verify the "
+              "served tier and billed result after rollout."),
+        config_patch=None, target="sdk", doc_url=None)
 
 
 class Automation:
@@ -332,8 +372,6 @@ class Automation:
         recoverable = saving_figure(replay(ctx, priced, "batch=eligible"), basis)
         item = evidence_item("aggregate", "batch:eligible", lanes=len(priced),
                              nano=tally.cost.point)
-        text = ("Send one-shot CI, eval, scheduled and service calls through the Message Batches "
-                "API (50% off every token category, cache hits best effort) or a flex tier.")
         spec = Emit(
             kind="batch-eligible", category="lever", lever_class="rate",
             title=f"Batch-eligible single calls in {cohort.label()} lanes",
@@ -341,7 +379,7 @@ class Automation:
                      f"standard tier; the batch tier halves their price (range from the batch "
                      f"cache-hit band)."),
             references=_REFS_BATCH,
-            fix=Fix(text=text, config_patch=None, target="sdk", doc_url=_BATCH_DOC),
+            fix=_batch_fix(priced),
             confidence="high", lever_ids=applicable_levers("batch-eligible", priced))
         return emit(self, ctx, cohort, tally, spec, tally.cost.billed(basis), recoverable, [item])
 
