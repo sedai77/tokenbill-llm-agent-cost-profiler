@@ -88,6 +88,20 @@ def test_scheduled_cadence_cold_runs() -> None:
     assert one(Automation().detect([sdk], ctx()), "scheduled-cadence").recoverable is None
 
 
+def test_scheduled_cadence_does_not_replay_unsupported_openai_controls() -> None:
+    """A permissive test replayer cannot turn a fixed OpenAI cache lifetime into a 1h policy."""
+    rows = [(t, 0, 50_000, 0, 0, 100) for t in (0, 2_400, 4_800, 7_200, 9_600)]
+    openai = lane("L-oai-cron", rows, model="gpt-5.6-sol", kind=LaneKind.API_RUN,
+                  product="agent_sdk", workload=WorkloadClass.SCHEDULED)
+    rep = table_replayer({"ttl=1h@lane_kind:api_run": 900_000_000,
+                          "keepalive=240s,max=3600s@lane_kind:api_run": 900_000_000})
+    f = one(Automation().detect([openai], ctx(replayer=rep, thresholds=LOW)),
+            "scheduled-cadence")
+    assert f.recoverable is None and f.lever_ids == ()
+    assert f.fix is not None and "not a configurable 1-hour TTL" in f.fix.text
+    assert f.fix.doc_url == "https://developers.openai.com/api/docs/guides/prompt-caching"
+
+
 def test_scheduled_cadence_needs_regular_long_intervals_without_humans() -> None:
     low = ctx(thresholds={"min_usd": "0"})
     irregular = [(t, 0, 50_000, 0, 0, 100) for t in (0, 400, 2_000, 2_500, 5_000)]

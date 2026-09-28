@@ -61,6 +61,7 @@ from tokenbill.detect.cache_miss import (
     sort_findings,
     transitions,
 )
+from tokenbill.detect.capabilities import common_ttl_options, supports_every_serving
 
 __all__ = [
     "GAP_BANDS",
@@ -222,40 +223,6 @@ def _route(lane: Lane) -> tuple[str, str] | None:
     return next(iter(routes)) if len(routes) == 1 else None
 
 
-def _common_ttl_options(ctx: AnalysisContext, lanes: Sequence[Lane]) -> frozenset[int]:
-    """Documented cache lifetimes common to every serving request in *lanes*."""
-    common: set[int] | None = None
-    for lane in lanes:
-        for req in lane.requests:
-            inf = req.serving_inference
-            if inf is None:
-                continue
-            try:
-                options = set(ctx.rules.rules_for(
-                    inf.pricing.provider, inf.pricing.channel, inf.pricing.model).ttl_options_s)
-            except (AttributeError, TokenbillError):
-                return frozenset()
-            common = options if common is None else common & options
-    return frozenset() if common is None else frozenset(common)
-
-
-def _keepalive_supported(ctx: AnalysisContext, lanes: Sequence[Lane]) -> bool:
-    """True only when every serving request explicitly supports a keepalive."""
-    seen = False
-    for lane in lanes:
-        for req in lane.requests:
-            inf = req.serving_inference
-            if inf is None:
-                continue
-            seen = True
-            try:
-                if not ctx.pricer.supports(inf.pricing, "keepalive", ts_ms=req.ts_start_ms):
-                    return False
-            except (AttributeError, TokenbillError):
-                return False
-    return seen
-
-
 def _observed_ttl(lanes: Sequence[Lane]) -> str:
     """``5m`` / ``1h`` / ``mixed`` / ``unknown`` from the cohort's billed write tokens (unknown-TTL
     writes count by their hint)."""
@@ -360,7 +327,7 @@ class TtlAdvisor:
         if spend.basis is not basis:
             return None
         current = _observed_ttl(lanes)
-        ttl_options = _common_ttl_options(ctx, lanes)
+        ttl_options = common_ttl_options(ctx, lanes)
         candidates: list[tuple[str, str]] = []   # (kind, spec)
         if current != "1h" and 3600 in ttl_options:
             candidates.append(("ttl-1h-recommended", ttl_spec(cohort.lane_kind, "1h")))
@@ -372,7 +339,7 @@ class TtlAdvisor:
         # the saving stays comparable with the TTL candidates replayed on the whole cohort).
         pingable = [lane for lane in lanes if not is_claude_code(lane)]
         if cohort.lane_kind == LaneKind.API_RUN.value and pingable and \
-                _keepalive_supported(ctx, pingable):
+                supports_every_serving(ctx, pingable, "keepalive"):
             candidates.append(("keepalive-recommended", keepalive_spec(cohort.lane_kind)))
         results: dict[str, ReplayResult] = {}
         for kind, spec in candidates:

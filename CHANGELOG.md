@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Prevented the TTL advisor from treating a provider's fixed cache lifetime as a configurable
   5-minute or 1-hour policy; TTL findings now carry stable provider and channel scope dimensions
   for route-specific, shard-stable recommendations.
+- Prevented scheduled-cadence findings from replaying or prescribing a 1-hour TTL or SDK
+  keepalive on provider routes that do not support those controls.
 
 ## [0.2.0] - 2026-09-27
 
