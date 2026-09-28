@@ -1028,7 +1028,9 @@ def build_truth(world: Any, lanes: Sequence[Lane], provider: Any,
     ttl_saving = ttl_1h_saving(lanes_pay, c)
     plants.append(_plant(
         "payments.ttl-1h", "payments", "cache.ttl-advisor", "ttl-1h-recommended",
-        _scope(team="payments", lane_kind="main"), list_,
+        _scope(
+            channel="anthropic_api", lane_kind="main", provider="anthropic", team="payments"
+        ), list_,
         "ttl=1h@agent_product:claude_code,lane_kind:main", lanes_pay,
         observed=spend(lanes_pay, c), recoverable=ttl_saving, shapley=ttl_saving,
         tolerances={"cost_observed": "0", "recoverable": "0.05", "shapley": "0.05"},
@@ -1213,7 +1215,9 @@ def build_truth(world: Any, lanes: Sequence[Lane], provider: Any,
     ka_saving, pings = keepalive_saving(lanes_a, c)
     plants.append(_plant(
         "agents.keepalive", "agents", "cache.ttl-advisor", "keepalive-recommended",
-        _scope(team="agents", lane_kind="api_run"), list_,
+        _scope(
+            channel="anthropic_api", lane_kind="api_run", provider="anthropic", team="agents"
+        ), list_,
         "keepalive=240s,max=3600s@agent_product:agent_sdk", lanes_a,
         observed=spend(lanes_a, c), recoverable=ka_saving,
         tolerances={"cost_observed": "0", "recoverable": "0.05"},
@@ -1380,4 +1384,3 @@ def with_sources(truth: FleetTruth, world: Any, lanes: Sequence[Lane],
 def fraction_str(value: Fraction, places: int = 6) -> str:
     """A fraction as a rounded decimal string (half-even)."""
     return _dec(value, places)
-

@@ -18,7 +18,7 @@ from tokenbill.core.errors import TokenbillError
 from tokenbill.core.labels import Basis, Evidence
 
 from .checks import html_violations, json_violations
-from .test_focus import col, rows_of
+from .test_focus import SINCE, UNTIL, col, rows_of, stores
 from .worlds import World, result_of
 
 SETTINGS = settings(max_examples=40, deadline=None,
@@ -124,8 +124,10 @@ def test_random_worlds_focus_rows_balance(spec: dict) -> None:
                                                  "x_DiscountUnclassified"))
         assert Decimal(col(r, "ListCost")) - disc == Decimal(col(r, "BilledCost"))
         total_net += Decimal(col(r, "BilledCost"))
-    stored = {c.line_id: c for c in w.lines}          # the store keeps one line per natural id
-    expected = sum(c.amount_nano for c in stored.values() if c.channel != "github_copilot"
+    # FOCUS must balance against the ledger's deterministic natural-id resolution.
+    store, _ = stores(w)
+    stored = store.cost_lines(since_ms=SINCE, until_ms=UNTIL)
+    expected = sum(c.amount_nano for c in stored if c.channel != "github_copilot"
                    or c.source_kind == "github.ai_usage_report" or c.cost_type == "seat")
     assert total_net == Decimal(expected) / Decimal(10**9)
 
